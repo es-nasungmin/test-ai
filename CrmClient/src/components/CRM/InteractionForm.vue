@@ -25,7 +25,8 @@ const getDefaultType = () => props.consultationTypes[0] || 'Call'
 
 const form = ref({
   type: getDefaultType(),
-  content: ''
+  content: '',
+  isExternalProvided: false
 })
 
 const summarizing = ref(false)
@@ -36,7 +37,8 @@ watch(
   () => {
     form.value = {
       type: getDefaultType(),
-      content: ''
+      content: '',
+      isExternalProvided: false
     }
     summarizedContent.value = ''
   }
@@ -98,12 +100,14 @@ const submitForm = () => {
     content: form.value.content,
     outcome: null,
     scheduledDate: null,
-    isCompleted: false
+    isCompleted: false,
+    isExternalProvided: form.value.isExternalProvided
   })
 
   form.value = {
     type: getDefaultType(),
-    content: ''
+    content: '',
+    isExternalProvided: false
   }
   summarizedContent.value = ''
 }
@@ -141,6 +145,13 @@ const submitForm = () => {
         rows="5"
         placeholder="통화 내용과 결과를 함께 기록하세요."
       />
+    </div>
+
+    <div class="form-group checkbox-group">
+      <label class="checkbox-label">
+        <input type="checkbox" v-model="form.isExternalProvided" />
+        외부 제공 가능 (고객 챗봇에도 노출)
+      </label>
     </div>
 
     <div class="form-actions">
@@ -189,6 +200,23 @@ const submitForm = () => {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
+}
+
+.checkbox-group {
+  margin-top: -2px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #2f2f2f;
+}
+
+.checkbox-label input {
+  width: 16px;
+  height: 16px;
 }
 
 .field-header {

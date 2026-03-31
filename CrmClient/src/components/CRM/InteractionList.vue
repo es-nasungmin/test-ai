@@ -6,7 +6,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['edit-interaction', 'delete-interaction'])
+const emit = defineEmits(['edit-interaction', 'delete-interaction', 'toggle-external'])
 
 const typeEmojis = {
   Call: '📞',
@@ -45,7 +45,15 @@ const formatDate = (dateString) => {
           <div class="type-badge">
             {{ typeEmojis[interaction.type] || '📝' }} {{ interaction.type }}
           </div>
-          <div class="date">{{ formatDate(interaction.createdAt) }}</div>
+          <div class="header-right">
+            <span
+              class="external-badge"
+              :class="interaction.isExternalProvided ? 'on' : 'off'"
+            >
+              {{ interaction.isExternalProvided ? '외부제공 ON' : '외부제공 OFF' }}
+            </span>
+            <div class="date">{{ formatDate(interaction.createdAt) }}</div>
+          </div>
         </div>
 
         <div class="interaction-content">
@@ -53,6 +61,12 @@ const formatDate = (dateString) => {
         </div>
 
         <div class="interaction-actions">
+          <button
+            class="btn-small btn-external"
+            @click="emit('toggle-external', interaction)"
+          >
+            {{ interaction.isExternalProvided ? '🔒 내부만' : '🌐 외부제공' }}
+          </button>
           <button
             class="btn-small btn-edit"
             @click="emit('edit-interaction', interaction)"
@@ -116,6 +130,29 @@ const formatDate = (dateString) => {
   margin-bottom: 10px;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.external-badge {
+  font-size: 0.72em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.external-badge.on {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.external-badge.off {
+  background: #f1f5f9;
+  color: #475569;
+}
+
 .type-badge {
   display: inline-block;
   padding: 4px 12px;
@@ -161,6 +198,15 @@ const formatDate = (dateString) => {
 .btn-edit {
   background-color: #d4e9f7;
   color: #1e5ba8;
+}
+
+.btn-external {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.btn-external:hover {
+  background-color: #bae6fd;
 }
 
 .btn-edit:hover {

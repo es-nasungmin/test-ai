@@ -99,6 +99,7 @@ namespace CrmApi.Controllers
             existingInteraction.Outcome = interaction.Outcome;
             existingInteraction.IsCompleted = interaction.IsCompleted;
             existingInteraction.ScheduledDate = interaction.ScheduledDate;
+            existingInteraction.IsExternalProvided = interaction.IsExternalProvided;
 
             _context.Interactions.Update(existingInteraction);
             await _context.SaveChangesAsync();
@@ -158,6 +159,10 @@ namespace CrmApi.Controllers
                     existing.Problem = extracted.Problem;
                     existing.Solution = extracted.Solution;
                     existing.ProblemEmbedding = System.Text.Json.JsonSerializer.Serialize(embeddingVec);
+                    existing.Visibility = interaction.IsExternalProvided ? "common" : "internal";
+                    existing.IsApproved = interaction.IsExternalProvided;
+                    existing.ApprovedAt = interaction.IsExternalProvided ? DateTime.UtcNow : null;
+                    existing.ApprovedBy = interaction.IsExternalProvided ? "interaction-external" : null;
                     scopedContext.KnowledgeBases.Update(existing);
                 }
                 else
@@ -168,6 +173,11 @@ namespace CrmApi.Controllers
                         Problem = extracted.Problem,
                         Solution = extracted.Solution,
                         ProblemEmbedding = System.Text.Json.JsonSerializer.Serialize(embeddingVec),
+                        SourceType = "case",
+                        Visibility = interaction.IsExternalProvided ? "common" : "internal",
+                        IsApproved = interaction.IsExternalProvided,
+                        ApprovedAt = interaction.IsExternalProvided ? DateTime.UtcNow : null,
+                        ApprovedBy = interaction.IsExternalProvided ? "interaction-external" : null,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
@@ -195,6 +205,33 @@ namespace CrmApi.Controllers
             _context.Interactions.Update(interaction);
             await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        // PATCH: api/interaction/{id}/external-provide
+        [HttpPatch("{id}/external-provide")]
+        public async Task<IActionResult> SetExternalProvided(int id, [FromBody] ExternalProvideRequest request)
+        {
+            var interaction = await _context.Interactions.FindAsync(id);
+            if (interaction == null)
+            {
+                return NotFound();
+            }
+
+            interaction.IsExternalProvided = request.IsExternalProvided;
+            _context.Interactions.Update(interaction);
+
+            var kb = await _context.KnowledgeBases.FirstOrDefaultAsync(k => k.SourceInteractionId == id);
+            if (kb != null)
+            {
+                kb.Visibility = request.IsExternalProvided ? "common" : "internal";
+                kb.IsApproved = request.IsExternalProvided;
+                kb.ApprovedAt = request.IsExternalProvided ? DateTime.UtcNow : null;
+                kb.ApprovedBy = request.IsExternalProvided ? "interaction-external" : null;
+                _context.KnowledgeBases.Update(kb);
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new { interaction.Id, interaction.IsExternalProvided });
         }
 
         // POST: api/interaction/summarize - 사전 정리 (저장 전)
@@ -367,5 +404,10 @@ namespace CrmApi.Controllers
     {
         public string SingleConsultationTemplate { get; set; } = string.Empty;
         public string AllConsultationsTemplate { get; set; } = string.Empty;
+    }
+
+    public class ExternalProvideRequest
+    {
+        public bool IsExternalProvided { get; set; }
     }
 }

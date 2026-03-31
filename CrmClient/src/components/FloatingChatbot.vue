@@ -1,9 +1,42 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, computed, onMounted } from 'vue'
 import axios from 'axios'
 
-const API_URL = 'http://localhost:8080/api/knowledgebase'
+const API_URL = 'http://localhost:8080/api'
 
+// ---- Props ----
+const props = defineProps({
+  // 'admin' : 내부 상담원, 모든 KB 접근
+  // 'user'  : 일반 사용자, 공개 KB만 접근
+  role: {
+    type: String,
+    default: 'user',
+    validator: v => ['admin', 'user'].includes(v)
+  }
+})
+
+const isAdmin = computed(() => props.role === 'admin')
+
+// ---- 스타일 계산 ----
+// 두 버튼 모두 오른쪽에 나란히: admin=90px, user=24px
+const fabStyle = computed(() => isAdmin.value
+  ? { right: '90px', left: 'auto', background: 'linear-gradient(135deg, #f56565 0%, #c05621 100%)' }
+  : { right: '24px', left: 'auto', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+)
+const popupStyle = computed(() => isAdmin.value
+  ? { right: '90px', left: 'auto' }
+  : { right: '24px', left: 'auto' }
+)
+const headerGradient = computed(() => isAdmin.value
+  ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
+  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+)
+const userBubbleGradient = computed(() => isAdmin.value
+  ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
+  : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+)
+
+// ---- 상태 ----
 const isOpen = ref(false)
 const question = ref('')
 const loading = ref(false)
@@ -11,21 +44,67 @@ const messagesEl = ref(null)
 const isComposing = ref(false)
 const BOTTOM_THRESHOLD = 8
 
-const messages = ref([
-  {
+// 세션
+const SESSION_KEY = computed(() => `chatbot_session_${props.role}`)
+const sessionId = ref(null)
+
+const messages = ref([])
+
+function defaultWelcome() {
+  return {
     role: 'bot',
-    text: '안녕하세요! 😊\n상담내역 기반으로 질문에 답변드립니다.\n\n예시: "계산서 조회가 안 돼요"',
+    text: isAdmin.value
+      ? '👋 관리자 어시스턴트입니다.\n내부 KB 포함 전체 상담 데이터로 답변합니다.\n\n예시: "계산서 관련 최근 사례 요약해줘"'
+      : '안녕하세요! 😊\n자주 묻는 질문을 기반으로 답변드립니다.\n\n예시: "계산서 조회가 안 돼요"',
     time: now()
   }
-])
+}
 
 function now() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function toggle() {
+// ---- 세션 초기화 ----
+async function initSession() {
+  const saved = localStorage.getItem(SESSION_KEY.value)
+  if (saved) {
+    const parsed = parseInt(saved, 10)
+    if (!isNaN(parsed)) {
+      // 저장된 세션 이력 불러오기
+      try {
+        const res = await axios.get(`${API_URL}/chat/sessions/${parsed}`)
+        const { messages: history } = res.data
+        if (history && history.length > 0) {
+          sessionId.value = parsed
+          messages.value = history.map(m => ({
+            role: m.role,
+            text: m.content,
+            time: new Date(m.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+          }))
+          return
+        }
+      } catch {
+        // 세션 만료 / 삭제된 경우 로컬 키 초기화
+        localStorage.removeItem(SESSION_KEY.value)
+      }
+    }
+  }
+  // 세션 없으면 환영 메시지만 표시 (세션은 첫 메시지 전송 시 생성)
+  sessionId.value = null
+  messages.value = [defaultWelcome()]
+}
+
+onMounted(() => {
+  // 세션 ID가 있는 경우를 위해 미리 초기화하지 않음 (열릴 때 로드)
+})
+
+// ---- 열기/닫기 ----
+async function toggle() {
   isOpen.value = !isOpen.value
   if (isOpen.value) {
+    if (messages.value.length === 0) {
+      await initSession()
+    }
     nextTick(() => scrollToBottom())
   }
 }
@@ -36,6 +115,7 @@ function isNearBottom() {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD
 }
 
+// ---- 전송 ----
 async function send() {
   const q = question.value.trim()
   if (!q || loading.value) return
@@ -47,7 +127,19 @@ async function send() {
   await scrollToBottom(true)
 
   try {
-    const res = await axios.post(`${API_URL}/ask`, { question: q })
+    const res = await axios.post(`${API_URL}/knowledgebase/ask`, {
+      question: q,
+      role: props.role,
+      sessionId: sessionId.value,
+      createSession: sessionId.value === null
+    })
+
+    // 새로 생성된 세션 ID 저장
+    if (res.data.sessionId && !sessionId.value) {
+      sessionId.value = res.data.sessionId
+      localStorage.setItem(SESSION_KEY.value, String(sessionId.value))
+    }
+
     messages.value.push({
       role: 'bot',
       text: res.data.answer,
@@ -64,9 +156,7 @@ async function send() {
   } finally {
     loading.value = false
     await nextTick()
-    if (isNearBottom()) {
-      scrollToBottom(true)
-    }
+    if (isNearBottom()) scrollToBottom(true)
   }
 }
 
@@ -79,45 +169,62 @@ async function scrollToBottom(force = false) {
   }
 }
 
+// ---- 대화 초기화 ----
+async function clearSession() {
+  if (sessionId.value) {
+    try { await axios.delete(`${API_URL}/chat/sessions/${sessionId.value}`) } catch { }
+  }
+  sessionId.value = null
+  localStorage.removeItem(SESSION_KEY.value)
+  messages.value = [defaultWelcome()]
+}
+
+// ---- 키 이벤트 ----
 function onKeydown(e) {
   if (isComposing.value) return
-
-  // Enter 전송, Shift+Enter는 줄바꿈
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     send()
   }
 }
-
-function onCompositionStart() {
-  isComposing.value = true
-}
-
-function onCompositionEnd() {
-  isComposing.value = false
-}
+function onCompositionStart() { isComposing.value = true }
+function onCompositionEnd() { isComposing.value = false }
 </script>
 
 <template>
   <!-- 플로팅 버튼 -->
-  <button class="fab" @click="toggle" :class="{ open: isOpen }" title="AI 챗봇">
-    <span v-if="!isOpen">🤖</span>
+  <button
+    class="fab"
+    :style="fabStyle"
+    @click="toggle"
+    :class="{ open: isOpen }"
+    :title="isAdmin ? '관리자 AI 어시스턴트' : 'AI 챗봇'"
+  >
+    <span v-if="!isOpen">{{ isAdmin ? '🛠️' : '🤖' }}</span>
     <span v-else>✕</span>
   </button>
 
   <!-- 챗봇 팝업 -->
   <transition name="popup">
-    <div v-if="isOpen" class="chatbot-popup">
+    <div v-if="isOpen" class="chatbot-popup" :style="popupStyle">
       <!-- 헤더 -->
-      <div class="popup-header">
+      <div class="popup-header" :style="{ background: headerGradient }">
         <div class="header-left">
-          <span class="header-icon">🤖</span>
+          <span class="header-icon">{{ isAdmin ? '🛠️' : '🤖' }}</span>
           <div>
-            <div class="header-title">AI 상담 어시스턴트</div>
-            <div class="header-sub"><span class="dot"></span> 상담내역 기반 RAG</div>
+            <div class="header-title">
+              {{ isAdmin ? '관리자 AI 어시스턴트' : 'AI 상담 어시스턴트' }}
+            </div>
+            <div class="header-sub">
+              <span class="dot"></span>
+              {{ isAdmin ? '전체 KB 접근 (내부 포함)' : '공개 KB 기반 답변' }}
+            </div>
           </div>
         </div>
-        <button class="close-btn" @click="isOpen = false">✕</button>
+        <div class="header-actions">
+          <button class="icon-btn" @click="clearSession" title="대화 초기화">🗑️</button>
+          <button class="close-btn" @click="isOpen = false">✕</button>
+        </div>
       </div>
 
       <!-- 메시지 -->
@@ -128,33 +235,36 @@ function onCompositionEnd() {
           class="msg-row"
           :class="msg.role"
         >
-          <div v-if="msg.role === 'bot'" class="avatar">🤖</div>
+          <div v-if="msg.role === 'bot'" class="avatar">{{ isAdmin ? '🛠️' : '🤖' }}</div>
           <div class="msg-content">
             <div class="bubble" :class="{ error: msg.isError }">
               <pre>{{ msg.text }}</pre>
             </div>
 
-            <!-- 관련 KB -->
+            <!-- 관련 KB (관리자에게는 KB 타입/가시성 표시) -->
             <div v-if="msg.relatedKBs && msg.relatedKBs.length" class="related">
               <div class="related-label">📚 참고한 사례</div>
               <div v-for="(kb, j) in msg.relatedKBs" :key="j" class="kb-chip">
                 <span class="sim">{{ Math.round(kb.similarity * 100) }}%</span>
                 <span class="kb-problem">{{ kb.problem }}</span>
+                <span v-if="isAdmin && kb.sourceType" class="kb-badge">
+                  {{ kb.sourceType === 'official' ? '공식' : '사례' }}
+                </span>
               </div>
             </div>
 
             <div class="msg-time">{{ msg.time }}</div>
           </div>
-          <div v-if="msg.role === 'user'" class="avatar user">👤</div>
+          <div v-if="msg.role === 'user'" class="avatar user" :style="{ background: isAdmin ? '#e53e3e' : '#667eea' }">👤</div>
         </div>
 
         <!-- 로딩 -->
         <div v-if="loading" class="msg-row bot">
-          <div class="avatar">🤖</div>
+          <div class="avatar">{{ isAdmin ? '🛠️' : '🤖' }}</div>
           <div class="bubble loading-bubble">
-            <span class="dot-ani"></span>
-            <span class="dot-ani"></span>
-            <span class="dot-ani"></span>
+            <span class="dot-ani" :style="{ background: isAdmin ? '#f56565' : '#667eea' }"></span>
+            <span class="dot-ani" :style="{ background: isAdmin ? '#f56565' : '#667eea' }"></span>
+            <span class="dot-ani" :style="{ background: isAdmin ? '#f56565' : '#667eea' }"></span>
           </div>
         </div>
       </div>
@@ -169,8 +279,14 @@ function onCompositionEnd() {
           placeholder="질문 입력... (Shift+Enter 줄바꿈)"
           :disabled="loading"
           rows="2"
+          :style="{ '--focus-color': isAdmin ? '#f56565' : '#667eea' }"
         ></textarea>
-        <button class="send-btn" @click="send" :disabled="loading || !question.trim()">
+        <button
+          class="send-btn"
+          @click="send"
+          :disabled="loading || !question.trim()"
+          :style="{ background: headerGradient }"
+        >
           ➤
         </button>
       </div>
@@ -183,16 +299,14 @@ function onCompositionEnd() {
 .fab {
   position: fixed;
   bottom: 24px;
-  right: 24px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
   border: none;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   font-size: 1.5em;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(102,126,234,0.5);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   z-index: 9999;
   transition: transform 0.2s, box-shadow 0.2s;
   display: flex;
@@ -202,11 +316,11 @@ function onCompositionEnd() {
 
 .fab:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 24px rgba(102,126,234,0.6);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
 }
 
 .fab.open {
-  background: #4a5568;
+  background: #4a5568 !important;
   box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 
@@ -214,7 +328,6 @@ function onCompositionEnd() {
 .chatbot-popup {
   position: fixed;
   bottom: 90px;
-  right: 24px;
   width: 360px;
   height: 520px;
   background: white;
@@ -236,7 +349,6 @@ function onCompositionEnd() {
 
 /* 헤더 */
 .popup-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 12px 14px;
   display: flex;
@@ -265,6 +377,19 @@ function onCompositionEnd() {
 .header-title { font-weight: 700; font-size: 0.95em; }
 .header-sub   { font-size: 0.75em; opacity: 0.85; display: flex; align-items: center; gap: 5px; }
 
+.header-actions { display: flex; align-items: center; gap: 6px; }
+
+.icon-btn {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 0.9em;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.3); }
+
 .dot {
   width: 7px; height: 7px;
   background: #4ade80;
@@ -287,7 +412,6 @@ function onCompositionEnd() {
   padding: 4px 8px;
   cursor: pointer;
 }
-
 .close-btn:hover { background: rgba(255,255,255,0.35); }
 
 /* 메시지 */
@@ -306,7 +430,6 @@ function onCompositionEnd() {
   align-items: flex-start;
   gap: 8px;
 }
-
 .msg-row.user { flex-direction: row-reverse; }
 
 .avatar {
@@ -321,8 +444,6 @@ function onCompositionEnd() {
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
   flex-shrink: 0;
 }
-
-.avatar.user { background: #667eea; }
 
 .msg-content {
   display: flex;
@@ -341,9 +462,10 @@ function onCompositionEnd() {
 }
 
 .msg-row.user .bubble {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border-radius: 14px 14px 4px 14px;
+  /* 배경은 인라인 스타일로 role에 따라 주입됨 */
+  background: v-bind(userBubbleGradient);
 }
 
 .bubble pre {
@@ -389,7 +511,17 @@ function onCompositionEnd() {
   flex-shrink: 0;
 }
 
-.kb-problem { color: #555; line-height: 1.4; }
+.kb-problem { color: #555; line-height: 1.4; flex: 1; }
+
+.kb-badge {
+  font-size: 0.78em;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .msg-time { font-size: 0.72em; color: #a0aec0; padding: 0 2px; }
 .msg-row.user .msg-time { text-align: right; }
@@ -401,7 +533,6 @@ function onCompositionEnd() {
 
 .dot-ani {
   width: 7px; height: 7px;
-  background: #667eea;
   border-radius: 50%;
   animation: bounce 1.2s infinite ease-in-out;
 }
@@ -438,14 +569,13 @@ function onCompositionEnd() {
 
 .input-row textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--focus-color, #667eea);
 }
 
 .input-row textarea:disabled { background: #f7fafc; color: #a0aec0; }
 
 .send-btn {
   padding: 0 14px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   border-radius: 10px;

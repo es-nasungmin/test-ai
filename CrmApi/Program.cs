@@ -83,10 +83,13 @@ using (var scope = app.Services.CreateScope())
             CreatedAt TEXT NOT NULL,
             ScheduledDate TEXT NULL,
             IsCompleted INTEGER NOT NULL,
+            IsExternalProvided INTEGER NOT NULL DEFAULT 0,
             CONSTRAINT FK_Interactions_Customers_CustomerId
                 FOREIGN KEY (CustomerId) REFERENCES Customers (Id) ON DELETE CASCADE
         );
     ");
+
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Interactions ADD COLUMN IsExternalProvided INTEGER NOT NULL DEFAULT 0;"); } catch { }
 
     db.Database.ExecuteSqlRaw(@"
         CREATE INDEX IF NOT EXISTS IX_Interactions_CustomerId
@@ -101,9 +104,23 @@ using (var scope = app.Services.CreateScope())
             Solution TEXT NOT NULL,
             ProblemEmbedding TEXT NULL,
             CreatedAt TEXT NOT NULL,
-            ViewCount INTEGER NOT NULL DEFAULT 0
+            ViewCount INTEGER NOT NULL DEFAULT 0,
+            Visibility TEXT NOT NULL DEFAULT 'internal',
+            SourceType TEXT NOT NULL DEFAULT 'case',
+            IsApproved INTEGER NOT NULL DEFAULT 0,
+            Tags TEXT NULL,
+            ApprovedBy TEXT NULL,
+            ApprovedAt TEXT NULL
         );
     ");
+
+    // 기존 DB에 새 컬럼이 없으면 추가 (idempotent)
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'internal';"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN SourceType TEXT NOT NULL DEFAULT 'case';"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN IsApproved INTEGER NOT NULL DEFAULT 0;"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN Tags TEXT NULL;"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN ApprovedBy TEXT NULL;"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases ADD COLUMN ApprovedAt TEXT NULL;"); } catch { }
 
     db.Database.ExecuteSqlRaw(@"
         CREATE INDEX IF NOT EXISTS IX_KnowledgeBases_CreatedAt
@@ -113,6 +130,37 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw(@"
         CREATE INDEX IF NOT EXISTS IX_KnowledgeBases_ViewCount
         ON KnowledgeBases (ViewCount DESC);
+    ");
+
+    // 챗봇 세션 테이블
+    db.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS ChatSessions (
+            Id INTEGER NOT NULL CONSTRAINT PK_ChatSessions PRIMARY KEY AUTOINCREMENT,
+            Title TEXT NULL,
+            UserRole TEXT NOT NULL DEFAULT 'user',
+            CreatedAt TEXT NOT NULL,
+            UpdatedAt TEXT NOT NULL,
+            MessageCount INTEGER NOT NULL DEFAULT 0
+        );
+    ");
+
+    // 챗봇 메시지 테이블
+    db.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS ChatMessages (
+            Id INTEGER NOT NULL CONSTRAINT PK_ChatMessages PRIMARY KEY AUTOINCREMENT,
+            SessionId INTEGER NOT NULL,
+            Role TEXT NOT NULL,
+            Content TEXT NOT NULL,
+            CreatedAt TEXT NOT NULL,
+            RelatedKbIds TEXT NULL,
+            CONSTRAINT FK_ChatMessages_ChatSessions_SessionId
+                FOREIGN KEY (SessionId) REFERENCES ChatSessions (Id) ON DELETE CASCADE
+        );
+    ");
+
+    db.Database.ExecuteSqlRaw(@"
+        CREATE INDEX IF NOT EXISTS IX_ChatMessages_SessionId
+        ON ChatMessages (SessionId);
     ");
 }
 

@@ -12,6 +12,8 @@ namespace CrmApi.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? ScheduledDate { get; set; }
         public bool IsCompleted { get; set; } = false;
+        // true면 해당 상담에서 추출된 case KB를 외부(common)로 노출
+        public bool IsExternalProvided { get; set; } = false;
 
         // Foreign key
         [JsonIgnore]

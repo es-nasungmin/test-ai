@@ -15,6 +15,10 @@ namespace CrmApi.Data
         public DbSet<Interaction> Interactions { get; set; } = null!;
         public DbSet<KnowledgeBase> KnowledgeBases { get; set; } = null!;
 
+        // 챗봇 세션/메시지
+        public DbSet<ChatSession> ChatSessions { get; set; } = null!;
+        public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -45,6 +49,23 @@ namespace CrmApi.Data
                     .WithMany(c => c.Interactions)
                     .HasForeignKey(e => e.CustomerId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ChatMessage>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Role).IsRequired().HasMaxLength(10);
+                entity.Property(e => e.Content).IsRequired();
+                entity.HasOne(e => e.Session)
+                    .WithMany(s => s.Messages)
+                    .HasForeignKey(e => e.SessionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ChatSession>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.UserRole).IsRequired().HasMaxLength(10);
             });
         }
     }

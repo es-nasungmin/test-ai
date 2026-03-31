@@ -5,6 +5,8 @@ import CustomerList from '../components/CRM/CustomerList.vue'
 import CustomerForm from '../components/CRM/CustomerForm.vue'
 import InteractionForm from '../components/CRM/InteractionForm.vue'
 import InteractionList from '../components/CRM/InteractionList.vue'
+import FloatingChatbot from '../components/FloatingChatbot.vue'
+import KBManagement from '../components/CRM/KBManagement.vue'
 
 const API_URL = 'http://localhost:8080/api'
 
@@ -251,6 +253,20 @@ const updateConsultation = async (updatedInteraction) => {
   }
 }
 
+const toggleExternalProvide = async (interaction) => {
+  try {
+    const nextValue = !interaction.isExternalProvided
+    await axios.patch(`${API_URL}/interaction/${interaction.id}/external-provide`, {
+      isExternalProvided: nextValue
+    })
+    interaction.isExternalProvided = nextValue
+    await fetchConsultations()
+  } catch (err) {
+    error.value = '외부제공 상태 변경에 실패했습니다.'
+    console.error(err)
+  }
+}
+
 const openAddCompanyForm = () => {
   editingCompany.value = null
   showCompanyForm.value = true
@@ -422,6 +438,9 @@ const savePromptTemplate = async () => {
   }
 }
 
+// ---- 페이지 탭 ----
+const activePage = ref('crm')  // 'crm' | 'kb'
+
 onMounted(() => {
   loadConsultationTypes()
   fetchCompanies()
@@ -449,13 +468,31 @@ onMounted(() => {
     <header class="crm-header">
       <h1>CRM 요약 · 정리 · 챗봇 테스트</h1>
       <p>프롬프트를 수정하고 결과를 비교해 보세요.</p>
+      <!-- 페이지 탭 -->
+      <div class="page-tabs">
+        <button
+          class="page-tab"
+          :class="{ active: activePage === 'crm' }"
+          @click="activePage = 'crm'"
+        >🗂️ CRM 상담관리</button>
+        <button
+          class="page-tab"
+          :class="{ active: activePage === 'kb' }"
+          @click="activePage = 'kb'"
+        >📚 KB 관리</button>
+      </div>
     </header>
 
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
 
-    <div class="crm-content">
+    <!-- KB 관리 페이지 -->
+    <div v-if="activePage === 'kb'" class="kb-page">
+      <KBManagement />
+    </div>
+
+    <div v-show="activePage === 'crm'" class="crm-content">
       <section class="left-section">
         <div class="section-header-right">
           <h2>업체 목록</h2>
@@ -516,6 +553,7 @@ onMounted(() => {
             :interactions="filteredConsultations"
             @edit-interaction="editConsultation"
             @delete-interaction="deleteConsultation"
+            @toggle-external="toggleExternalProvide"
           />
         </div>
 
@@ -574,6 +612,12 @@ onMounted(() => {
               v-model="editingInteraction.content"
               rows="6"
             />
+          </div>
+          <div class="form-group checkbox-group">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="editingInteraction.isExternalProvided" />
+              외부 제공 가능 (고객 챗봇 노출)
+            </label>
           </div>
           <div class="modal-actions">
             <button class="btn btn-primary" @click="updateConsultation(editingInteraction)">
@@ -660,6 +704,9 @@ onMounted(() => {
       </div>
     </div>
   </div>
+
+  <!-- 관리자용 AI 어시스턴트 (내부 KB 포함 전체 접근, 왼쪽 하단) -->
+  <FloatingChatbot role="admin" />
 </template>
 
 <style scoped>
@@ -713,6 +760,42 @@ onMounted(() => {
 .crm-header p {
   margin: 0;
   opacity: 0.95;
+  margin-bottom: 16px;
+}
+
+/* 페이지 탭 */
+.page-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.page-tab {
+  padding: 8px 24px;
+  border: 2px solid rgba(255,255,255,0.5);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.page-tab:hover { background: rgba(255,255,255,0.25); }
+.page-tab.active {
+  background: white;
+  color: #667eea;
+  border-color: white;
+}
+
+/* KB 관리 페이지 */
+.kb-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 10px;
+  padding: 24px;
 }
 
 .error-message {
@@ -1052,6 +1135,23 @@ onMounted(() => {
 .edit-form textarea {
   resize: vertical;
   min-height: 120px;
+}
+
+.edit-form .checkbox-group {
+  margin-top: -6px;
+}
+
+.edit-form .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #2f2f2f;
+}
+
+.edit-form .checkbox-label input {
+  width: 16px;
+  height: 16px;
 }
 
 .modal-actions {

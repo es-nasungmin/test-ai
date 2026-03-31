@@ -17,8 +17,8 @@ import FloatingChatbot from './components/FloatingChatbot.vue'
       </div>
     </main>
 
-    <!-- 플로팅 챗봇 (모든 페이지에서 표시) -->
-    <FloatingChatbot />
+    <!-- 일반 사용자용 챗봇 (공개 KB만 접근) -->
+    <FloatingChatbot role="user" />
   </div>
 </template>
 

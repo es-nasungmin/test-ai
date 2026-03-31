@@ -10,7 +10,8 @@ namespace CrmApi.Services
 {
     public interface IRagService
     {
-        Task<RagResponse> SearchAndGenerateAsync(string question);
+        // role: "admin" = 전체 KB 조회, "user" = visibility='common' + IsApproved=true만 조회
+        Task<RagResponse> SearchAndGenerateAsync(string question, string role = "user");
     }
 
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
@@ -40,17 +41,25 @@ namespace CrmApi.Services
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         }
 
-        public async Task<RagResponse> SearchAndGenerateAsync(string question)
+        public async Task<RagResponse> SearchAndGenerateAsync(string question, string role = "user")
         {
             try
             {
-                _logger.LogInformation($"📝 질문 받음: {question}");
+                _logger.LogInformation($"📝 질문 받음 [{role}]: {question}");
 
                 // 1. 질문을 벡터로 변환
                 var questionEmbedding = await _embeddingService.EmbedTextAsync(question);
 
-                // 2. 모든 KB 조회
-                var kbs = await _context.KnowledgeBases
+                // 2. role에 따라 KB 필터 적용
+                //    admin: 모든 KB 조회
+                //    user:  visibility='common' + IsApproved=true만 조회
+                var query = _context.KnowledgeBases.AsQueryable();
+                if (role != "admin")
+                {
+                    query = query.Where(x => x.Visibility == "common" && x.IsApproved);
+                }
+
+                var kbs = await query
                     .OrderByDescending(x => x.ViewCount)
                     .Take(100)
                     .ToListAsync();
@@ -65,7 +74,8 @@ namespace CrmApi.Services
                     };
                 }
 
-                // 3. 코사인 유사도로 상위 3개 검색
+                // 3. 코사인 유사도 + 타입 가중치로 상위 3개 검색
+                // 공식 KB(official) 우선 원칙: 동일/유사 점수라면 공식 KB가 앞서도록 보정
                 var topResults = kbs
                     .Select(kb =>
                     {
@@ -77,7 +87,8 @@ namespace CrmApi.Services
                             if (embedding == null) return default((KnowledgeBase, float)?);
 
                             var similarity = CosineSimilarity(questionEmbedding, embedding);
-                            return ((KnowledgeBase, float)?)(kb, similarity);
+                            var weightedSimilarity = ApplySourceTypeWeight(similarity, kb.SourceType);
+                            return ((KnowledgeBase, float)?)(kb, weightedSimilarity);
                         }
                         catch
                         {
@@ -117,6 +128,7 @@ namespace CrmApi.Services
                         Id = x.Item1.Id,
                         Problem = x.Item1.Problem,
                         Solution = x.Item1.Solution,
+                        SourceType = x.Item1.SourceType,
                         Similarity = x.Item2,
                         IsSelected = selectedResults.Any(s => s.kb.Id == x.Item1.Id)
                     }).ToList()
@@ -275,6 +287,16 @@ namespace CrmApi.Services
             }
             return normA == 0 || normB == 0 ? 0 : (float)(dotProduct / (Math.Sqrt(normA) * Math.Sqrt(normB)));
         }
+
+        private float ApplySourceTypeWeight(float similarity, string? sourceType)
+        {
+            // official KB에 15% 가중치 부여 (최대 1.0)
+            if (string.Equals(sourceType, "official", StringComparison.OrdinalIgnoreCase))
+            {
+                return MathF.Min(1f, similarity * 1.15f);
+            }
+            return similarity;
+        }
     }
 
     public class RagResponse
@@ -290,6 +312,7 @@ namespace CrmApi.Services
         public int Id { get; set; }
         public string? Problem { get; set; }
         public string? Solution { get; set; }
+        public string? SourceType { get; set; }
         public float Similarity { get; set; }
         public bool IsSelected { get; set; }
     }
