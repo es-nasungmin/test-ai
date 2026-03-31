@@ -114,9 +114,10 @@ namespace CrmApi.Services
                     await _context.SaveChangesAsync();
                 }
 
-                // 5. GPT로 답변 생성
-                var contextText = BuildContext(topResults, voteResult);
-                var answer = await GenerateAnswerAsync(question, contextText);
+                // 5. GPT로 답변 생성 (사용자는 유사도/점수 노출 없이 명확한 답변 우선)
+                var contextText = BuildContext(topResults, voteResult, role);
+                var topScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
+                var answer = await GenerateAnswerAsync(question, contextText, role, topScore);
 
                 return new RagResponse
                 {
@@ -141,21 +142,27 @@ namespace CrmApi.Services
             }
         }
 
-        private async Task<string> GenerateAnswerAsync(string question, string context)
+        private async Task<string> GenerateAnswerAsync(string question, string context, string role, float topScore)
         {
             try
             {
+                if (role != "admin" && topScore < 0.42f)
+                {
+                    return "현재 보유한 공개 지식으로는 이 질문에 대해 정확한 안내를 드리기 어렵습니다. 정확한 확인을 위해 관리자에게 문의해 주세요.";
+                }
+
+                var userRules = role == "admin"
+                    ? "1) 충돌 감지가 있는 경우, 다수결/점수 우선안을 먼저 제시하고 \"다른 사례도 있음\"을 짧게 언급\n2) 가능한 경우 점수(유사도 %)를 함께 설명\n3) 확신이 낮으면 단정하지 말고 확인 질문을 1개 제시\n4) 필요시 단계별 해결방법을 제시"
+                    : "1) 유사도/점수/벡터/랭킹 같은 내부 용어는 절대 언급하지 않는다\n2) 확실한 사실만 간결하게 답하고 모르면 모른다고 명시한다\n3) 확신이 낮으면 추측하지 말고 관리자 문의를 안내한다\n4) 고객이 바로 실행할 수 있는 단계 중심으로 설명한다";
+
                 var prompt = $@"{context}
 
 【사용자 질문】
 {question}
 
-위의 관련 상담 사례를 참고하여 친절하고 정확하게 답변해주세요.
+위의 내부 참조 정보를 바탕으로 친절하고 정확하게 답변해주세요.
 답변 규칙:
-1) 충돌 감지가 있는 경우, 다수결/점수 우선안을 먼저 제시하고 ""다른 사례도 있음""을 짧게 언급
-2) 가능한 경우 점수(유사도 %)를 함께 설명
-3) 확신이 낮으면 단정하지 말고 확인 질문을 1개 제시
-4) 필요시 단계별 해결방법을 제시";
+{userRules}";
 
                 var request = new
                 {
@@ -202,8 +209,13 @@ namespace CrmApi.Services
             }
         }
 
-        private string BuildContext(List<(KnowledgeBase kb, float similarity)> results, ResolutionVoteResult voteResult)
+        private string BuildContext(List<(KnowledgeBase kb, float similarity)> results, ResolutionVoteResult voteResult, string role)
         {
+            if (role != "admin")
+            {
+                return BuildUserContext(results);
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("【관련된 과거 상담 사례】");
             for (int i = 0; i < results.Count; i++)
@@ -225,6 +237,23 @@ namespace CrmApi.Services
                 sb.AppendLine($"- 우선 해결안: {top.kb.Solution}");
             }
 
+            return sb.ToString();
+        }
+
+        private string BuildUserContext(List<(KnowledgeBase kb, float similarity)> results)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("【답변 후보 정보(우선순위 순)】");
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                var (kb, _) = results[i];
+                sb.AppendLine($"\n우선순위 {i + 1}");
+                sb.AppendLine($"- 핵심 질문: {kb.Problem}");
+                sb.AppendLine($"- 권장 안내: {kb.Solution}");
+            }
+
+            sb.AppendLine("\n※ 주의: 답변에는 우선순위, 유사도, 사례/내역 건수 같은 내부 기준을 노출하지 말 것.");
             return sb.ToString();
         }
 

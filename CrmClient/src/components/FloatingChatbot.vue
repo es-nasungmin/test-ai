@@ -20,11 +20,11 @@ const isAdmin = computed(() => props.role === 'admin')
 // ---- 스타일 계산 ----
 // 두 버튼 모두 오른쪽에 나란히: admin=90px, user=24px
 const fabStyle = computed(() => isAdmin.value
-  ? { right: '90px', left: 'auto', background: 'linear-gradient(135deg, #f56565 0%, #c05621 100%)' }
+  ? { left: '24px', right: 'auto', background: 'linear-gradient(135deg, #f56565 0%, #c05621 100%)' }
   : { right: '24px', left: 'auto', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
 )
 const popupStyle = computed(() => isAdmin.value
-  ? { right: '90px', left: 'auto' }
+  ? { left: '24px', right: 'auto' }
   : { right: '24px', left: 'auto' }
 )
 const headerGradient = computed(() => isAdmin.value
@@ -45,7 +45,6 @@ const isComposing = ref(false)
 const BOTTOM_THRESHOLD = 8
 
 // 세션
-const SESSION_KEY = computed(() => `chatbot_session_${props.role}`)
 const sessionId = ref(null)
 
 const messages = ref([])
@@ -64,49 +63,35 @@ function now() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
-// ---- 세션 초기화 ----
-async function initSession() {
-  const saved = localStorage.getItem(SESSION_KEY.value)
-  if (saved) {
-    const parsed = parseInt(saved, 10)
-    if (!isNaN(parsed)) {
-      // 저장된 세션 이력 불러오기
-      try {
-        const res = await axios.get(`${API_URL}/chat/sessions/${parsed}`)
-        const { messages: history } = res.data
-        if (history && history.length > 0) {
-          sessionId.value = parsed
-          messages.value = history.map(m => ({
-            role: m.role,
-            text: m.content,
-            time: new Date(m.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-          }))
-          return
-        }
-      } catch {
-        // 세션 만료 / 삭제된 경우 로컬 키 초기화
-        localStorage.removeItem(SESSION_KEY.value)
-      }
-    }
-  }
-  // 세션 없으면 환영 메시지만 표시 (세션은 첫 메시지 전송 시 생성)
+// ---- 로컬 화면 초기화 ----
+function resetLocalChat() {
   sessionId.value = null
+  question.value = ''
+  loading.value = false
   messages.value = [defaultWelcome()]
 }
 
 onMounted(() => {
-  // 세션 ID가 있는 경우를 위해 미리 초기화하지 않음 (열릴 때 로드)
+  resetLocalChat()
 })
 
 // ---- 열기/닫기 ----
 async function toggle() {
-  isOpen.value = !isOpen.value
   if (isOpen.value) {
-    if (messages.value.length === 0) {
-      await initSession()
-    }
-    nextTick(() => scrollToBottom())
+    closeChat()
+    return
   }
+  isOpen.value = true
+  if (messages.value.length === 0) {
+    resetLocalChat()
+  }
+  nextTick(() => scrollToBottom())
+}
+
+function closeChat() {
+  isOpen.value = false
+  // 요구사항: 닫으면 화면은 초기화, 단 DB 저장 이력은 유지
+  resetLocalChat()
 }
 
 function isNearBottom() {
@@ -134,10 +119,9 @@ async function send() {
       createSession: sessionId.value === null
     })
 
-    // 새로 생성된 세션 ID 저장
+    // 새로 생성된 세션 ID는 현재 열린 동안만 유지
     if (res.data.sessionId && !sessionId.value) {
       sessionId.value = res.data.sessionId
-      localStorage.setItem(SESSION_KEY.value, String(sessionId.value))
     }
 
     messages.value.push({
@@ -171,12 +155,8 @@ async function scrollToBottom(force = false) {
 
 // ---- 대화 초기화 ----
 async function clearSession() {
-  if (sessionId.value) {
-    try { await axios.delete(`${API_URL}/chat/sessions/${sessionId.value}`) } catch { }
-  }
-  sessionId.value = null
-  localStorage.removeItem(SESSION_KEY.value)
-  messages.value = [defaultWelcome()]
+  // DB 이력은 유지하고 화면만 초기화
+  resetLocalChat()
 }
 
 // ---- 키 이벤트 ----
@@ -223,7 +203,7 @@ function onCompositionEnd() { isComposing.value = false }
         </div>
         <div class="header-actions">
           <button class="icon-btn" @click="clearSession" title="대화 초기화">🗑️</button>
-          <button class="close-btn" @click="isOpen = false">✕</button>
+          <button class="close-btn" @click="closeChat">✕</button>
         </div>
       </div>
 
@@ -242,12 +222,12 @@ function onCompositionEnd() { isComposing.value = false }
             </div>
 
             <!-- 관련 KB (관리자에게는 KB 타입/가시성 표시) -->
-            <div v-if="msg.relatedKBs && msg.relatedKBs.length" class="related">
+            <div v-if="isAdmin && msg.relatedKBs && msg.relatedKBs.length" class="related">
               <div class="related-label">📚 참고한 사례</div>
               <div v-for="(kb, j) in msg.relatedKBs" :key="j" class="kb-chip">
                 <span class="sim">{{ Math.round(kb.similarity * 100) }}%</span>
                 <span class="kb-problem">{{ kb.problem }}</span>
-                <span v-if="isAdmin && kb.sourceType" class="kb-badge">
+                <span v-if="kb.sourceType" class="kb-badge">
                   {{ kb.sourceType === 'official' ? '공식' : '사례' }}
                 </span>
               </div>
