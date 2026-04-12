@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat Widget HTML Example</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Pretendard", "Noto Sans KR", sans-serif;
+        background: linear-gradient(180deg, #f8fafc 0%, #eef6f4 100%);
+        color: #1f2937;
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 40px 20px 80px;
+      }
+
+      .hero {
+        border: 1px solid #dbe4ee;
+        border-radius: 16px;
+        background: #ffffff;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.6;
+        color: #4b5563;
+      }
+
+      .code {
+        margin-top: 20px;
+        border: 1px solid #dbe4ee;
+        border-radius: 12px;
+        background: #f8fafc;
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .code pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .grid {
+        margin-top: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .guide-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 32px;
+      }
+
+      .card {
+        border: 1px solid #dbe4ee;
+        border-radius: 12px;
+        background: #fff;
+        padding: 16px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+        gap: 10px;
+        padding: 8px 0;
+        border-top: 1px solid #edf2f7;
+      }
+
+      .row:first-of-type {
+        border-top: none;
+      }
+
+      .row .k {
+        font-weight: 700;
+        color: #0f172a;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        min-width: 0;
+      }
+
+      .row .v {
+        color: #475569;
+        line-height: 1.5;
+        min-width: 0;
+      }
+
+      .row .meta {
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        color: #94a3b8;
+        font-family: 'Menlo', 'Consolas', monospace;
+      }
+
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .btn {
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        background: #fff;
+        color: #0f172a;
+        font-weight: 700;
+        padding: 10px 12px;
+        cursor: pointer;
+      }
+
+      .btn.primary {
+        background: #0f766e;
+        color: #fff;
+        border-color: #0f766e;
+      }
+
+      .btn.warn {
+        background: #b45309;
+        color: #fff;
+        border-color: #b45309;
+      }
+
+      .btn.info {
+        background: #2563eb;
+        color: #fff;
+        border-color: #2563eb;
+      }
+
+      .slider-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 24px;
+        margin-top: 12px;
+      }
+
+      .slider-item label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 4px;
+      }
+
+      .slider-item label span {
+        font-weight: 400;
+        color: #2563eb;
+        font-family: 'Menlo', monospace;
+        font-size: 12px;
+      }
+
+      .slider-item input[type=range] {
+        width: 100%;
+        accent-color: #0f766e;
+      }
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin: 14px 0;
+      }
+
+      .step {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .step-num {
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #0f766e;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 1px;
+      }
+
+      .step-body {
+        flex: 1;
+        font-size: 14px;
+        color: #334155;
+        line-height: 1.6;
+      }
+
+      .step-body b {
+        color: #0f172a;
+      }
+
+      .step-body code {
+        background: #f1f5f9;
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 12px;
+        color: #0f766e;
+      }
+
+      .badge {
+        display: inline-block;
+        background: #f0fdf4;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        margin-bottom: 8px;
+      }
+
+      .badge.blue {
+        background: #eff6ff;
+        color: #1e40af;
+        border-color: #bfdbfe;
+      }
+
+      @media (max-width: 600px) {
+        .slider-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 900px) {
+        .guide-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>일반 HTML Chat 위젯 예시</h1>
+        <p>
+          Vue 없이 순수 HTML + JavaScript만으로 AI 채팅 위젯을 사용할 수 있습니다.<br>
+          <b>방법 1</b>은 스크립트 한 줄만 추가하면 플로팅 버튼이 자동으로 생기는 가장 간단한 방법이고,<br>
+          <b>방법 2</b>는 플로팅 버튼 없이 페이지의 기존 버튼에 채팅창을 연결하는 방법입니다.
+        </p>
+      </section>
+
+      <section class="grid">
+
+        <!-- 가장 간단한 복붙 가이드 -->
+        <article class="card">
+          <span class="badge">가장 간단한 사용법</span>
+          <h2>이 코드 그대로 복붙해서 시작</h2>
+          <p>
+            아래 코드를 페이지의 <code>&lt;/body&gt;</code> 바로 위에 붙이면 바로 동작합니다.
+            <br>
+            먼저 이 방식으로 붙여서 확인한 뒤, 필요하면 옵션을 추가하세요.
+            <br>
+            <b>platformName</b>은 인사말에 보여줄 이름이고, <b>defaultPlatform</b>은 실제 조회에 사용할 플랫폼 값입니다.
+          </p>
+
+          <div class="code" style="margin-top:14px">
+            <pre>&lt;script src="/chat-widget.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  const widget = window.createCrmChatWidget({
+    apiBaseUrl: 'http://localhost:8080/api',
+    role: 'user',
+    title: '트러스트온 고객 챗봇',
+    platformName: '트러스트온',
+    defaultPlatform: 'truston',
+    showPlatformSelector: false,
+    buttonLabel: 'Chat',
+    accent: '#0f766e',
+    initiallyOpen: false
+  })
+
+  widget.showWidget()
+&lt;/script&gt;</pre>
+          </div>
+
+          <div class="steps" style="margin-top:12px">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div class="step-body"><b>apiBaseUrl</b>를 실제 백엔드 주소로 맞추세요.</div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div class="step-body">스크립트는 <b>반드시 body 맨 아래</b>에 두세요.</div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 방법 1: 플로팅 버튼 방식 -->
+        <article class="card">
+          <span class="badge">방법 1 · 플로팅 버튼 방식</span>
+          <h2>별도 요소 없이 바로 붙이기</h2>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <b>스크립트를 페이지에 로드합니다.</b><br>
+                <code>&lt;script src="/chat-widget.js"&gt;&lt;/script&gt;</code>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <b><code>createCrmChatWidget()</code>을 호출하면 끝입니다.</b><br>
+                HTML에 아무 요소도 추가할 필요 없이, 플로팅 버튼과 채팅 팝업이 <code>document.body</code>에 자동으로 추가됩니다.
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <b>필요하면 코드로 제어할 수도 있습니다.</b><br>
+                반환된 <code>widget</code> 객체의 메서드를 호출해 버튼·채팅창을 직접 열고 닫을 수 있습니다.
+                아래 버튼으로 지금 바로 체험해 보세요.
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <b><code>platformName</code>과 <code>defaultPlatform</code>을 구분해서 쓰세요.</b><br>
+                예를 들어 화면에는 <code>트러스트온</code>으로 인사하고, API 조회 값은 <code>truston</code>으로 보낼 수 있습니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="btns">
+            <button class="btn primary" id="btnShowWidget">플로팅 버튼 보이기</button>
+            <button class="btn" id="btnHideWidget">플로팅 버튼 숨기기</button>
+            <button class="btn info" id="btnOpenChat">채팅창 열기</button>
+            <button class="btn" id="btnCloseChat">채팅창 닫기</button>
+          </div>
+
+          <div class="code" style="margin-top:14px">
+            <pre>// HTML에 추가할 요소 없음 — 스크립트 로드 후 한 줄이면 끝
+const widget = window.createCrmChatWidget({
+  apiBaseUrl: 'http://localhost:8080/api',
+  role: 'user',
+  title: '트러스트온 고객 Chat',
+  platformName: '트러스트온',
+  defaultPlatform: 'truston',
+  showPlatformSelector: false,
+  buttonLabel: 'Chat',
+  accent: '#0f766e',
+  initiallyOpen: false
+})
+
+// 이후 코드에서 필요할 때 제어 가능
+widget.showWidget()  // 플로팅 버튼 다시 표시
+widget.hideWidget()  // 플로팅 버튼 숨기기 (채팅창도 닫힘)
+widget.openChat()    // 채팅창 바로 열기
+widget.closeChat()   // 채팅창 닫기</pre>
+          </div>
+
+          <p style="margin-top:16px;margin-bottom:6px;font-weight:700;font-size:13px;color:#0f172a">위치 조절 체험 (슬라이더를 움직여 보세요)</p>
+          <div class="slider-grid">
+            <div class="slider-item">
+              <label>buttonRight <span id="lblBtnRight">20px</span></label>
+              <input type="range" id="slBtnRight" min="0" max="300" value="20">
+            </div>
+            <div class="slider-item">
+              <label>buttonBottom <span id="lblBtnBottom">20px</span></label>
+              <input type="range" id="slBtnBottom" min="0" max="300" value="20">
+            </div>
+            <div class="slider-item">
+              <label>popupRight <span id="lblPopupRight">20px</span></label>
+              <input type="range" id="slPopupRight" min="0" max="300" value="20">
+            </div>
+            <div class="slider-item">
+              <label>popupBottom <span id="lblPopupBottom">88px</span></label>
+              <input type="range" id="slPopupBottom" min="0" max="400" value="88">
+            </div>
+          </div>
+        </article>
+
+        <!-- 방법 2: 내 버튼에 연결 -->
+        <article class="card">
+          <span class="badge blue">방법 2 · 내 버튼 연결 방식</span>
+          <h2>기존 버튼에 연결하기</h2>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <b>스크립트를 페이지에 로드합니다.</b><br>
+                <code>&lt;script src="/chat-widget.js"&gt;&lt;/script&gt;</code>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <b><code>hideButton: true</code> 옵션으로 위젯을 생성합니다.</b><br>
+                플로팅 버튼은 만들어지지 않고, 채팅 팝업만 내부적으로 준비됩니다.
+                HTML에 별도 요소를 추가할 필요는 없습니다.
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <b>페이지에 이미 있는 버튼에 <code>openChat()</code>을 연결합니다.</b><br>
+                버튼을 클릭하면 채팅 팝업이 열립니다. 버튼은 어디에 있어도 상관없고,
+                디자인도 자유롭게 꾸밀 수 있습니다.
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <b>플랫폼 표시는 <code>platformName</code>으로 따로 지정할 수 있습니다.</b><br>
+                노출 문구와 API 파라미터를 다르게 써야 할 때 <code>defaultPlatform</code>과 분리해서 설정하세요.
+              </div>
+            </div>
+          </div>
+
+          <div class="btns">
+            <button class="btn info" id="btnMyOpen">이 버튼으로 채팅 열기 ↗</button>
+            <button class="btn" id="btnMyClose">채팅 닫기</button>
+          </div>
+
+          <div class="code" style="margin-top:14px">
+            <pre>// 1. 위젯 생성 (플로팅 버튼 없음)
+const myWidget = window.createCrmChatWidget({
+  apiBaseUrl: 'http://localhost:8080/api',
+  role: 'user',
+  title: '트러스트온 고객 Chat',
+  platformName: '트러스트온',
+  defaultPlatform: 'truston',
+  showPlatformSelector: false,
+  buttonLabel: 'Chat',
+  accent: '#0f766e',
+  hideButton: true,      // 플로팅 버튼 생성 안 함
+  popupRight: '20px',    // 채팅창 위치 직접 지정
+  popupBottom: '20px'
+})
+
+// 2. 이미 있는 버튼에 연결 (버튼은 직접 HTML에 만들면 됨)
+document.getElementById('myBtn')
+  .addEventListener('click', () => myWidget.openChat())
+
+// 3. 닫기 버튼도 같은 방식
+document.getElementById('closeBtn')
+  .addEventListener('click', () => myWidget.closeChat())</pre>
+          </div>
+
+          <p style="margin-top:16px;margin-bottom:6px;font-weight:700;font-size:13px;color:#0f172a">채팅창 위치 조절 체험</p>
+          <div class="slider-grid">
+            <div class="slider-item">
+              <label>popupRight <span id="lblMyPopupRight">400px</span></label>
+              <input type="range" id="slMyPopupRight" min="0" max="500" value="400">
+            </div>
+            <div class="slider-item">
+              <label>popupBottom <span id="lblMyPopupBottom">20px</span></label>
+              <input type="range" id="slMyPopupBottom" min="0" max="400" value="20">
+            </div>
+          </div>
+        </article>
+
+        <!-- 속성 가이드 -->
+        <article class="card">
+          <h2>속성 가이드</h2>
+          <div class="guide-grid">
+            <div>
+              <div class="row">
+                <div class="k">apiBaseUrl</div>
+                <div class="v">백엔드 API 서버 주소. 배포 시 운영서버 URL로 교체<span class="meta">string | 기본값: 'http://localhost:8080/api'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">role</div>
+                <div class="v"><b>user</b>: 공개 KB만 검색 (일반 고객용) / <b>admin</b>: 전체 KB 검색 (내부 관리자용)<span class="meta">'user' | 'admin' | 기본값: 'user'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">title</div>
+                <div class="v">채팅창 헤더에 표시되는 제목<span class="meta">string | 기본값: 'AI 상담 어시스턴트'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">defaultPlatform</div>
+                <div class="v">검색할 플랫폼. <b>GET /api/knowledgebase/platforms</b> 응답값을 그대로 입력. 비워두거나 '전체 플랫폼'이면 전체 KB 검색<span class="meta">string | 기본값: '전체 플랫폼'<br>예: '트러스트온', 'windows', 'mobile-app'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">platformName</div>
+                <div class="v">인사말과 헤더 보조 문구에 표시할 플랫폼 이름. 지정하지 않으면 defaultPlatform 또는 일반 문구 사용<span class="meta">string | 선택값<br>예: '트러스트온', 'Windows 에이전트'<br>표시용 이름과 실제 조회값을 분리할 때 사용</span></div>
+              </div>
+              <div class="row">
+                <div class="k">showPlatformSelector</div>
+                <div class="v"><b>false</b>: defaultPlatform 고정 / <b>true</b>: 헤더에 드롭다운 표시, 사용자가 직접 플랫폼 선택<span class="meta">boolean | 기본값: false</span></div>
+              </div>
+              <div class="row">
+                <div class="k">accent</div>
+                <div class="v">헤더·플로팅 버튼·사용자 말풍선에 적용되는 강조 색상<span class="meta">CSS hex string | 기본값: '#1f7a6d'</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="row">
+                <div class="k">buttonLabel</div>
+                <div class="v">우하단 플로팅 버튼 안에 표시할 텍스트<span class="meta">string | 기본값: 'CHAT'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">hideButton</div>
+                <div class="v">플로팅 버튼을 만들지 않음. 채팅창만 독립 표시하고 openChat()으로 제어<span class="meta">boolean | 기본값: false</span></div>
+              </div>
+              <div class="row">
+                <div class="k">initiallyOpen</div>
+                <div class="v">페이지 로드 즉시 채팅창이 열린 상태로 시작<span class="meta">boolean | 기본값: false</span></div>
+              </div>
+              <div class="row">
+                <div class="k">buttonRight / buttonBottom</div>
+                <div class="v">플로팅 버튼의 우측·하단 여백<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '20px'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">popupRight / popupBottom</div>
+                <div class="v">채팅창 팝업의 우측·하단 여백. 플로팅 버튼 높이(약 68px)를 고려해 설정<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '88px'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">mountTo</div>
+                <div class="v">위젯을 삽입할 DOM 요소. CSS 선택자 문자열도 가능<span class="meta">Element | string | 기본값: document.body<br>예: '#chat-area', '.widget-container'</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/chat-widget.js"></script>
+    <script>
+      const userOptions = {
+        apiBaseUrl: 'http://localhost:8080/api',
+        role: 'user',
+        title: '트러스트온 고객 Chat',
+        platformName: '트러스트온',
+        defaultPlatform: 'truston',
+        showPlatformSelector: false,
+        buttonLabel: 'Chat',
+        accent: '#0f766e',
+        initiallyOpen: false
+      }
+
+      // 방법 1: 플로팅 버튼 방식
+      const widget = window.createCrmChatWidget(userOptions)
+      widget.showWidget()
+
+      document.getElementById('btnShowWidget').addEventListener('click', () => widget.showWidget())
+      document.getElementById('btnHideWidget').addEventListener('click', () => widget.hideWidget())
+      document.getElementById('btnOpenChat').addEventListener('click', () => widget.openChat())
+      document.getElementById('btnCloseChat').addEventListener('click', () => widget.closeChat())
+
+      // 방법 2: 내 버튼에 연결 (플로팅 버튼 없음)
+      const myWidget = window.createCrmChatWidget({
+        ...userOptions,
+        hideButton: true,
+        popupRight: '400px',
+        popupBottom: '20px'
+      })
+
+      document.getElementById('btnMyOpen').addEventListener('click', () => myWidget.openChat())
+      document.getElementById('btnMyClose').addEventListener('click', () => myWidget.closeChat())
+
+      // 슬라이더 유틸
+      function bindSlider(id, labelId, applyFn, unit) {
+        const sl = document.getElementById(id)
+        const lb = document.getElementById(labelId)
+        sl.addEventListener('input', () => {
+          const val = sl.value + (unit || 'px')
+          lb.textContent = val
+          applyFn(val)
+        })
+      }
+
+      // 방법 1 슬라이더 — widget 위젯 제어
+      bindSlider('slBtnRight',   'lblBtnRight',   v => widget.setButtonRight(v))
+      bindSlider('slBtnBottom',  'lblBtnBottom',  v => widget.setButtonBottom(v))
+      bindSlider('slPopupRight', 'lblPopupRight', v => widget.setPopupRight(v))
+      bindSlider('slPopupBottom','lblPopupBottom',v => widget.setPopupBottom(v))
+
+      // 방법 2 슬라이더 — myWidget 팝업 위치 제어
+      bindSlider('slMyPopupRight', 'lblMyPopupRight', v => myWidget.setPopupRight(v))
+      bindSlider('slMyPopupBottom','lblMyPopupBottom',v => myWidget.setPopupBottom(v))
+    </script>
+  </body>
+</html>

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-API_DIR="$ROOT_DIR/CrmApi"
+API_DIR="$ROOT_DIR/AiDeskApi"
 PORT=8080
 
 echo "[backend] checking port $PORT"
@@ -12,6 +12,6 @@ if lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "[backend] starting CrmApi"
+echo "[backend] starting AiDeskApi"
 cd "$API_DIR"
 exec dotnet run

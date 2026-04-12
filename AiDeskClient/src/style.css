@@ -1,0 +1,51 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-base: #f4f8f7;
+  --bg-surface: #ffffff;
+  --bg-soft: #eef4f2;
+  --text-main: #1c3431;
+  --text-subtle: #5e7773;
+  --line-soft: #d8e5e2;
+  --brand: #1f7a6d;
+  --brand-strong: #155f56;
+  --accent: #c07a1c;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-soft: 0 12px 28px rgba(17, 62, 57, 0.08);
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Pretendard Variable', 'SUIT Variable', 'Noto Sans KR', sans-serif;
+  line-height: 1.5;
+  color: var(--text-main);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

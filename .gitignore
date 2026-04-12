@@ -16,24 +16,24 @@
 **/*.sln.docstates
 
 # Local app settings / secrets
-CrmApi/appsettings.Development.json
-CrmApi/appsettings.Local.json
+AiDeskApi/appsettings.Development.json
+AiDeskApi/appsettings.Local.json
 **/secrets.json
-CrmApi/*.db
-CrmApi/*.db-*
+AiDeskApi/*.db
+AiDeskApi/*.db-*
 *.sqlite
 *.sqlite3
 
 # Node / Vite outputs
-CrmClient/node_modules/
-CrmClient/dist/
-CrmClient/dist-ssr/
-CrmClient/*.local
+AiDeskClient/node_modules/
+AiDeskClient/dist/
+AiDeskClient/dist-ssr/
+AiDeskClient/*.local
 
 # Environment files
-CrmClient/.env
-CrmClient/.env.local
-CrmClient/.env.*.local
+AiDeskClient/.env
+AiDeskClient/.env.local
+AiDeskClient/.env.*.local
 
 # Logs
 **/logs/

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CLIENT_DIR="$ROOT_DIR/CrmClient"
+CLIENT_DIR="$ROOT_DIR/AiDeskClient"
 PORT=5173
 
 echo "[frontend] checking port $PORT"
@@ -12,6 +12,6 @@ if lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "[frontend] starting CrmClient"
+echo "[frontend] starting AiDeskClient"
 cd "$CLIENT_DIR"
 exec npm run dev -- --host
