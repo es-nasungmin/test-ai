@@ -15,6 +15,7 @@ namespace AiDeskApi.Controllers
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
         private readonly IRagService _ragService;
+        private readonly IVectorSearchService _vectorSearchService;
         private readonly IChatbotPromptTemplateService _chatbotPromptTemplates;
         private readonly IKnowledgeExtractorService _knowledgeExtractorService;
         private readonly ILogger<KnowledgeBaseController> _logger;
@@ -23,6 +24,7 @@ namespace AiDeskApi.Controllers
             AiDeskContext context,
             IEmbeddingService embeddingService,
             IRagService ragService,
+            IVectorSearchService vectorSearchService,
             IKnowledgeExtractorService knowledgeExtractorService,
             IChatbotPromptTemplateService chatbotPromptTemplates,
             ILogger<KnowledgeBaseController> logger)
@@ -30,6 +32,7 @@ namespace AiDeskApi.Controllers
             _context = context;
             _embeddingService = embeddingService;
             _ragService = ragService;
+            _vectorSearchService = vectorSearchService;
             _knowledgeExtractorService = knowledgeExtractorService;
             _chatbotPromptTemplates = chatbotPromptTemplates;
             _logger = logger;
@@ -221,6 +224,14 @@ namespace AiDeskApi.Controllers
 
                 _context.KnowledgeBases.Add(kb);
                 await _context.SaveChangesAsync();
+                try
+                {
+                    await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ 벡터 인덱스 동기화 실패(등록). KB 저장은 완료됨. kbId={KbId}", kb.Id);
+                }
 
                 return Ok(new { id = kb.Id, message = "KB가 등록되었습니다." });
             }
@@ -313,6 +324,14 @@ namespace AiDeskApi.Controllers
                 }
 
                 await _context.SaveChangesAsync();
+                try
+                {
+                    await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ 벡터 인덱스 동기화 실패(수정). KB 저장은 완료됨. kbId={KbId}", kb.Id);
+                }
                 return Ok(new { id = kb.Id, message = "KB가 수정되었습니다." });
             }
             catch (Exception ex)
@@ -472,6 +491,14 @@ namespace AiDeskApi.Controllers
 
                 _context.KnowledgeBases.Remove(kb);
                 await _context.SaveChangesAsync();
+                try
+                {
+                    await _vectorSearchService.DeleteKnowledgeBaseAsync(id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ 벡터 인덱스 삭제 실패. KB 삭제는 완료됨. kbId={KbId}", id);
+                }
 
                 return Ok(new { message = "KB가 삭제되었습니다." });
             }
@@ -730,7 +757,19 @@ namespace AiDeskApi.Controllers
                 .ToList();
             if (kbs.Count > 0)
             {
+                var deleteIds = kbs.Select(x => x.Id).ToList();
                 _context.KnowledgeBases.RemoveRange(kbs);
+                foreach (var kbId in deleteIds)
+                {
+                    try
+                    {
+                        await _vectorSearchService.DeleteKnowledgeBaseAsync(kbId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "⚠️ 벡터 인덱스 삭제 실패(플랫폼 삭제). kbId={KbId}", kbId);
+                    }
+                }
             }
 
             var lowItems = await _context.LowSimilarityQuestions.Where(x => x.Platform == normalized).ToListAsync();
