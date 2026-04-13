@@ -134,6 +134,8 @@ namespace AiDeskApi.Controllers
                             m.Content,
                             m.CreatedAt,
                             m.RelatedKbIds,
+                            m.RelatedKbMeta,
+                            m.RetrievalDebugMeta,
                             m.TopSimilarity,
                             m.IsLowSimilarity
                         })

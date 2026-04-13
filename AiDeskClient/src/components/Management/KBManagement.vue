@@ -35,16 +35,41 @@ const kbPlatformFilter = ref('all')
 
 const form = ref({
   id: null,
+  title: '',
   representativeQuestion: '',
   solution: '',
   visibility: 'user',
   platforms: ['공통'],
   similarInput: ''
 })
-const tagInput = ref('')
-const tagDraft = ref([])
+const keywordInput = ref('')
+const keywordDraft = ref([])
 const platformInput = ref('공통')
-const isComposingTag = ref(false)
+const isComposingKeyword = ref(false)
+
+function getActorHeader() {
+  try {
+    const token = localStorage.getItem('token')
+    const userRaw = localStorage.getItem('user')
+    const user = userRaw ? JSON.parse(userRaw) : null
+    const candidates = [
+      user?.username,
+      user?.Username,
+      user?.name,
+      user?.Name
+    ]
+    const actorName = candidates
+      .find((x) => typeof x === 'string' && x.trim())
+      ?.trim() || null
+
+    const headers = {}
+    if (token) headers.Authorization = `Bearer ${token}`
+    if (actorName) headers['X-Actor-Name'] = actorName
+    return headers
+  } catch {
+    return {}
+  }
+}
 
 function normalizeSelectedPlatforms(platforms) {
   const normalized = Array.from(new Set((platforms || [])
@@ -58,8 +83,8 @@ function normalizeSelectedPlatforms(platforms) {
   return normalized
 }
 
-function normalizeTags(tags) {
-  return Array.from(new Set((tags || [])
+function normalizeKeywords(keywords) {
+  return Array.from(new Set((keywords || [])
     .map((x) => (typeof x === 'string' ? x.trim() : ''))
     .filter(Boolean)))
 }
@@ -327,14 +352,15 @@ async function generateSimilarQuestions() {
 function resetForm() {
   form.value = {
     id: null,
+    title: '',
     representativeQuestion: '',
     solution: '',
     visibility: 'user',
     platforms: ['공통'],
     similarInput: ''
   }
-  tagInput.value = ''
-  tagDraft.value = []
+  keywordInput.value = ''
+  keywordDraft.value = []
   platformInput.value = '공통'
   similarDraft.value = []
 }
@@ -342,32 +368,33 @@ function resetForm() {
 function startEdit(kb) {
   showWriter.value = true
   form.value.id = kb.id
+  form.value.title = kb.title || ''
   form.value.representativeQuestion = kb.representativeQuestion || ''
   form.value.solution = kb.solution || ''
   form.value.visibility = kb.visibility || 'user'
   form.value.platforms = extractPlatforms(kb)
   form.value.similarInput = ''
-  tagInput.value = ''
-  tagDraft.value = normalizeTags((kb.tags || '').split(','))
+  keywordInput.value = ''
+  keywordDraft.value = normalizeKeywords((kb.tags || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
   similarDraft.value = (kb.similarQuestions || []).map((item) => item.question)
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function addTagFromInput() {
-  const value = tagInput.value.trim()
+function addKeywordFromInput() {
+  const value = keywordInput.value.trim()
   if (!value) return
-  tagDraft.value = normalizeTags([...tagDraft.value, value])
-  tagInput.value = ''
+  keywordDraft.value = normalizeKeywords([...keywordDraft.value, value])
+  keywordInput.value = ''
 }
 
-function onTagEnter() {
-  if (isComposingTag.value) return
-  addTagFromInput()
+function onKeywordEnter() {
+  if (isComposingKeyword.value) return
+  addKeywordFromInput()
 }
 
-function removeTag(index) {
-  tagDraft.value.splice(index, 1)
+function removeKeyword(index) {
+  keywordDraft.value.splice(index, 1)
 }
 
 function addPlatformToForm() {
@@ -395,18 +422,23 @@ async function saveKb() {
   saving.value = true
   try {
     const payload = {
+      title: form.value.title?.trim() || null,
       representativeQuestion: form.value.representativeQuestion,
       solution: form.value.solution,
-      tags: normalizeTags(tagDraft.value).join(', '),
+      tags: normalizeKeywords(keywordDraft.value).join(', '),
       visibility: form.value.visibility,
       platforms: normalizeSelectedPlatforms(form.value.platforms),
       similarQuestions: similarDraft.value
     }
 
     if (form.value.id) {
-      await axios.put(`${API_URL}/knowledgebase/${form.value.id}`, payload)
+      await axios.put(`${API_URL}/knowledgebase/${form.value.id}`, payload, {
+        headers: getActorHeader()
+      })
     } else {
-      await axios.post(`${API_URL}/knowledgebase`, payload)
+      await axios.post(`${API_URL}/knowledgebase`, payload, {
+        headers: getActorHeader()
+      })
     }
 
     resetForm()
@@ -480,6 +512,20 @@ function formatDateTime(value) {
   return date.toLocaleString('ko-KR')
 }
 
+function hasUpdateHistory(kb) {
+  if (!kb) return false
+
+  const createdBy = typeof kb.createdBy === 'string' ? kb.createdBy.trim() : ''
+  const updatedBy = typeof kb.updatedBy === 'string' ? kb.updatedBy.trim() : ''
+  if (createdBy && updatedBy && createdBy !== updatedBy) return true
+
+  const createdAt = kb.createdAt ? new Date(kb.createdAt).getTime() : NaN
+  const updatedAt = kb.updatedAt ? new Date(kb.updatedAt).getTime() : NaN
+  if (!Number.isNaN(createdAt) && !Number.isNaN(updatedAt) && updatedAt > createdAt) return true
+
+  return false
+}
+
 onMounted(async () => {
   await fetchPlatforms()
   await fetchKbs()
@@ -513,6 +559,11 @@ onMounted(async () => {
         </label>
 
         <label>
+          제목
+          <input v-model="form.title" placeholder="예) 인증서 안 보이는 경우" />
+        </label>
+
+        <label>
           대표질문
           <textarea v-model="form.representativeQuestion" rows="2" placeholder="예) 인증서 조회가 안 돼요" />
         </label>
@@ -523,21 +574,21 @@ onMounted(async () => {
         </label>
 
         <label>
-          태그(선택)
+          키워드(선택)
           <div class="similar-input-row">
             <input
-              v-model="tagInput"
-              placeholder="예) 인증서"
-              @keydown.enter.prevent="onTagEnter"
-              @compositionstart="isComposingTag = true"
-              @compositionend="isComposingTag = false"
+              v-model="keywordInput"
+              placeholder="예) 인증서, 로그인"
+              @keydown.enter.prevent="onKeywordEnter"
+              @compositionstart="isComposingKeyword = true"
+              @compositionend="isComposingKeyword = false"
             />
-            <button class="secondary" type="button" @click="addTagFromInput">추가</button>
+            <button class="secondary" type="button" @click="addKeywordFromInput">추가</button>
           </div>
-          <div class="chips" v-if="tagDraft.length > 0">
-            <span v-for="(item, idx) in tagDraft" :key="`tag-${item}-${idx}`" class="chip">
+          <div class="chips" v-if="keywordDraft.length > 0">
+            <span v-for="(item, idx) in keywordDraft" :key="`tag-${item}-${idx}`" class="chip">
               #{{ item }}
-              <button type="button" @click="removeTag(idx)">×</button>
+              <button type="button" @click="removeKeyword(idx)">×</button>
             </span>
           </div>
         </label>
@@ -615,7 +666,7 @@ onMounted(async () => {
           <option value="user">사용자 공개</option>
           <option value="admin">관리자 전용</option>
         </select>
-        <input v-model="keyword" placeholder="대표질문/유사질문/답변/태그 검색" />
+        <input v-model="keyword" placeholder="제목/대표질문/유사질문/답변/키워드 검색" />
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -625,22 +676,43 @@ onMounted(async () => {
       <div v-else class="kb-list">
         <article v-for="kb in kbList" :key="kb.id" class="kb-item">
           <div class="kb-top">
-            <button class="q-btn" @click="toggleExpanded(kb.id)">
-              Q. {{ kb.representativeQuestion }}
-            </button>
-            <span class="scope" :class="kb.visibility">
-              {{ kb.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}
-            </span>
+            <div class="badges">
+              <span class="scope" :class="kb.visibility">
+                {{ kb.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}
+              </span>
+              <span class="scope platform">{{ extractPlatforms(kb).join(', ') }}</span>
+            </div>
+            <div class="kb-item-actions">
+              <button class="secondary" @click="startEdit(kb)">수정</button>
+              <button class="danger" @click="deleteKb(kb)">삭제</button>
+            </div>
           </div>
 
-          <p class="answer">A. {{ kb.solution }}</p>
+          <div class="kb-body">
+            <div class="kb-row">
+              <div class="kb-label">제목</div>
+              <div class="kb-value kb-title">{{ kb.title || '-' }}</div>
+            </div>
+            <div class="kb-row">
+              <div class="kb-label">질문</div>
+              <div class="kb-value kb-question-row">
+                <span>{{ kb.representativeQuestion || '-' }}</span>
+                <button class="q-btn" @click="toggleExpanded(kb.id)">
+                  {{ expandedId === kb.id ? '유사질문 접기' : '유사질문 보기' }}
+                </button>
+              </div>
+            </div>
+            <div class="kb-row">
+              <div class="kb-label">답변</div>
+              <pre class="kb-answer">{{ kb.solution || '-' }}</pre>
+            </div>
+          </div>
 
           <div class="meta">
-            <span v-if="kb.tags">태그: {{ kb.tags }}</span>
-            <span>플랫폼: {{ extractPlatforms(kb).join(', ') }}</span>
-            <span>조회수: {{ kb.viewCount }}</span>
-            <span>등록일: {{ formatDateTime(kb.createdAt) }}</span>
-            <span>수정일: {{ formatDateTime(kb.updatedAt) }}</span>
+            <span class="meta-chip" v-if="kb.tags">키워드: {{ kb.tags }}</span>
+            <span class="meta-chip">조회수: {{ kb.viewCount }}</span>
+            <span class="meta-chip">등록: {{ kb.createdBy || '-' }} · {{ formatDateTime(kb.createdAt) }}</span>
+            <span v-if="hasUpdateHistory(kb)" class="meta-chip">수정: {{ kb.updatedBy || '-' }} · {{ formatDateTime(kb.updatedAt) }}</span>
           </div>
 
           <div v-if="expandedId === kb.id" class="similar-box">
@@ -651,10 +723,6 @@ onMounted(async () => {
             <p v-else>등록된 유사질문이 없습니다.</p>
           </div>
 
-          <div class="item-actions">
-            <button class="secondary" @click="startEdit(kb)">수정</button>
-            <button class="danger" @click="deleteKb(kb)">삭제</button>
-          </div>
         </article>
       </div>
 
@@ -719,7 +787,7 @@ onMounted(async () => {
 
         <div class="similarity-guide">
           <p>
-            챗봇은 질문과 KB의 의미 유사도를 먼저 계산하고, 태그 키워드 일치분을 소폭 보정해
+            챗봇은 질문과 KB의 의미 유사도를 먼저 계산하고, 키워드 일치분을 소폭 보정해
             최종 점수를 만듭니다. 아래 기준대로 작성하면 저유사도 비율을 줄이는 데 도움이 됩니다.
           </p>
 
@@ -728,8 +796,8 @@ onMounted(async () => {
             <p>
               질문 임베딩과 KB 대표질문/유사질문 임베딩을 비교해 가장 높은 값을 기본 점수로 사용합니다.
             </p>
-            <p>태그가 질문 키워드와 일치하면 매칭 1건당 +0.03, 최대 +0.12까지 가산됩니다.</p>
-            <p class="guide-formula">최종 점수 = min(기본 점수 + 태그 보정, 1.0)</p>
+            <p>키워드가 질문 키워드와 일치하면 매칭 1건당 +0.03, 최대 +0.12까지 가산됩니다.</p>
+            <p class="guide-formula">최종 점수 = min(기본 점수 + 키워드 보정, 1.0)</p>
           </div>
 
           <div class="guide-card">
@@ -751,11 +819,11 @@ onMounted(async () => {
           </div>
 
           <div class="guide-card">
-            <strong>4) 태그는 짧고 구체적으로 넣으세요</strong>
+            <strong>4) 키워드는 짧고 구체적으로 넣으세요</strong>
             <ul>
               <li>권장: 원인/기능/대상 기준 키워드 (예: 인증서, 결제실패, 환불지연, 관리자승인)</li>
               <li>비권장: 너무 포괄적인 단어만 입력 (예: 오류, 문제, 문의)</li>
-              <li>태그와 대표질문의 용어를 맞추면 가산점이 붙어 상위 노출 가능성이 높아집니다.</li>
+              <li>키워드와 대표질문의 용어를 맞추면 가산점이 붙어 상위 노출 가능성이 높아집니다.</li>
             </ul>
           </div>
 
@@ -763,7 +831,7 @@ onMounted(async () => {
             <strong>5) 저유사도 문의가 쌓일 때 점검 순서</strong>
             <ul>
               <li>저유사도 문의의 원문을 보고, 유사한 표현을 유사질문에 추가</li>
-              <li>기존 태그가 실제 사용자 표현과 맞는지 수정</li>
+              <li>기존 키워드가 실제 사용자 표현과 맞는지 수정</li>
               <li>해결안이 다른 케이스와 섞이지 않게 KB를 분리 작성</li>
             </ul>
           </div>
@@ -819,6 +887,10 @@ onMounted(async () => {
   background: #ffffff;
   box-shadow: 0 0.45rem 1rem rgba(0, 0, 0, 0.06);
   padding: 18px;
+}
+
+.list-panel {
+  background: #ffffff;
 }
 
 .panel-head {
@@ -1208,21 +1280,36 @@ select:focus {
 
 .kb-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .kb-item {
-  border: 1px solid #dee2e6;
-  border-radius: 10px;
-  padding: 14px;
+  border: 1px solid #dfe6ee;
+  border-radius: 12px;
+  padding: 15px;
   background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.kb-item:hover {
+  border-color: #c8d5e6;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .kb-top {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.kb-item-actions {
+  display: flex;
   align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .badges {
@@ -1232,14 +1319,69 @@ select:focus {
 }
 
 .q-btn {
-  border: none;
-  background: transparent;
-  font-weight: 800;
-  text-align: left;
+  border: 1px solid #d2deec;
+  background: #f8fbff;
+  font-weight: 700;
+  text-align: center;
   cursor: pointer;
-  color: #212529;
-  padding: 0;
+  color: #36506d;
+  padding: 6px 10px;
   line-height: 1.35;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.q-btn:hover {
+  background: #eef5ff;
+  border-color: #b9cbe0;
+}
+
+.kb-body {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.kb-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.kb-label {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.kb-value {
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.6;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.kb-question-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.kb-question-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.kb-title {
+  font-weight: 700;
+  color: #1f2f45;
 }
 
 .scope {
@@ -1264,24 +1406,48 @@ select:focus {
   color: #3730a3;
 }
 
-.answer {
-  margin: 10px 0 6px;
-  color: #495057;
+.kb-answer {
+  margin: 0;
   white-space: pre-wrap;
-  line-height: 1.6;
+  font-family: inherit;
+  color: #374151;
+  line-height: 1.62;
+  background: #f9fbfd;
+  border: 1px solid #e4ebf3;
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .meta {
   display: flex;
-  gap: 14px;
-  color: #6c757d;
-  font-size: 13px;
+  gap: 8px;
+  color: #516174;
+  font-size: 12px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d7e2f2;
+  background: #f8fbff;
+  border-radius: 999px;
+  padding: 4px 9px;
 }
 
 .similar-box {
-  margin-top: 10px;
-  border-top: 1px dashed #dee2e6;
-  padding-top: 10px;
+  margin-top: 12px;
+  border-top: 1px dashed #d8e1ea;
+  padding-top: 12px;
+  background: #fcfdff;
+  border-radius: 10px;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-bottom: 10px;
 }
 
 .similar-box h4 {
@@ -1317,6 +1483,26 @@ select:focus {
   .row-two,
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .kb-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .kb-top {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .kb-item-actions {
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .kb-question-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .panel-tools {

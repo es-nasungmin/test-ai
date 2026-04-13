@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import CustomerList from '../components/Management/CustomerList.vue'
 import CustomerForm from '../components/Management/CustomerForm.vue'
@@ -8,6 +8,7 @@ import InteractionList from '../components/Management/InteractionList.vue'
 import KBManagement from '../components/Management/KBManagement.vue'
 import ChatLogManagement from '../components/Management/ChatLogManagement.vue'
 import PromptTestPanel from '../components/Management/PromptTestPanel.vue'
+import UserApproval from '../components/Management/UserApproval.vue'
 
 const API_URL = 'http://localhost:8080/api'
 
@@ -106,6 +107,42 @@ const filteredConsultations = computed(() => {
     .filter(item => item.customerId === selectedCompany.value.id)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 })
+
+// 기간별 질문 분석 데이터 로드
+async function fetchQuestionSummary() {
+  loadingSummary.value = true
+  try {
+    const params = { days: summaryDays.value, top: summaryTop.value }
+    if (roleFilter.value !== 'all') params.role = roleFilter.value
+    if (platformFilter.value !== 'all') params.platform = platformFilter.value
+    
+    const response = await axios.get(`${API_URL}/chat/questions-summary`, { params })
+    questionSummary.value = response.data || null
+  } catch {
+    questionSummary.value = null
+  } finally {
+    loadingSummary.value = false
+  }
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('ko-KR')
+}
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
 
 const fetchCompanies = async () => {
   loading.value = true
@@ -509,11 +546,23 @@ const saveChatbotPromptTemplate = async () => {
 }
 
 // ---- 페이지 탭 ----
-const activePage = ref('kb')  // 'kb' | 'logs' | 'prompt-test' | 'crm'
+const activePage = ref('kb')  // 'kb' | 'logs' | 'question-analysis' | 'prompt-test' | 'crm' | 'user-management'
+
+// 채팅 필터 및 기간별 질문 분석 관련 상태
+const roleFilter = ref('all')
+const platformFilter = ref('all')
+const loadingSummary = ref(false)
+const summaryDays = ref(7)
+const summaryTop = ref(10)
+const questionSummary = ref(null)
 
 const openChatWidgetHtmlExample = () => {
   window.open('/chat-widget-example.html', '_blank', 'noopener,noreferrer')
 }
+
+watch([summaryDays, summaryTop], () => {
+  fetchQuestionSummary()
+})
 
 onMounted(() => {
   loadConsultationTypes()
@@ -521,6 +570,7 @@ onMounted(() => {
   fetchConsultations()
   fetchPromptTemplate()
   fetchChatbotPromptTemplate()
+  fetchQuestionSummary()
 })
 </script>
 
@@ -531,7 +581,7 @@ onMounted(() => {
         <div class="crm-header-topline">
           <span class="crm-header-badge">AI 운영 콘솔</span>
         </div>
-        <h1>ES AI 운영·테스트 센터</h1>
+        <h1>ESN AI 운영센터</h1>
         <p>KB, 채팅 로그, 프롬프트 테스트를 한 곳에서 관리합니다.</p>
         <!-- 페이지 탭 -->
         <div class="page-tabs">
@@ -547,6 +597,11 @@ onMounted(() => {
           >채팅관리</button>
           <button
             class="page-tab"
+            :class="{ active: activePage === 'question-analysis' }"
+            @click="activePage = 'question-analysis'"
+          >질문분석</button>
+          <button
+            class="page-tab"
             :class="{ active: activePage === 'crm' }"
             @click="activePage = 'crm'"
           >CRM 상담관리(테스트)</button>
@@ -555,6 +610,11 @@ onMounted(() => {
             :class="{ active: activePage === 'prompt-test' }"
             @click="activePage = 'prompt-test'"
           >프롬프트 테스트</button>
+          <button
+            class="page-tab"
+            :class="{ active: activePage === 'user-management' }"
+            @click="activePage = 'user-management'"
+          >사용자 관리</button>
         </div>
       </div>
     </header>
@@ -580,8 +640,135 @@ onMounted(() => {
       <ChatLogManagement />
     </div>
 
+
+    <div v-if="activePage === 'question-analysis'" class="kb-page">
+      <div class="summary-panel-wrapper">
+        <div class="summary-controls">
+          <div class="control-group">
+            <label>조회 기간:</label>
+            <select v-model.number="summaryDays" class="control-input">
+              <option :value="7">최근 7일</option>
+              <option :value="30">최근 30일</option>
+              <option :value="90">최근 90일</option>
+              <option :value="365">최근 1년</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>상위:</label>
+            <select v-model.number="summaryTop" class="control-input">
+              <option :value="5">5개</option>
+              <option :value="10">10개</option>
+              <option :value="20">20개</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>역할:</label>
+            <select v-model="roleFilter" class="control-input">
+              <option value="all">전체</option>
+              <option value="user">사용자</option>
+              <option value="admin">관리자</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>플랫폼:</label>
+            <select v-model="platformFilter" class="control-input">
+              <option value="all">전체</option>
+              <option value="공통">공통</option>
+            </select>
+          </div>
+          <button
+            class="summary-refresh-btn"
+            type="button"
+            :disabled="loadingSummary"
+            @click="fetchQuestionSummary"
+          >
+            {{ loadingSummary ? '새로고침 중...' : '새로고침' }}
+          </button>
+        </div>
+
+        <div v-if="loadingSummary" class="loading">
+          질문 분석 데이터 로딩 중...
+        </div>
+
+        <div v-else-if="questionSummary" class="question-summary-content">
+          <div class="analysis-title-row">
+            <h3>질문 분석 리포트</h3>
+            <p>조회기간 {{ summaryDays }}일 기준 집계</p>
+          </div>
+
+          <div class="kpi-cards">
+            <div class="kpi-card">
+              <div class="kpi-label">총 질문 수</div>
+              <div class="kpi-value">{{ questionSummary.totalQuestions || 0 }}</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">고유 질문 수</div>
+              <div class="kpi-value">{{ questionSummary.uniqueQuestions || 0 }}</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">요청 상위 기준</div>
+              <div class="kpi-value">TOP {{ summaryTop }}</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">집계 일수</div>
+              <div class="kpi-value">{{ questionSummary.dailyCounts?.length || 0 }}일</div>
+            </div>
+          </div>
+
+          <!-- 상위 질문 섹션 -->
+          <div class="top-questions-section">
+            <h3>상위 {{ summaryTop }} 질문</h3>
+            <div v-if="questionSummary.topQuestions && questionSummary.topQuestions.length > 0" class="questions-list">
+              <div v-for="(q, idx) in questionSummary.topQuestions" :key="idx" class="question-item">
+                <div class="question-rank">{{ idx + 1 }}</div>
+                <div class="question-info">
+                  <div class="question-text">{{ q.question || q.Query || '-' }}</div>
+                  <div class="question-meta">
+                    <span class="meta-item">질문 수: {{ q.count || q.Count || 0 }}</span>
+                    <span class="meta-item">최근: {{ formatDateTime(q.lastAskedAt || q.LastAskedAt) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state">
+              데이터가 없습니다.
+            </div>
+          </div>
+
+          <!-- 키워드 분석 섹션 -->
+          <div v-if="questionSummary.topKeywords" class="keywords-section">
+            <h3>주요 키워드</h3>
+            <div class="keywords-cloud">
+              <span v-for="(kw, idx) in questionSummary.topKeywords" :key="idx" class="keyword-tag">
+                {{ kw.keyword || kw.Keyword || kw }}
+                <strong v-if="kw.count || kw.Count">{{ kw.count || kw.Count }}</strong>
+              </span>
+            </div>
+          </div>
+
+          <!-- 일일 질문 수 섹션 -->
+          <div v-if="questionSummary.dailyCounts" class="daily-counts-section">
+            <h3>일일 질문 수</h3>
+            <div class="daily-counts-list">
+              <div v-for="(item, idx) in questionSummary.dailyCounts" :key="idx" class="daily-item">
+                <div class="daily-date">{{ formatDate(item.date || item.Date) }}</div>
+                <div class="daily-count">{{ item.count || 0 }}건</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="empty-state">
+          분석할 데이터가 없습니다.
+        </div>
+      </div>
+    </div>
     <div v-if="activePage === 'prompt-test'" class="kb-page">
       <PromptTestPanel />
+    </div>
+
+    <div v-if="activePage === 'user-management'" class="kb-page">
+      <UserApproval />
     </div>
 
     <div v-show="activePage === 'crm'" class="crm-content">
@@ -965,6 +1152,233 @@ onMounted(() => {
   padding: 24px;
   border: 1px solid #dee2e6;
   box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
+}
+
+.summary-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.summary-controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  background: #f6f9fd;
+  border: 1px solid #d9e4f0;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.summary-refresh-btn {
+  align-self: end;
+  justify-self: end;
+  width: fit-content;
+  min-width: 92px;
+  height: 36px;
+  border: 1px solid #ced4da;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #6c757d;
+  font-weight: 700;
+  font-size: 0.86rem;
+  padding: 0 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.summary-refresh-btn:hover:not(:disabled) {
+  background: #f8f9fa;
+}
+
+.summary-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-group label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4d607a;
+}
+
+.control-input {
+  border: 1px solid #cbd7e4;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: #2f4056;
+  font-weight: 600;
+}
+
+.question-summary-content {
+  background: linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%);
+  border: 1px solid #e1e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.analysis-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.analysis-title-row h3 {
+  margin: 0;
+  color: #1f3551;
+}
+
+.analysis-title-row p {
+  margin: 0;
+  color: #5f738f;
+  font-size: 0.86rem;
+}
+
+.kpi-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.kpi-card {
+  background: #ffffff;
+  border: 1px solid #dbe6f2;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.kpi-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #5d738f;
+  margin-bottom: 6px;
+}
+
+.kpi-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #17314f;
+}
+
+.top-questions-section,
+.keywords-section,
+.daily-counts-section {
+  margin-top: 12px;
+  border-top: 1px solid #edf2f8;
+  padding-top: 12px;
+}
+
+.top-questions-section h3,
+.keywords-section h3,
+.daily-counts-section h3 {
+  margin: 0 0 10px;
+  color: #2a415e;
+  font-size: 1rem;
+}
+
+.questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.question-item {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 10px;
+  align-items: start;
+  background: #ffffff;
+  border: 1px solid #e3ebf4;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.question-rank {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8f1ff;
+  color: #235d9d;
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+
+.question-text {
+  font-weight: 700;
+  color: #243f5d;
+}
+
+.question-meta {
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  font-size: 0.8rem;
+  color: #5f738f;
+}
+
+.keywords-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.keyword-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #edf4ff;
+  border: 1px solid #d4e3fa;
+  color: #244a77;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.keyword-tag strong {
+  font-size: 0.76rem;
+  color: #5d738f;
+}
+
+.daily-counts-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.daily-item {
+  background: #ffffff;
+  border: 1px solid #e3ebf4;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.daily-date {
+  font-size: 0.78rem;
+  color: #61758f;
+}
+
+.daily-count {
+  margin-top: 2px;
+  font-weight: 800;
+  color: #203b5a;
 }
 
 .chat-management-actions {
@@ -1492,6 +1906,30 @@ onMounted(() => {
 
   .kb-page {
     width: calc(100% - 16px);
+  }
+
+  .summary-controls {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .kpi-cards {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .summary-controls,
+  .kpi-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-refresh-btn {
+    justify-self: start;
+  }
+
+  .analysis-title-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

@@ -20,11 +20,10 @@ const showKbModal = ref(false)
 const loadingKbDetail = ref(false)
 const selectedKbDetail = ref(null)
 const selectedKbSimilarity = ref(null)
+const selectedKbEvidence = ref(null)
+const showSimilarityExplain = ref(false)
 const deletingSessionId = ref(null)
-const loadingSummary = ref(false)
-const summaryDays = ref(7)
-const summaryTop = ref(10)
-const questionSummary = ref(null)
+const kbDetailRequestSeq = ref(0)
 
 const sessionTotalPages = computed(() => Math.max(1, Math.ceil(sessionTotal.value / sessionPageSize.value)))
 
@@ -70,25 +69,6 @@ async function fetchPlatforms() {
   }
 }
 
-async function fetchQuestionSummary() {
-  loadingSummary.value = true
-  try {
-    const params = {
-      days: summaryDays.value,
-      top: summaryTop.value
-    }
-    if (roleFilter.value !== 'all') params.role = roleFilter.value
-    if (platformFilter.value !== 'all') params.platform = platformFilter.value
-
-    const res = await axios.get(`${API_URL}/chat/questions-summary`, { params })
-    questionSummary.value = res.data || null
-  } catch {
-    questionSummary.value = null
-  } finally {
-    loadingSummary.value = false
-  }
-}
-
 async function loadSessionDetail(id) {
   selectedSessionId.value = id
   loadingDetail.value = true
@@ -125,40 +105,248 @@ async function deleteSession(id) {
   }
 }
 
-function parseRelatedKbIds(value) {
-  if (!value) return []
+function parseRelatedKbs(message) {
+  const diagnostics = parseRetrievalDiagnostics(message)
+  const candidateById = new Map(
+    (diagnostics?.candidates || []).map((c) => [c.id, c])
+  )
+
+  const metaRaw = message?.relatedKbMeta || message?.RelatedKbMeta
+  if (metaRaw) {
+    try {
+      const parsedMeta = JSON.parse(metaRaw)
+      if (Array.isArray(parsedMeta)) {
+        return parsedMeta
+          .map((item) => ({
+            id: Number(item?.id),
+            similarity: Number.isFinite(Number(item?.similarity)) ? Number(item.similarity) : null,
+            includedBySemantic: item?.includedBySemantic === true,
+            includedByKeyword: item?.includedByKeyword === true,
+            matchedKeywords: Array.isArray(item?.matchedKeywords)
+              ? item.matchedKeywords.map((x) => String(x).trim()).filter(Boolean)
+              : [],
+            keywordMatchCount: Number(item?.keywordMatchCount || 0),
+            baseSimilarity: Number.isFinite(Number(item?.baseSimilarity)) ? Number(item.baseSimilarity) : null,
+            keywordBoost: Number.isFinite(Number(item?.keywordBoost)) ? Number(item.keywordBoost) : null,
+            evidence: candidateById.get(Number(item?.id)) || null
+          }))
+          .filter((item) => Number.isInteger(item.id) && item.id > 0)
+      }
+    } catch {
+      // Fallback to legacy relatedKbIds parsing below.
+    }
+  }
+
+  const idsRaw = message?.relatedKbIds || message?.RelatedKbIds
+  if (!idsRaw) return []
   try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
+    const parsedIds = JSON.parse(idsRaw)
+    if (!Array.isArray(parsedIds)) return []
+    return parsedIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+      .map((id) => ({
+        id,
+        similarity: null,
+        includedBySemantic: candidateById.get(id)?.includedBySemantic === true,
+        includedByKeyword: candidateById.get(id)?.includedByKeyword === true,
+        matchedKeywords: candidateById.get(id)?.matchedKeywords || [],
+        keywordMatchCount: candidateById.get(id)?.keywordMatchCount || 0,
+        baseSimilarity: Number.isFinite(Number(candidateById.get(id)?.baseSimilarity)) ? Number(candidateById.get(id)?.baseSimilarity) : null,
+        keywordBoost: Number.isFinite(Number(candidateById.get(id)?.keywordBoost)) ? Number(candidateById.get(id)?.keywordBoost) : null,
+        evidence: candidateById.get(id) || null
+      }))
   } catch {
     return []
   }
 }
 
-async function openKbDetail(id, similarity = null) {
+function parseRetrievalDiagnostics(message) {
+  const raw = message?.retrievalDebugMeta || message?.RetrievalDebugMeta
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const tokens = Array.isArray(parsed.questionTokens)
+      ? parsed.questionTokens
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+      : []
+
+    const candidates = Array.isArray(parsed.candidates)
+      ? parsed.candidates
+        .map((c) => ({
+          id: Number(c?.id),
+          problem: typeof c?.problem === 'string' ? c.problem : '',
+          matchedQuestion: typeof c?.matchedQuestion === 'string' ? c.matchedQuestion : '',
+          baseSimilarity: Number(c?.baseSimilarity),
+          keywordBoost: Number(c?.keywordBoost),
+          adjustedSimilarity: Number(c?.adjustedSimilarity),
+          keywordMatchCount: Number(c?.keywordMatchCount),
+          matchedKeywords: Array.isArray(c?.matchedKeywords)
+            ? c.matchedKeywords.map((x) => String(x).trim()).filter(Boolean)
+            : [],
+          includedBySemantic: Boolean(c?.includedBySemantic),
+          includedByKeyword: Boolean(c?.includedByKeyword),
+          passedThreshold: Boolean(c?.passedThreshold),
+          selectedForAnswer: Boolean(c?.selectedForAnswer)
+        }))
+        .filter((c) => Number.isInteger(c.id) && c.id > 0)
+      : []
+
+    return {
+      similarityThreshold: Number(parsed.similarityThreshold),
+      questionTokens: tokens,
+      candidates
+    }
+  } catch {
+    return null
+  }
+}
+
+function getRelatedKbsSorted(message) {
+  return parseRelatedKbs(message)
+    .slice()
+    .sort((a, b) => {
+      const aSimilarity = typeof a?.similarity === 'number' ? a.similarity : -1
+      const bSimilarity = typeof b?.similarity === 'number' ? b.similarity : -1
+      if (bSimilarity !== aSimilarity) return bSimilarity - aSimilarity
+      return (a?.id || 0) - (b?.id || 0)
+    })
+}
+
+function formatPercentPart(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+  return `${(value * 100).toFixed(1)}%`
+}
+
+function toFiniteNumberOrNull(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function buildSimilarityEvidence(rawEvidence, fallbackSimilarity) {
+  const evidence = rawEvidence && typeof rawEvidence === 'object' ? rawEvidence : {}
+  const finalSimilarity = toFiniteNumberOrNull(evidence.adjustedSimilarity)
+    ?? toFiniteNumberOrNull(evidence.similarity)
+    ?? toFiniteNumberOrNull(fallbackSimilarity)
+
+  const matchedKeywords = Array.isArray(evidence.matchedKeywords)
+    ? evidence.matchedKeywords.map((x) => String(x).trim()).filter(Boolean)
+    : []
+
+  const keywordMatchCountRaw = Number(evidence.keywordMatchCount)
+  const keywordMatchCount = Number.isFinite(keywordMatchCountRaw) && keywordMatchCountRaw > 0
+    ? Math.floor(keywordMatchCountRaw)
+    : matchedKeywords.length
+
+  const storedBoost = toFiniteNumberOrNull(evidence.keywordBoost)
+  const estimatedBoost = Math.min(0.12, keywordMatchCount * 0.03)
+  const keywordBoost = storedBoost ?? estimatedBoost
+
+  const storedBase = toFiniteNumberOrNull(evidence.baseSimilarity)
+  const baseSimilarity = storedBase ?? (finalSimilarity !== null
+    ? Math.max(0, Math.min(1, finalSimilarity - keywordBoost))
+    : null)
+
+  const adjustedSimilarity = finalSimilarity ?? (baseSimilarity !== null
+    ? Math.min(1, baseSimilarity + keywordBoost)
+    : null)
+
+  return {
+    ...evidence,
+    matchedKeywords,
+    keywordMatchCount,
+    baseSimilarity,
+    keywordBoost,
+    adjustedSimilarity,
+    usedEstimatedBoost: storedBoost === null && keywordMatchCount > 0,
+    usedEstimatedBase: storedBase === null && adjustedSimilarity !== null
+  }
+}
+
+function similarityExplainText(evidence, fallbackSimilarity) {
+  const normalized = buildSimilarityEvidence(evidence, fallbackSimilarity)
+
+  const base = formatPercentPart(normalized.baseSimilarity)
+  const boost = formatPercentPart(normalized.keywordBoost)
+  const adjusted = formatPercentPart(normalized.adjustedSimilarity)
+  const keywordInfo = normalized.matchedKeywords.length
+    ? `매칭 키워드: ${normalized.matchedKeywords.join(', ')}`
+    : '매칭 키워드 없음'
+  const estimateInfo = normalized.usedEstimatedBoost || normalized.usedEstimatedBase
+    ? ' (일부 과거 로그는 저장값이 없어 계산식 일부를 보정해 표시)'
+    : ''
+
+  return `기본 유사도 ${base} + 키워드 가산 ${boost} = 최종 ${adjusted}\n${keywordInfo}${estimateInfo}`
+}
+
+async function openKbDetail(id, similarity = null, evidence = null) {
+  const kbId = Number(id)
+  const requestSeq = ++kbDetailRequestSeq.value
+  const normalizedSimilarity = typeof similarity === 'number' ? similarity : null
   loadingKbDetail.value = true
   showKbModal.value = true
   selectedKbDetail.value = null
-  selectedKbSimilarity.value = typeof similarity === 'number' ? similarity : null
-  try {
-    const res = await axios.get(`${API_URL}/knowledgebase/${id}`)
-    selectedKbDetail.value = res.data
-  } catch {
-    selectedKbDetail.value = { error: 'KB 상세를 불러오지 못했습니다.' }
-  } finally {
+  selectedKbSimilarity.value = normalizedSimilarity
+  selectedKbEvidence.value = buildSimilarityEvidence(evidence, normalizedSimilarity)
+  showSimilarityExplain.value = false
+
+  if (!Number.isInteger(kbId) || kbId <= 0) {
+    selectedKbDetail.value = { error: '잘못된 KB ID입니다.' }
     loadingKbDetail.value = false
+    return
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const res = await fetch(`${API_URL}/knowledgebase/${kbId}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    })
+
+    if (kbDetailRequestSeq.value !== requestSeq) return
+
+    if (!res.ok) {
+      selectedKbDetail.value = { error: `KB 상세 조회 실패 (${res.status})` }
+      return
+    }
+
+    const data = await res.json()
+    if (kbDetailRequestSeq.value !== requestSeq) return
+    selectedKbDetail.value = data
+  } catch {
+    if (kbDetailRequestSeq.value !== requestSeq) return
+    selectedKbDetail.value = { error: 'KB 상세를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.' }
+  } finally {
+    clearTimeout(timeoutId)
+    if (kbDetailRequestSeq.value === requestSeq) {
+      loadingKbDetail.value = false
+    }
   }
 }
 
 function closeKbModal() {
+  kbDetailRequestSeq.value += 1
   showKbModal.value = false
+  loadingKbDetail.value = false
   selectedKbDetail.value = null
   selectedKbSimilarity.value = null
+  selectedKbEvidence.value = null
+  showSimilarityExplain.value = false
+}
+
+async function fetchQuestionSummary() {
+  // 질문 분석은 ManagementPage에서 관리됩니다.
+  // 이 함수는 호환성을 위해 유지됩니다.
 }
 
 function formatSimilarity(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-'
-  return `${Math.round(value * 100)}%`
+  return `${(value * 100).toFixed(1)}%`
 }
 
 function formatDateTime(value) {
@@ -168,27 +356,23 @@ function formatDateTime(value) {
   return date.toLocaleString('ko-KR')
 }
 
-function formatDate(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return date.toLocaleDateString('ko-KR')
-}
-
 function getKbPlatforms(detail) {
   if (!detail) return ['공통']
-  if (Array.isArray(detail.platforms) && detail.platforms.length > 0) {
-    return detail.platforms
+  const platforms = detail.platforms || detail.Platforms
+  if (Array.isArray(platforms) && platforms.length > 0) {
+    return platforms
   }
-  if (typeof detail.platform === 'string' && detail.platform.trim()) {
-    return detail.platform.split(',').map((x) => x.trim()).filter(Boolean)
+  const platform = detail.platform || detail.Platform
+  if (typeof platform === 'string' && platform.trim()) {
+    return platform.split(',').map((x) => x.trim()).filter(Boolean)
   }
   return ['공통']
 }
 
 function getKbTags(detail) {
-  if (!detail || typeof detail.tags !== 'string') return []
-  return detail.tags.split(',').map((x) => x.trim()).filter(Boolean)
+  const tags = detail?.tags || detail?.Tags
+  if (typeof tags !== 'string') return []
+  return tags.split(',').map((x) => x.trim()).filter(Boolean)
 }
 
 watch([roleFilter, platformFilter, sessionPageSize], () => {
@@ -196,14 +380,26 @@ watch([roleFilter, platformFilter, sessionPageSize], () => {
   fetchSessions()
 })
 
-watch([roleFilter, platformFilter, summaryDays, summaryTop], () => {
-  fetchQuestionSummary()
+watch([roleFilter, platformFilter], () => {
+  fetchSessions()
+})
+
+watch([showKbModal, loadingKbDetail], ([isOpen, isLoading]) => {
+  if (!isOpen || !isLoading) return
+  const guardSeq = kbDetailRequestSeq.value
+  setTimeout(() => {
+    if (!showKbModal.value || !loadingKbDetail.value) return
+    if (kbDetailRequestSeq.value !== guardSeq) return
+    loadingKbDetail.value = false
+    if (!selectedKbDetail.value) {
+      selectedKbDetail.value = { error: 'KB 상세 로딩이 지연되어 중단되었습니다. 다시 시도해주세요.' }
+    }
+  }, 12000)
 })
 
 onMounted(async () => {
   await fetchPlatforms()
   await fetchSessions()
-  await fetchQuestionSummary()
 })
 </script>
 
@@ -270,77 +466,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="panel summary-panel">
-      <div class="panel-head">
-        <h3>기간별 질문 분석</h3>
-        <div class="toolbar summary-toolbar">
-          <select v-model.number="summaryDays">
-            <option :value="7">최근 7일</option>
-            <option :value="30">최근 30일</option>
-            <option :value="90">최근 90일</option>
-          </select>
-          <select v-model.number="summaryTop">
-            <option :value="5">Top 5</option>
-            <option :value="10">Top 10</option>
-            <option :value="20">Top 20</option>
-          </select>
-          <button class="ghost refresh-fit" :disabled="loadingSummary" @click="fetchQuestionSummary">새로고침</button>
-        </div>
-      </div>
-
-      <div v-if="loadingSummary" class="empty">질문 통계를 계산하는 중...</div>
-      <div v-else-if="!questionSummary || !questionSummary.totalQuestions" class="empty">선택한 기간에 질문 데이터가 없습니다.</div>
-
-      <div v-else class="summary-grid">
-        <div class="summary-kpi-row">
-          <div class="kpi-card">
-            <div class="kpi-label">총 질문 수</div>
-            <div class="kpi-value">{{ questionSummary.totalQuestions }}</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">중복 제거 질문 수</div>
-            <div class="kpi-value">{{ questionSummary.uniqueQuestions }}</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">분석 기간</div>
-            <div class="kpi-value small">{{ formatDate(questionSummary.from) }} ~ {{ formatDate(questionSummary.to) }}</div>
-          </div>
-        </div>
-
-        <div class="summary-block">
-          <h4>가장 많이 물어본 질문</h4>
-          <div v-if="!questionSummary.topQuestions?.length" class="empty small">집계된 질문이 없습니다.</div>
-          <ol v-else class="top-question-list">
-            <li v-for="(item, idx) in questionSummary.topQuestions" :key="`q-${idx}`">
-              <div class="top-question-text">{{ item.question }}</div>
-              <div class="top-question-meta">{{ item.count }}회 · 최근 {{ formatDateTime(item.lastAskedAt) }}</div>
-            </li>
-          </ol>
-        </div>
-
-        <div class="summary-block">
-          <h4>질문 키워드 요약</h4>
-          <div v-if="!questionSummary.topKeywords?.length" class="empty small">요약할 키워드가 없습니다.</div>
-          <div v-else class="keyword-list">
-            <span v-for="item in questionSummary.topKeywords" :key="`k-${item.keyword}`" class="keyword-chip">
-              #{{ item.keyword }} ({{ item.count }})
-            </span>
-          </div>
-        </div>
-
-        <div class="summary-block">
-          <h4>일자별 질문 수</h4>
-          <div v-if="!questionSummary.dailyCounts?.length" class="empty small">일자별 데이터가 없습니다.</div>
-          <div v-else class="daily-list">
-            <div v-for="item in questionSummary.dailyCounts" :key="`d-${item.date}`" class="daily-item">
-              <span>{{ item.date }}</span>
-              <strong>{{ item.count }}건</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="panel detail-panel">
       <div class="panel-head">
         <h3>대화 상세</h3>
@@ -365,17 +490,23 @@ onMounted(async () => {
             <span v-if="msg.isLowSimilarity" class="sim-chip warning">저유사도 안내 응답</span>
           </div>
 
-          <div v-if="msg.role === 'bot' && parseRelatedKbIds(msg.relatedKbIds).length > 0" class="related-kb">
+          <div v-if="msg.role === 'bot' && getRelatedKbsSorted(msg).length > 0" class="related-kb">
             <span class="label">참조 KB:</span>
-            <button
-              v-for="id in parseRelatedKbIds(msg.relatedKbIds)"
-              :key="id"
-              class="kb-chip"
-              type="button"
-              @click="openKbDetail(id, msg.topSimilarity)"
-            >
-              #{{ id }} 보기
-            </button>
+            <div class="related-kb-list">
+              <div
+                v-for="(item, idx) in getRelatedKbsSorted(msg)"
+                :key="`rel-${msg.id}-${item.id}`"
+                class="related-kb-item"
+              >
+                <button
+                  class="kb-chip"
+                  type="button"
+                  @click="openKbDetail(item.id, item.similarity, item)"
+                >
+                  {{ idx + 1 }}위 · #{{ item.id }} · {{ formatSimilarity(item.similarity) }}
+                </button>
+              </div>
+            </div>
           </div>
         </article>
       </div>
@@ -398,11 +529,16 @@ onMounted(async () => {
             <div class="kb-header-top">
               <div class="kb-title">KB 상세 정보</div>
               <div class="kb-header-top-right">
-                <span v-if="selectedKbSimilarity !== null" class="sim-chip">
-                  연관 유사도 {{ formatSimilarity(selectedKbSimilarity) }}
-                </span>
-                <span class="badge" :class="selectedKbDetail.visibility === 'admin' ? 'admin' : 'user'">
-                  {{ selectedKbDetail.visibility === 'admin' ? '관리자 전용' : '사용자 공개' }}
+                <div v-if="selectedKbSimilarity !== null" class="sim-chip-wrap">
+                  <p v-if="showSimilarityExplain" class="sim-mini-explain">{{ similarityExplainText(selectedKbEvidence, selectedKbSimilarity) }}</p>
+                  <span class="sim-chip">
+                    <button class="sim-chip-btn" type="button" @click="showSimilarityExplain = !showSimilarityExplain">
+                      연관 유사도 {{ formatSimilarity(selectedKbSimilarity) }}
+                    </button>
+                  </span>
+                </div>
+                <span class="badge visibility-chip" :class="(selectedKbDetail.visibility || selectedKbDetail.Visibility) === 'admin' ? 'admin' : 'user'">
+                  {{ (selectedKbDetail.visibility || selectedKbDetail.Visibility) === 'admin' ? '관리자 전용' : '사용자 공개' }}
                 </span>
               </div>
             </div>
@@ -411,23 +547,28 @@ onMounted(async () => {
               <span v-if="!getKbPlatforms(selectedKbDetail).length" class="badge platform">공통</span>
             </div>
             <div class="kb-header-meta">
-              <span>등록일: {{ formatDateTime(selectedKbDetail.createdAt) }}</span>
-              <span>수정일: {{ formatDateTime(selectedKbDetail.updatedAt) }}</span>
+              <span>등록일: {{ formatDateTime(selectedKbDetail.createdAt || selectedKbDetail.CreatedAt) }}</span>
+              <span>수정일: {{ formatDateTime(selectedKbDetail.updatedAt || selectedKbDetail.UpdatedAt) }}</span>
             </div>
           </div>
 
           <div class="kb-section">
+            <div class="kb-section-label">제목</div>
+            <div class="kb-q">{{ selectedKbDetail.title || selectedKbDetail.Title || '-' }}</div>
+          </div>
+
+          <div class="kb-section">
             <div class="kb-section-label">대표질문</div>
-            <div class="kb-q">{{ selectedKbDetail.representativeQuestion }}</div>
+            <div class="kb-q">{{ selectedKbDetail.representativeQuestion || selectedKbDetail.RepresentativeQuestion || selectedKbDetail.problem || selectedKbDetail.Problem || '-' }}</div>
           </div>
 
           <div class="kb-section">
             <div class="kb-section-label">답변</div>
-            <pre class="kb-answer">{{ selectedKbDetail.solution }}</pre>
+            <pre class="kb-answer">{{ selectedKbDetail.solution || selectedKbDetail.Solution || '-' }}</pre>
           </div>
 
           <div class="kb-meta-grid">
-            <div class="kb-meta-item">
+            <!-- <div class="kb-meta-item">
               <span class="kb-meta-label">공개수준</span>
               <span class="badge" :class="selectedKbDetail.visibility === 'admin' ? 'admin' : 'user'">
                 {{ selectedKbDetail.visibility === 'admin' ? '관리자 전용' : '사용자 공개' }}
@@ -438,19 +579,19 @@ onMounted(async () => {
               <div class="kb-platforms">
                 <span v-for="p in getKbPlatforms(selectedKbDetail)" :key="`detail-${p}`" class="badge platform">{{ p }}</span>
               </div>
-            </div>
+            </div> -->
             <div class="kb-meta-item kb-meta-item-full" v-if="getKbTags(selectedKbDetail).length">
-              <span class="kb-meta-label">태그</span>
+              <span class="kb-meta-label">키워드</span>
               <div class="kb-tags">
                 <span v-for="tag in getKbTags(selectedKbDetail)" :key="`tag-${tag}`" class="kb-tag-chip">#{{ tag }}</span>
               </div>
             </div>
           </div>
 
-          <div v-if="selectedKbDetail.similarQuestions?.length" class="kb-section">
+          <div v-if="(selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)?.length" class="kb-section">
             <div class="kb-section-label">유사질문</div>
             <ul class="kb-similar-list">
-              <li v-for="sq in selectedKbDetail.similarQuestions" :key="sq.id">{{ sq.question }}</li>
+              <li v-for="sq in (selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)" :key="sq.id || sq.Id">{{ sq.question || sq.Question }}</li>
             </ul>
           </div>
         </div>
@@ -854,6 +995,169 @@ select {
   cursor: pointer;
 }
 
+.source-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.related-kb-list {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.related-kb-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-label {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid #d0d7de;
+  color: #334155;
+  background: #f8fafc;
+}
+
+.source-label.semantic {
+  border-color: #cfe2ff;
+  color: #0d6efd;
+  background: #e7f1ff;
+}
+
+.source-label.keyword {
+  border-color: #ffe69c;
+  color: #8a5700;
+  background: #fff3cd;
+}
+
+.source-label.both {
+  border-color: #c7f9cc;
+  color: #166534;
+  background: #dcfce7;
+}
+
+.source-keywords {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.sim-chip-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sim-chip-wrap {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+.sim-mini-explain {
+  margin: 0;
+  max-width: 320px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #dbe4f0;
+  background: #f8fbff;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #475569;
+  white-space: pre-line;
+}
+
+.visibility-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sim-explain {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fbff;
+  font-size: 13px;
+  color: #334155;
+}
+
+.retrieval-debug {
+  margin-top: 8px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.retrieval-debug > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f4d8f;
+}
+
+.retrieval-debug-body {
+  border-top: 1px solid #dbe4f0;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.debug-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.debug-candidates {
+  display: grid;
+  gap: 8px;
+}
+
+.debug-candidate {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.debug-candidate-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.debug-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.debug-line {
+  margin: 4px 0;
+  font-size: 12px;
+  color: #495057;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -919,7 +1223,7 @@ select {
 }
 
 .kb-section {
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .kb-header-card {
@@ -997,7 +1301,7 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .kb-meta-item {

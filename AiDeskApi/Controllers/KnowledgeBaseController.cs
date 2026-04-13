@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Security.Claims;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
 using AiDeskApi.Services;
@@ -97,7 +98,31 @@ namespace AiDeskApi.Controllers
                 if (!noSave && session != null)
                 {
                     session.Platform = platform;
-                    var relatedIds = result.RelatedKBs.Select(k => k.Id).Distinct().ToList();
+                    var diagnosticsById = (result.RetrievalDiagnostics?.Candidates ?? new List<RetrievalCandidateDiagnostic>())
+                        .GroupBy(c => c.Id)
+                        .ToDictionary(g => g.Key, g => g.First());
+
+                    var relatedKbMeta = result.RelatedKBs
+                        .GroupBy(k => k.Id)
+                        .Select(g =>
+                        {
+                            var similarity = g.Max(x => x.Similarity);
+                            diagnosticsById.TryGetValue(g.Key, out var cand);
+
+                            return new
+                            {
+                                id = g.Key,
+                                similarity,
+                                includedBySemantic = cand?.IncludedBySemantic == true,
+                                includedByKeyword = cand?.IncludedByKeyword == true,
+                                matchedKeywords = cand?.MatchedKeywords ?? new List<string>(),
+                                keywordMatchCount = cand?.KeywordMatchCount ?? 0,
+                                baseSimilarity = cand?.BaseSimilarity ?? similarity,
+                                keywordBoost = cand?.KeywordBoost ?? 0f
+                            };
+                        })
+                        .ToList();
+                    var relatedIds = relatedKbMeta.Select(x => x.id).ToList();
                     _context.ChatMessages.AddRange(
                         new ChatMessage
                         {
@@ -113,6 +138,8 @@ namespace AiDeskApi.Controllers
                             Content = result.Answer,
                             CreatedAt = DateTime.UtcNow,
                             RelatedKbIds = JsonSerializer.Serialize(relatedIds),
+                            RelatedKbMeta = JsonSerializer.Serialize(relatedKbMeta),
+                            RetrievalDebugMeta = JsonSerializer.Serialize(result.RetrievalDiagnostics),
                             TopSimilarity = result.TopSimilarity,
                             IsLowSimilarity = result.IsLowSimilarity
                         }
@@ -134,6 +161,7 @@ namespace AiDeskApi.Controllers
                     result.RelatedKBs,
                     result.ConflictDetected,
                     result.DecisionRule,
+                    result.RetrievalDiagnostics,
                     sessionId = session?.Id
                 });
             }
@@ -155,10 +183,12 @@ namespace AiDeskApi.Controllers
 
                 var representativeEmbedding = await _embeddingService.EmbedTextAsync(request.RepresentativeQuestion!.Trim());
                 var now = DateTime.Now;
+                var actor = await ResolveActorNameAsync();
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
 
                 var kb = new KnowledgeBase
                 {
+                    Title = request.Title?.Trim(),
                     Problem = request.RepresentativeQuestion.Trim(),
                     Solution = request.Solution!.Trim(),
                     ProblemEmbedding = JsonSerializer.Serialize(representativeEmbedding),
@@ -166,7 +196,9 @@ namespace AiDeskApi.Controllers
                     Platform = SerializePlatforms(platforms),
                     Tags = request.Tags?.Trim(),
                     CreatedAt = now,
-                    UpdatedAt = now
+                    UpdatedAt = now,
+                    CreatedBy = actor,
+                    UpdatedBy = actor
                 };
 
                 var similarQuestions = request.SimilarQuestions
@@ -224,12 +256,15 @@ namespace AiDeskApi.Controllers
                 }
 
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
+                var actor = await ResolveActorNameAsync();
+                kb.Title = request.Title?.Trim();
                 kb.Problem = nextRepresentativeQuestion;
                 kb.Solution = request.Solution!.Trim();
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
                 kb.Tags = request.Tags?.Trim();
                 kb.UpdatedAt = DateTime.Now;
+                kb.UpdatedBy = actor;
 
                 var incoming = request.SimilarQuestions
                     ?.Where(x => !string.IsNullOrWhiteSpace(x))
@@ -323,10 +358,11 @@ namespace AiDeskApi.Controllers
                 {
                     var q = keyword.Trim();
                     query = query.Where(x =>
-                        x.Problem.Contains(q) ||
-                        x.Solution.Contains(q) ||
-                        (x.Tags != null && x.Tags.Contains(q)) ||
-                        x.SimilarQuestions.Any(s => s.Question.Contains(q)));
+                        (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
+                        EF.Functions.Like(x.Problem, $"%{q}%") ||
+                        EF.Functions.Like(x.Solution, $"%{q}%") ||
+                        (x.Tags != null && EF.Functions.Like(x.Tags, $"%{q}%")) ||
+                        x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
                 }
 
                 var total = await query.CountAsync();
@@ -337,10 +373,13 @@ namespace AiDeskApi.Controllers
                     .Select(x => new
                     {
                         x.Id,
+                        x.Title,
                         representativeQuestion = x.Problem,
                         x.Solution,
                         x.CreatedAt,
                         x.UpdatedAt,
+                        x.CreatedBy,
+                        x.UpdatedBy,
                         x.ViewCount,
                         x.Visibility,
                         x.Platform,
@@ -398,10 +437,13 @@ namespace AiDeskApi.Controllers
                 return Ok(new
                 {
                     kb.Id,
+                    kb.Title,
                     representativeQuestion = kb.Problem,
                     kb.Solution,
                     kb.CreatedAt,
                     kb.UpdatedAt,
+                    kb.CreatedBy,
+                    kb.UpdatedBy,
                     kb.ViewCount,
                     kb.Visibility,
                     kb.Platform,
@@ -725,6 +767,43 @@ namespace AiDeskApi.Controllers
             return null;
         }
 
+        private async Task<string> ResolveActorNameAsync()
+        {
+            var actor = User?.Identity?.Name
+                ?? User?.FindFirstValue(ClaimTypes.Name)
+                ?? User?.FindFirstValue("name")
+                ?? User?.FindFirstValue("unique_name");
+
+            if (!string.IsNullOrWhiteSpace(actor))
+            {
+                return actor.Trim();
+            }
+
+            var userIdRaw = User?.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User?.FindFirstValue("sub");
+
+            if (int.TryParse(userIdRaw, out var userId) && userId > 0)
+            {
+                var username = await _context.Users
+                    .AsNoTracking()
+                    .Where(x => x.Id == userId)
+                    .Select(x => x.Username)
+                    .FirstOrDefaultAsync();
+
+                if (!string.IsNullOrWhiteSpace(username))
+                {
+                    return username.Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(actor) && Request.Headers.TryGetValue("X-Actor-Name", out var headerActor))
+            {
+                actor = headerActor.ToString();
+            }
+
+            return string.IsNullOrWhiteSpace(actor) ? "알 수 없음" : actor.Trim();
+        }
+
         private static string NormalizeVisibility(string? value)
         {
             if (string.Equals(value, "user", StringComparison.OrdinalIgnoreCase)) return "user";
@@ -857,6 +936,7 @@ namespace AiDeskApi.Controllers
 
     public class UpsertKbRequest
     {
+        public string? Title { get; set; }
         public string? RepresentativeQuestion { get; set; }
         public string? Solution { get; set; }
         public string? Visibility { get; set; }

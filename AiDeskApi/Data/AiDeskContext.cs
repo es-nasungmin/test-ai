@@ -10,6 +10,9 @@ namespace AiDeskApi.Data
         {
         }
 
+        // 인증
+        public DbSet<User> Users { get; set; } = null!;
+
         // 고객/상담/지식베이스 핵심 테이블
         public DbSet<Customer> Customers { get; set; } = null!;
         public DbSet<Interaction> Interactions { get; set; } = null!;
@@ -25,6 +28,18 @@ namespace AiDeskApi.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // User 설정
+            modelBuilder.Entity<User>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Email).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.PasswordHash).IsRequired();
+                entity.Property(e => e.Role).IsRequired().HasMaxLength(20);
+                entity.HasIndex(e => e.Username).IsUnique();
+                entity.HasIndex(e => e.Email).IsUnique();
+            });
 
             modelBuilder.Entity<Customer>(entity =>
             {
@@ -57,8 +72,11 @@ namespace AiDeskApi.Data
             modelBuilder.Entity<KnowledgeBase>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).HasMaxLength(200);
                 entity.Property(e => e.Problem).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.Solution).IsRequired();
+                entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Tags).HasMaxLength(500);
@@ -97,6 +115,11 @@ namespace AiDeskApi.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(10);
                 entity.Property(e => e.Content).IsRequired();
+                entity.Property(e => e.RelatedKbIds);
+                entity.Property(e => e.RelatedKbMeta);
+                entity.Property(e => e.RetrievalDebugMeta);
+                entity.Property(e => e.TopSimilarity);
+                entity.Property(e => e.IsLowSimilarity);
                 entity.HasOne(e => e.Session)
                     .WithMany(s => s.Messages)
                     .HasForeignKey(e => e.SessionId)

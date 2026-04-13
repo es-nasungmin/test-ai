@@ -24,8 +24,9 @@ namespace AiDeskApi.Services
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
     public class OpenAiRagService : IRagService
     {
-        private const float TagBoostPerMatch = 0.03f;
-        private const float MaxTagBoost = 0.12f;
+        private const float KeywordBoostPerMatch = 0.03f;
+        private const float MaxKeywordBoost = 0.12f;
+        private const int FinalTopK = 5;
 
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
@@ -103,10 +104,17 @@ namespace AiDeskApi.Services
 
                 var normalizedPlatform = NormalizePlatform(platform);
 
-                var kbs = await query
-                    .OrderByDescending(x => x.ViewCount)
-                    .Take(300)
-                    .ToListAsync();
+                var maxCandidateKb = _configuration.GetValue<int?>("Rag:MaxCandidateKb") ?? 0;
+                var candidateQuery = query.AsNoTracking();
+                if (maxCandidateKb > 0)
+                {
+                    candidateQuery = candidateQuery
+                        .OrderByDescending(x => x.UpdatedAt)
+                        .ThenByDescending(x => x.Id)
+                        .Take(maxCandidateKb);
+                }
+
+                var kbs = await candidateQuery.ToListAsync();
 
                 // 전체 플랫폼이면 필터 없음, 특정 플랫폼이면 공통 또는 해당 플랫폼 포함 KB만 허용
                 if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase)
@@ -131,8 +139,10 @@ namespace AiDeskApi.Services
                     };
                 }
 
-                // 3. 대표질문 + 유사질문 임베딩을 함께 비교해 최고 유사도로 정렬
-                var topResults = kbs
+                var questionTokens = ExtractKeywordTokens(question);
+
+                // 3. 대표질문+유사질문 벡터 점수와 키워드 매칭 점수를 함께 사용해 후보를 구성한다.
+                var scoredResults = kbs
                     .Select(kb =>
                     {
                         var candidates = new List<(string question, float similarity, bool isSimilar)>();
@@ -165,20 +175,34 @@ namespace AiDeskApi.Services
                             ));
                         }
 
-                        if (candidates.Count == 0) return default((KnowledgeBase, float, string, bool)?);
+                        if (candidates.Count == 0) return default((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?);
 
                         var best = candidates.OrderByDescending(x => x.similarity).First();
 
-                        // 태그가 질문 키워드와 일치하면 소폭 가산점을 부여해 랭킹을 보정한다.
-                        var tagBoost = CalculateTagBoost(question, kb.Tags);
-                        var adjustedSimilarity = Math.Clamp(best.similarity + tagBoost, 0f, 1f);
+                        var keywordTokens = string.IsNullOrWhiteSpace(kb.Tags)
+                            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                            : ParseKeywordTokens(kb.Tags);
+                        var matchedKeywords = keywordTokens
+                            .Where(t => questionTokens.Contains(t))
+                            .OrderBy(x => x)
+                            .ToList();
+                        var keywordMatchCount = matchedKeywords.Count;
 
-                        return ((KnowledgeBase, float, string, bool)?)(kb, adjustedSimilarity, best.question, best.isSimilar);
+                        // 키워드가 질문 키워드와 일치하면 소폭 가산점을 부여해 랭킹을 보정한다.
+                        var keywordBoost = CalculateKeywordBoost(question, kb.Tags);
+                        var adjustedSimilarity = Math.Clamp(best.similarity + keywordBoost, 0f, 1f);
+
+                        return ((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?)
+                            (kb, best.similarity, keywordBoost, adjustedSimilarity, best.question, best.isSimilar, keywordMatchCount, matchedKeywords);
                     })
                     .Where(x => x.HasValue)
                     .Select(x => x!.Value)
-                    .OrderByDescending(x => x.Item2)
-                    .Take(3)
+                    .ToList();
+
+                var topResults = scoredResults
+                    .OrderByDescending(x => x.adjustedSimilarity)
+                    .Take(FinalTopK)
+                    .Select(x => (x.kb, x.adjustedSimilarity, x.matchedQuestion, x.matchedSimilar))
                     .ToList();
 
                 _logger.LogInformation($"✓ 검색 완료 ({topResults.Count}개)");
@@ -193,6 +217,34 @@ namespace AiDeskApi.Services
                 // 임계치 이상 후보만으로 충돌 감지/우선안 선택을 수행한다.
                 var voteResult = BuildResolutionVote(eligibleResults);
                 var selectedResults = voteResult.SelectedCases;
+                var topResultSet = topResults.Select(x => x.kb.Id).ToHashSet();
+                var eligibleSet = eligibleResults.Select(x => x.Item1.Id).ToHashSet();
+                var selectedSet = selectedResults.Select(x => x.kb.Id).ToHashSet();
+
+                var retrievalDiagnostics = new RetrievalDiagnostics
+                {
+                    SimilarityThreshold = similarityThreshold,
+                    QuestionTokens = questionTokens.OrderBy(x => x).ToList(),
+                    Candidates = scoredResults
+                        .Where(x => topResultSet.Contains(x.kb.Id))
+                        .OrderByDescending(x => x.adjustedSimilarity)
+                        .Select(x => new RetrievalCandidateDiagnostic
+                        {
+                            Id = x.kb.Id,
+                            Problem = x.kb.Problem,
+                            MatchedQuestion = x.matchedQuestion,
+                            BaseSimilarity = x.baseSimilarity,
+                            KeywordBoost = x.keywordBoost,
+                            AdjustedSimilarity = x.adjustedSimilarity,
+                            KeywordMatchCount = x.keywordMatchCount,
+                            MatchedKeywords = x.matchedKeywords,
+                            IncludedBySemantic = true,
+                            IncludedByKeyword = false,
+                            PassedThreshold = eligibleSet.Contains(x.kb.Id),
+                            SelectedForAnswer = selectedSet.Contains(x.kb.Id)
+                        })
+                        .ToList()
+                };
 
                 // 4. View count 증가
                 if (!runtimeOptions.DisablePersistence && topResults.Count > 0)
@@ -216,6 +268,7 @@ namespace AiDeskApi.Services
                     TopMatchedQuestion = topMatchedQuestion,
                     ConflictDetected = voteResult.ConflictDetected,
                     DecisionRule = voteResult.DecisionRule,
+                    RetrievalDiagnostics = retrievalDiagnostics,
                     RelatedKBs = isLowSimilarity
                         ? new List<KBSummary>()
                         : eligibleResults
@@ -528,9 +581,9 @@ namespace AiDeskApi.Services
             return normA == 0 || normB == 0 ? 0 : (float)(dotProduct / (Math.Sqrt(normA) * Math.Sqrt(normB)));
         }
 
-        private float CalculateTagBoost(string question, string? rawTags)
+        private float CalculateKeywordBoost(string question, string? rawKeywords)
         {
-            if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(rawTags))
+            if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(rawKeywords))
             {
                 return 0f;
             }
@@ -541,24 +594,24 @@ namespace AiDeskApi.Services
                 return 0f;
             }
 
-            var tagTokens = ParseTagTokens(rawTags);
-            if (tagTokens.Count == 0)
+            var keywordTokens = ParseKeywordTokens(rawKeywords);
+            if (keywordTokens.Count == 0)
             {
                 return 0f;
             }
 
-            var matchedCount = tagTokens.Count(t => questionTokens.Contains(t));
+            var matchedCount = keywordTokens.Count(t => questionTokens.Contains(t));
             if (matchedCount <= 0)
             {
                 return 0f;
             }
 
-            return Math.Min(matchedCount * TagBoostPerMatch, MaxTagBoost);
+            return Math.Min(matchedCount * KeywordBoostPerMatch, MaxKeywordBoost);
         }
 
-        private static HashSet<string> ParseTagTokens(string rawTags)
+        private static HashSet<string> ParseKeywordTokens(string rawKeywords)
         {
-            return rawTags
+            return rawKeywords
                 .Split(new[] { ',', ';', '|', '/', '#' }, StringSplitOptions.RemoveEmptyEntries)
                 .SelectMany(ExtractKeywordTokens)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -680,7 +733,31 @@ namespace AiDeskApi.Services
         public string? TopMatchedQuestion { get; set; }
         public bool ConflictDetected { get; set; }
         public string? DecisionRule { get; set; }
+        public RetrievalDiagnostics? RetrievalDiagnostics { get; set; }
         public List<KBSummary> RelatedKBs { get; set; } = new();
+    }
+
+    public class RetrievalDiagnostics
+    {
+        public float SimilarityThreshold { get; set; }
+        public List<string> QuestionTokens { get; set; } = new();
+        public List<RetrievalCandidateDiagnostic> Candidates { get; set; } = new();
+    }
+
+    public class RetrievalCandidateDiagnostic
+    {
+        public int Id { get; set; }
+        public string? Problem { get; set; }
+        public string? MatchedQuestion { get; set; }
+        public float BaseSimilarity { get; set; }
+        public float KeywordBoost { get; set; }
+        public float AdjustedSimilarity { get; set; }
+        public int KeywordMatchCount { get; set; }
+        public List<string> MatchedKeywords { get; set; } = new();
+        public bool IncludedBySemantic { get; set; }
+        public bool IncludedByKeyword { get; set; }
+        public bool PassedThreshold { get; set; }
+        public bool SelectedForAnswer { get; set; }
     }
 
     public class KBSummary
