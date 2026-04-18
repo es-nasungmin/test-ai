@@ -246,11 +246,16 @@ namespace AiDeskApi.Services
                         .ToList()
                 };
 
-                // View count 증가 (FAQ 상위 1개)
-                if (!runtimeOptions.DisablePersistence && topResults.Count > 0)
+                // View count 증가 (실제로 사용된 모든 FAQ)
+                _logger.LogInformation($"📊 View count 처리: DisablePersistence={runtimeOptions.DisablePersistence}, selectedResults={selectedResults.Count}");
+                if (!runtimeOptions.DisablePersistence && selectedResults.Count > 0)
                 {
-                    topResults[0].Item1.ViewCount++;
-                    await _context.SaveChangesAsync();
+                    var kbIds = selectedResults.Select(x => x.kb.Id).ToList();
+                    await _context.Database.ExecuteSqlInterpolatedAsync(
+                        $@"UPDATE KnowledgeBases 
+                           SET ViewCount = ViewCount + 1, UpdatedAt = {DateTime.UtcNow}
+                           WHERE Id IN ({string.Join(",", kbIds.Select(id => id.ToString()))})");
+                    _logger.LogInformation($"✓ View count 증가: {kbIds.Count}개 FAQ 업데이트 완료");
                 }
 
                 // 답변 생성
