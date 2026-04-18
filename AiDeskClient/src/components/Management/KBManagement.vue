@@ -39,11 +39,10 @@ const kbPlatformFilter = ref('all')
 const form = ref({
   id: null,
   title: '',
-  representativeQuestion: '',
-  solution: '',
+  content: '',
   visibility: 'user',
   platforms: ['공통'],
-  similarInput: ''
+  expectedInput: ''
 })
 const keywordInput = ref('')
 const keywordDraft = ref([])
@@ -119,7 +118,7 @@ const writerPromptTemplateForm = ref({
   answerRefineSystemPrompt: '',
   answerRefineRulesPrompt: ''
 })
-const MAX_SIMILAR_QUESTIONS = 20
+const MAX_EXPECTED_QUESTIONS = 5
 
 const kbTotalPages = computed(() => Math.max(1, Math.ceil(kbTotal.value / kbPageSize)))
 const lowSimilarityTotalPages = computed(() => Math.max(1, Math.ceil(lowSimilarityTotal.value / lowSimilarityPageSize)))
@@ -284,19 +283,19 @@ async function fetchLowSimilarityQuestions() {
 }
 
 function addSimilarFromInput() {
-  const value = form.value.similarInput.trim()
+  const value = form.value.expectedInput.trim()
   if (!value) return
 
-  if (similarDraft.value.length >= MAX_SIMILAR_QUESTIONS) {
-    alert(`유사질문은 최대 ${MAX_SIMILAR_QUESTIONS}개까지 등록 가능합니다.`)
-    form.value.similarInput = ''
+  if (similarDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
+    alert(`예상질문은 최대 ${MAX_EXPECTED_QUESTIONS}개까지 등록 가능합니다.`)
+    form.value.expectedInput = ''
     return
   }
 
   // Prevent accidental double-add when IME enter events are emitted back-to-back.
   const now = Date.now()
   if (lastAdded.value.text === value && now - lastAdded.value.at < 400) {
-    form.value.similarInput = ''
+    form.value.expectedInput = ''
     return
   }
 
@@ -305,7 +304,7 @@ function addSimilarFromInput() {
     similarDraft.value.push(value)
     lastAdded.value = { text: value, at: now }
   }
-  form.value.similarInput = ''
+  form.value.expectedInput = ''
 }
 
 function onSimilarEnter() {
@@ -318,17 +317,17 @@ function removeSimilar(index) {
 }
 
 async function generateSimilarQuestions() {
-  if (!form.value.solution.trim()) {
-    alert('답변을 먼저 작성해주세요.')
+  if (!form.value.content.trim()) {
+    alert('내용을 먼저 작성해주세요.')
     return
   }
 
   generatingSimilar.value = true
   try {
     const res = await axios.post(`${API_URL}/knowledgebase/generate-similar-questions`, {
-      representativeQuestion: form.value.representativeQuestion,
-      solution: form.value.solution,
-      count: 3
+      title: form.value.title,
+      content: form.value.content,
+      count: 5
     })
 
     const items = Array.isArray(res.data?.items) ? res.data.items : []
@@ -356,11 +355,10 @@ function resetForm() {
   form.value = {
     id: null,
     title: '',
-    representativeQuestion: '',
-    solution: '',
+    content: '',
     visibility: 'user',
     platforms: ['공통'],
-    similarInput: ''
+    expectedInput: ''
   }
   keywordInput.value = ''
   keywordDraft.value = []
@@ -375,15 +373,14 @@ function startEdit(kb) {
   showWriter.value = true
   form.value.id = kb.id
   form.value.title = kb.title || ''
-  form.value.representativeQuestion = kb.representativeQuestion || ''
-  form.value.solution = kb.solution || ''
+  form.value.content = kb.content || kb.solution || ''
   form.value.visibility = kb.visibility || 'user'
   form.value.platforms = extractPlatforms(kb)
-  form.value.similarInput = ''
+  form.value.expectedInput = ''
   keywordInput.value = ''
   keywordDraft.value = normalizeKeywords((kb.keywords || kb.tags || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
-  similarDraft.value = (kb.similarQuestions || []).map((item) => item.question)
+  similarDraft.value = (kb.expectedQuestions || kb.similarQuestions || []).map((item) => item.question)
   generatedCandidates.value = []
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -425,8 +422,8 @@ function removePlatformFromForm(index) {
 }
 
 async function saveKb() {
-  if (!form.value.title.trim() || !form.value.representativeQuestion.trim() || !form.value.solution.trim()) {
-    alert('제목, 대표질문, 답변은 필수입니다.')
+  if (!form.value.title.trim() || !form.value.content.trim()) {
+    alert('제목, 내용은 필수입니다.')
     return
   }
 
@@ -434,12 +431,11 @@ async function saveKb() {
   try {
     const payload = {
       title: form.value.title.trim(),
-      representativeQuestion: form.value.representativeQuestion,
-      solution: form.value.solution,
+      content: form.value.content,
       keywords: normalizeKeywords(keywordDraft.value).join(', '),
       visibility: form.value.visibility,
       platforms: normalizeSelectedPlatforms(form.value.platforms),
-      similarQuestions: similarDraft.value
+      expectedQuestions: similarDraft.value
     }
 
     if (form.value.id) {
@@ -462,27 +458,11 @@ async function saveKb() {
   }
 }
 
-function setRepresentativeQuestion(candidate) {
-  const text = typeof candidate === 'string' ? candidate.trim() : ''
-  if (!text) return
-  form.value.representativeQuestion = text
-}
-
-function addGeneratedAsRepresentative(candidate) {
-  setRepresentativeQuestion(candidate)
-}
-
 function addGeneratedAsSimilar(candidate) {
   const text = typeof candidate === 'string' ? candidate.trim() : ''
   if (!text) return
-  if (similarDraft.value.length >= MAX_SIMILAR_QUESTIONS) {
-    alert(`유사질문은 최대 ${MAX_SIMILAR_QUESTIONS}개까지 등록 가능합니다.`)
-    return
-  }
-
-  const rep = form.value.representativeQuestion.trim().toLowerCase()
-  if (rep && rep === text.toLowerCase()) {
-    alert('대표질문과 동일한 문장은 유사질문으로 추가할 수 없습니다.')
+  if (similarDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
+    alert(`예상질문은 최대 ${MAX_EXPECTED_QUESTIONS}개까지 등록 가능합니다.`)
     return
   }
 
@@ -492,18 +472,18 @@ function addGeneratedAsSimilar(candidate) {
 }
 
 async function generateKeywords() {
-  if (!form.value.representativeQuestion.trim()) {
-    alert('대표질문을 먼저 작성해주세요')
+  if (!form.value.title.trim() || !form.value.content.trim()) {
+    alert('제목/내용을 먼저 작성해주세요')
     return
   }
 
   generatingKeywords.value = true
   try {
     const res = await axios.post(`${API_URL}/knowledgebase/generate-keywords`, {
-      representativeQuestion: form.value.representativeQuestion,
-      similarQuestions: similarDraft.value,
-      solution: form.value.solution,
-      count: 8
+      title: form.value.title,
+      content: form.value.content,
+      expectedQuestions: similarDraft.value,
+      count: 5
     })
 
     const generated = Array.isArray(res.data?.combined)
@@ -527,16 +507,16 @@ async function generateKeywords() {
 }
 
 async function refineSolutionWithAi() {
-  if (!form.value.solution.trim()) {
-    alert('답변을 먼저 작성해주세요.')
+  if (!form.value.content.trim()) {
+    alert('내용을 먼저 작성해주세요.')
     return
   }
 
   refiningSolution.value = true
   try {
     const res = await axios.post(`${API_URL}/knowledgebase/refine-solution`, {
-      representativeQuestion: form.value.representativeQuestion,
-      solution: form.value.solution
+      title: form.value.title,
+      content: form.value.content
     })
 
     const refined = typeof res.data?.solution === 'string' ? res.data.solution.trim() : ''
@@ -560,7 +540,7 @@ async function refineSolutionWithAi() {
 
 function applyRefinedSolution() {
   if (!refinedSolutionPreview.value.trim()) return
-  form.value.solution = refinedSolutionPreview.value
+  form.value.content = refinedSolutionPreview.value
   showRefinePreview.value = false
 }
 
@@ -885,6 +865,32 @@ async function deleteDocument(doc) {
   }
 }
 
+async function downloadDocument(doc) {
+  try {
+    const response = await axios.get(`${API_URL}/knowledgebase/documents/${doc.id}/download`, {
+      responseType: 'blob',
+      headers: getActorHeader()
+    })
+
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    const fallback = `document-${doc.id}.pdf`
+    const name = (doc.displayName || doc.fileName || fallback).toLowerCase().endsWith('.pdf')
+      ? (doc.displayName || doc.fileName || fallback)
+      : `${doc.displayName || doc.fileName || fallback}.pdf`
+
+    anchor.href = url
+    anchor.download = name
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.URL.revokeObjectURL(url)
+  } catch (err) {
+    alert(err.response?.data?.error || '문서 다운로드에 실패했습니다.')
+  }
+}
+
 function formatDate(val) {
   if (!val) return '-'
   const d = new Date(val)
@@ -895,8 +901,8 @@ function formatDate(val) {
 <template>
   <section class="kb-wrap">
     <div class="tab-bar">
-      <button class="tab-btn" :class="{ active: activeTab === 'kb' }" @click="activeTab = 'kb'">FAQ KB</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'documents' }" @click="activeTab = 'documents'">문서 KB (PDF)</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'kb' }" @click="activeTab = 'kb'">가이드KB</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'documents' }" @click="activeTab = 'documents'">문서KB</button>
     </div>
 
     <template v-if="activeTab === 'documents'">
@@ -978,7 +984,9 @@ function formatDate(val) {
             <div class="kb-body">
               <div class="kb-row">
                 <div class="kb-label">파일명</div>
-                <div class="kb-value">{{ doc.fileName }}</div>
+                <div class="kb-value">
+                  <button class="file-link-btn" type="button" @click="downloadDocument(doc)">{{ doc.fileName }}</button>
+                </div>
               </div>
               <div class="kb-row">
                 <div class="kb-label">표시명</div>
@@ -1046,17 +1054,17 @@ function formatDate(val) {
 
     <template v-else>
     <div class="panel form-panel" :class="{ collapsed: !showWriter }">
-      <div class="panel-head">
+      <div class="panel-head writer-toggle-head" @click="showWriter = !showWriter">
         <div class="panel-head-title">
           <h3>{{ form.id ? 'KB 수정' : 'KB 작성' }}</h3>
-          <button class="ghost guide-trigger" type="button" @click="showSimilarityGuide = true">유사도를 높이려면?</button>
+          <span class="writer-toggle-indicator" :aria-label="showWriter ? '작성 영역 열림' : '작성 영역 닫힘'">
+            {{ showWriter ? '▲' : '▼' }}
+          </span>
+          <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드KB 작성 방법</button>
         </div>
         <div class="panel-head-actions">
-          <button class="ghost" type="button" @click="showWriter = !showWriter">
-            {{ showWriter ? '작성 영역 닫기' : '작성 영역 열기' }}
-          </button>
-          <button class="ghost" @click="resetForm">초기화</button>
-          <button class="ghost" type="button" @click="openWriterPromptEditor">프롬프트 설정</button>
+          <button class="ghost" @click.stop="resetForm">초기화</button>
+          <button class="ghost" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
         </div>
       </div>
 
@@ -1071,28 +1079,23 @@ function formatDate(val) {
 
         <label>
           제목
-          <input v-model="form.title" placeholder="예) 인증서 안 보이는 경우" />
+          <input v-model="form.title" placeholder="가이드 KB 제목을 입력해주세요" />
         </label>
 
-        <label>
-          대표질문
-          <textarea v-model="form.representativeQuestion" rows="2" placeholder="예) 인증서 조회가 안 돼요" />
-        </label>
-
-        <label>
+        <div class="field-block">
           <div class="label-head-inline">
-            <span class="field-title">답변</span>
-            <button class="ghost" type="button" :disabled="refiningSolution" @click="refineSolutionWithAi">
-              {{ refiningSolution ? '정리 중...' : 'AI로 답변 정리' }}
+            <span class="field-title">내용</span>
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="refiningSolution" @click="refineSolutionWithAi">
+              {{ refiningSolution ? '정리 중...' : 'AI로 내용 정리' }}
             </button>
           </div>
-          <textarea v-model="form.solution" rows="4" placeholder="예) 인증서 위치를 확인한 뒤 다시 로그인하세요..." />
-        </label>
+          <textarea v-model="form.content" rows="5" placeholder="가이드 KB 내용을 입력하세요" />
+        </div>
 
-        <label>
+        <div class="field-block">
           <div class="label-head-inline">
             <span class="field-title">키워드</span>
-            <button class="ghost" type="button" :disabled="generatingKeywords" @click="generateKeywords">
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingKeywords" @click="generateKeywords">
               {{ generatingKeywords ? '생성 중...' : '키워드 생성하기' }}
             </button>
           </div>
@@ -1112,7 +1115,7 @@ function formatDate(val) {
               <button type="button" @click="removeKeyword(idx)">×</button>
             </span>
           </div>
-        </label>
+        </div>
 
         <div class="field-block">
           <div class="label-head-inline">
@@ -1133,16 +1136,16 @@ function formatDate(val) {
           <small class="hint">복수 선택 가능 (공통은 단독 선택 시에만 유지)</small>
         </div>
 
-        <label>
+        <div class="field-block">
           <div class="label-head-inline">
-            <span class="field-title">유사질문 추가</span>
-            <button class="ghost" type="button" :disabled="generatingSimilar" @click="generateSimilarQuestions">
+            <span class="field-title">예상질문</span>
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingSimilar" @click="generateSimilarQuestions">
               {{ generatingSimilar ? '생성 중...' : '예상질문 생성하기' }}
             </button>
           </div>
           <div class="similar-input-row">
             <input
-              v-model="form.similarInput"
+              v-model="form.expectedInput"
               placeholder="예) 인증서 경로가 어디에 있나요?"
               @keydown.enter.prevent="onSimilarEnter"
               @compositionstart="isComposingSimilar = true"
@@ -1150,8 +1153,8 @@ function formatDate(val) {
             />
             <button class="secondary" @click="addSimilarFromInput">추가</button>
           </div>
-          <small class="hint">예상질문 생성은 3개씩 추가되며, 유사질문은 최대 20개까지 등록 가능합니다.</small>
-        </label>
+          <small class="hint">예상질문은 최대 5개까지 등록 가능합니다.</small>
+        </div>
 
         <div v-if="generatedCandidates.length > 0" class="generated-candidates">
           <div class="field-title">최근 생성된 예상질문</div>
@@ -1159,8 +1162,7 @@ function formatDate(val) {
             <div v-for="(item, idx) in generatedCandidates" :key="`generated-${idx}-${item}`" class="generated-item">
               <span>{{ item }}</span>
               <div class="generated-actions">
-                <button class="ghost" type="button" @click="addGeneratedAsRepresentative(item)">대표질문 추가하기</button>
-                <button class="ghost" type="button" @click="addGeneratedAsSimilar(item)">유사질문 추가하기</button>
+                <button class="ghost" type="button" @click="addGeneratedAsSimilar(item)">예상질문 추가하기</button>
               </div>
             </div>
           </div>
@@ -1197,7 +1199,7 @@ function formatDate(val) {
           <option value="user">사용자 공개</option>
           <option value="admin">관리자 전용</option>
         </select>
-        <input v-model="keyword" placeholder="제목/대표질문/유사질문/답변/키워드 검색" />
+        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드 검색" />
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -1225,17 +1227,13 @@ function formatDate(val) {
               <div class="kb-value kb-title">{{ kb.title || '-' }}</div>
             </div>
             <div class="kb-row">
-              <div class="kb-label">질문</div>
+              <div class="kb-label">내용</div>
               <div class="kb-value kb-question-row">
-                <span>{{ kb.representativeQuestion || '-' }}</span>
+                <span>{{ kb.content || kb.solution || '-' }}</span>
                 <button class="q-btn" @click="toggleExpanded(kb.id)">
-                  {{ expandedId === kb.id ? '유사질문 접기' : '유사질문 보기' }}
+                  {{ expandedId === kb.id ? '예상질문 접기' : '예상질문 보기' }}
                 </button>
               </div>
-            </div>
-            <div class="kb-row">
-              <div class="kb-label">답변</div>
-              <pre class="kb-answer">{{ kb.solution || '-' }}</pre>
             </div>
           </div>
 
@@ -1247,11 +1245,11 @@ function formatDate(val) {
           </div>
 
           <div v-if="expandedId === kb.id" class="similar-box">
-            <h4>유사질문</h4>
-            <ul v-if="kb.similarQuestions && kb.similarQuestions.length > 0">
-              <li v-for="item in kb.similarQuestions" :key="item.id">{{ item.question }}</li>
+            <h4>예상질문</h4>
+            <ul v-if="kb.expectedQuestions && kb.expectedQuestions.length > 0">
+              <li v-for="item in kb.expectedQuestions" :key="item.id">{{ item.question }}</li>
             </ul>
-            <p v-else>등록된 유사질문이 없습니다.</p>
+            <p v-else>등록된 예상질문이 없습니다.</p>
           </div>
 
         </article>
@@ -1312,38 +1310,37 @@ function formatDate(val) {
     <div v-if="showSimilarityGuide" class="modal-overlay" @click="showSimilarityGuide = false">
       <div class="modal info-modal" @click.stop>
         <div class="modal-head">
-          <h4>유사도를 높이는 방법</h4>
+          <h4>가이드KB 작성 방법</h4>
           <button class="ghost" type="button" @click="showSimilarityGuide = false">닫기</button>
         </div>
 
         <div class="similarity-guide">
           <p>
-            챗봇은 질문과 KB의 의미 유사도를 먼저 계산하고, 키워드 일치분을 소폭 보정해
-            최종 점수를 만듭니다. 아래 기준대로 작성하면 저유사도 비율을 줄이는 데 도움이 됩니다.
+            가이드KB는 질문과의 의미 유사도를 기준으로 검색되며,
+            키워드 기반 후보 리콜과 AI 재정렬을 함께 사용합니다. 아래 기준대로 작성하면 검색 정확도를 높이는 데 도움이 됩니다.
           </p>
 
           <div class="guide-card">
             <strong>1) 점수는 이렇게 계산됩니다</strong>
             <p>
-              질문 임베딩과 KB 대표질문/유사질문 임베딩을 비교해 가장 높은 값을 기본 점수로 사용합니다.
+              질문 임베딩과 가이드 KB(제목+내용+예상질문 합본 임베딩) 유사도를 계산합니다.
             </p>
-            <p>키워드가 질문 키워드와 일치하면 매칭 1건당 +0.03, 최대 +0.12까지 가산됩니다.</p>
-            <p class="guide-formula">최종 점수 = min(기본 점수 + 키워드 보정, 1.0)</p>
+            <p>유사도 점수는 벡터 유사도만 사용하고, 키워드는 후보 리콜(top10) 용도로만 사용합니다.</p>
+            <p class="guide-formula">최종 후보 = 벡터 top15(임계치 필터) + 키워드 top10 → AI rerank top5</p>
           </div>
 
           <div class="guide-card">
-            <strong>2) 대표질문을 이렇게 쓰면 유리합니다</strong>
+            <strong>2) 제목/내용을 이렇게 쓰면 유리합니다</strong>
             <p>
-              실제 문의 문장처럼 작성하세요.
-              예: "로그인이 안 돼요" 보다 "윈도우 앱에서 인증서 선택 후 로그인 실패"가 더 좋습니다.
+              가이드 KB 제목은 주제를 명확히, 내용은 절차/조건/예외를 구체적으로 작성하세요.
             </p>
             <p>환경(웹/앱), 대상(고객/관리자), 증상(오류코드/현상)을 함께 넣으면 매칭이 안정적입니다.</p>
           </div>
 
           <div class="guide-card">
-            <strong>3) 유사질문은 표현 다양화가 핵심입니다</strong>
+            <strong>3) 예상질문은 표현 다양화가 핵심입니다</strong>
             <p>
-              같은 의미를 다른 표현으로 3~20개 정도 등록하세요.
+              같은 의미를 다른 표현으로 최대 5개 등록하세요.
               예: "로그인 실패", "인증서 고른 뒤 접속 불가", "서명 후 메인 화면 안 넘어감"
             </p>
             <p>오탈자/축약어(예: 공인인증서, 인증서, cert)도 자주 들어오면 함께 넣어두세요.</p>
@@ -1354,16 +1351,16 @@ function formatDate(val) {
             <ul>
               <li>권장: 원인/기능/대상 기준 키워드 (예: 인증서, 결제실패, 환불지연, 관리자승인)</li>
               <li>비권장: 너무 포괄적인 단어만 입력 (예: 오류, 문제, 문의)</li>
-              <li>키워드와 대표질문의 용어를 맞추면 가산점이 붙어 상위 노출 가능성이 높아집니다.</li>
+              <li>키워드와 제목/내용 용어를 맞추면 상위 노출 가능성이 높아집니다.</li>
             </ul>
           </div>
 
           <div class="guide-card">
             <strong>5) 저유사도 문의가 쌓일 때 점검 순서</strong>
             <ul>
-              <li>저유사도 문의의 원문을 보고, 유사한 표현을 유사질문에 추가</li>
+              <li>저유사도 문의의 원문을 보고, 유사한 표현을 예상질문에 추가</li>
               <li>기존 키워드가 실제 사용자 표현과 맞는지 수정</li>
-              <li>해결안이 다른 케이스와 섞이지 않게 KB를 분리 작성</li>
+              <li>해결안이 다른 케이스와 섞이지 않게 가이드 KB를 분리 작성</li>
             </ul>
           </div>
         </div>
@@ -1413,11 +1410,11 @@ function formatDate(val) {
 
         <div class="form-grid">
           <label>
-            현재 답변
-            <textarea :value="form.solution" rows="5" readonly />
+            현재 내용
+            <textarea :value="form.content" rows="5" readonly />
           </label>
           <label>
-            정리된 답변
+            정리된 내용
             <textarea :value="refinedSolutionPreview" rows="7" readonly />
           </label>
         </div>
@@ -1603,6 +1600,26 @@ function formatDate(val) {
   margin-bottom: 12px;
 }
 
+.writer-toggle-head {
+  cursor: pointer;
+  user-select: none;
+}
+
+.writer-toggle-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid #dbe4f2;
+  background: #f8fbff;
+  color: #4b5563;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+
 .form-panel.collapsed .panel-head {
   margin-bottom: 0;
 }
@@ -1719,6 +1736,8 @@ select:focus {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .field-block {
@@ -1735,6 +1754,50 @@ select:focus {
 .label-head-inline .ghost {
   padding: 4px 9px;
   font-size: 12px;
+}
+
+.ai-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  flex: 0 0 auto;
+  border-color: #5b8ff0;
+  color: #ffffff;
+  background: #3b82f6;
+}
+
+.ai-action-soft {
+  border: 1px solid #9dbcf6;
+  border-radius: 10px;
+  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 700;
+  cursor: pointer;
+  color: #ffffff;
+  background: #78a8f9;
+}
+
+.ai-action-btn:disabled {
+  opacity: 0.6;
+}
+
+.ai-action-btn:hover:not(:disabled),
+.ai-action-btn:focus-visible:not(:disabled),
+.ai-action-btn:active:not(:disabled) {
+  border-color: #5b8ff0;
+  color: #ffffff;
+  background: #3b82f6;
+}
+
+.ai-action-soft:hover:not(:disabled),
+.ai-action-soft:focus-visible:not(:disabled),
+.ai-action-soft:active:not(:disabled) {
+  border-color: #9dbcf6;
+  color: #ffffff;
+  background: #78a8f9;
+  box-shadow: none;
 }
 
 .guide-trigger {
@@ -2106,6 +2169,23 @@ select:focus {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.file-link-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: #1d4ed8;
+  text-decoration: underline;
+  font-size: 14px;
+  line-height: 1.6;
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-link-btn:hover {
+  color: #1e40af;
 }
 
 .kb-question-row {

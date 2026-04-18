@@ -156,6 +156,7 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Content).IsRequired();
                 entity.Property(e => e.RelatedKbIds);
                 entity.Property(e => e.RelatedKbMeta);
+                entity.Property(e => e.RelatedDocumentMeta);
                 entity.Property(e => e.RetrievalDebugMeta);
                 entity.Property(e => e.TopSimilarity);
                 entity.Property(e => e.IsLowSimilarity);

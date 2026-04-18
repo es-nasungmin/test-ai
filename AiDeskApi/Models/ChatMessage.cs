@@ -12,6 +12,8 @@ namespace AiDeskApi.Models
         public string? RelatedKbIds { get; set; }
         // 답변 생성에 참조된 KB 메타 (JSON 배열: [{id, similarity}])
         public string? RelatedKbMeta { get; set; }
+        // 답변 생성에 참조된 문서 KB 메타 (JSON 배열: [{documentId, documentName, pageNumber, similarity, excerpt}])
+        public string? RelatedDocumentMeta { get; set; }
         // 유사도/키워드 추출 근거 모니터링용 JSON
         public string? RetrievalDebugMeta { get; set; }
         public float? TopSimilarity { get; set; }

@@ -212,15 +212,15 @@ namespace AiDeskApi.Services
                     : string.Empty;
 
                 var pointType = payload.TryGetProperty("type", out var tElem) && tElem.ValueKind == JsonValueKind.String
-                    ? tElem.GetString() ?? "representative"
-                    : "representative";
+                    ? tElem.GetString() ?? "document"
+                    : "document";
 
                 result.Add(new VectorSearchHit
                 {
                     KbId = kbIdElem.GetInt32(),
                     Score = (float)scoreElem.GetDouble(),
                     MatchedQuestion = matchedQuestion,
-                    IsSimilarQuestion = string.Equals(pointType, "similar", StringComparison.OrdinalIgnoreCase)
+                    IsSimilarQuestion = string.Equals(pointType, "expected", StringComparison.OrdinalIgnoreCase)
                 });
             }
 
@@ -261,40 +261,26 @@ namespace AiDeskApi.Services
                 : kb.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
 
             var repEmbedding = ParseEmbedding(kb.ProblemEmbedding);
-            if (repEmbedding != null && !string.IsNullOrWhiteSpace(kb.Problem))
+            if (repEmbedding != null)
             {
+                var expectedQuestions = (kb.SimilarQuestions ?? new List<KnowledgeBaseSimilarQuestion>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Question))
+                    .Select(x => x.Question.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(5)
+                    .ToArray();
+
                 yield return new QdrantPoint
                 {
-                    id = CreatePointId($"kb-{kb.Id}-rep"),
+                    id = CreatePointId($"kb-{kb.Id}-doc"),
                     vector = repEmbedding,
                     payload = new
                     {
                         kbId = kb.Id,
-                        type = "representative",
-                        question = kb.Problem,
-                        visibility = kb.Visibility,
-                        platforms,
-                        keywords,
-                        updatedAt = kb.UpdatedAt
-                    }
-                };
-            }
-
-            foreach (var sq in kb.SimilarQuestions)
-            {
-                var sqEmbedding = ParseEmbedding(sq.QuestionEmbedding);
-                if (sqEmbedding == null || string.IsNullOrWhiteSpace(sq.Question)) continue;
-
-                yield return new QdrantPoint
-                {
-                    id = CreatePointId($"kb-{kb.Id}-sq-{sq.Id}"),
-                    vector = sqEmbedding,
-                    payload = new
-                    {
-                        kbId = kb.Id,
-                        similarQuestionId = sq.Id,
-                        type = "similar",
-                        question = sq.Question,
+                        type = "document",
+                        question = kb.Title ?? kb.Problem ?? string.Empty,
+                        content = kb.Solution,
+                        expectedQuestions,
                         visibility = kb.Visibility,
                         platforms,
                         keywords,

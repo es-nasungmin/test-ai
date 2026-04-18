@@ -27,6 +27,8 @@ namespace AiDeskApi.Services
         private const float KeywordBoostPerMatch = 0.03f;
         private const float MaxKeywordBoost = 0.12f;
         private const float MaxTextMatchBoost = 0.08f;
+        private const int SemanticTopK = 15;
+        private const int KeywordTopK = 10;
         private const int FinalTopK = 5;
 
         private readonly AiDeskContext _context;
@@ -103,85 +105,122 @@ namespace AiDeskApi.Services
                     };
                 }
 
-                // 1. 질문을 벡터로 변환
+                // 1) 사용자 질문 임베딩
                 var questionEmbedding = await _embeddingService.EmbedTextAsync(question);
+                var normalizedPlatform = NormalizePlatform(platform);
+                var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
-                // 2. role에 따라 KB 필터 적용
-                //    admin: 모든 KB 조회
-                //    user:  visibility='user'만 조회
-                var query = _context.KnowledgeBases
-                    .Include(x => x.SimilarQuestions)
-                    .AsQueryable();
+                var kbQuery = _context.KnowledgeBases.AsNoTracking().AsQueryable();
                 if (role != "admin")
                 {
-                    query = query.Where(x => x.Visibility == "user");
+                    kbQuery = kbQuery.Where(x => x.Visibility == "user");
                 }
 
-                var normalizedPlatform = NormalizePlatform(platform);
-                var questionTokens = ExtractKeywordTokens(question);
+                if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+                {
+                    kbQuery = kbQuery.Where(kb => kb.Platform.Contains("공통") || kb.Platform.Contains(normalizedPlatform));
+                }
 
-                List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)> scoredResults;
-                var fallbackOnVectorEmpty = _configuration.GetValue<bool?>("Rag:FallbackOnVectorEmpty") ?? true;
-
+                // 1-1) 벡터 검색 top 15
+                IReadOnlyList<VectorSearchHit> semanticHits;
                 try
                 {
-                    var vectorTopK = _configuration.GetValue<int?>("Rag:VectorTopK") ?? 80;
-                    var searchHits = await _vectorSearchService.SearchAsync(questionEmbedding, role, normalizedPlatform, Math.Max(10, vectorTopK));
-
-                    if (searchHits.Count == 0)
-                    {
-                        _logger.LogWarning("⚠️ 벡터 검색 결과 없음. 키워드 리콜 + 로컬 재계산 수행");
-                        scoredResults = await BuildHybridScoredResultsAsync(
-                            query,
-                            questionEmbedding,
-                            questionTokens,
-                            normalizedPlatform,
-                            searchHits);
-
-                        if (scoredResults.Count == 0 && fallbackOnVectorEmpty)
-                        {
-                            _logger.LogWarning("⚠️ 하이브리드 리콜 결과 없음. 전체 로컬 유사도 fallback 수행");
-                            scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
-                        }
-                    }
-                    else
-                    {
-                        scoredResults = await BuildHybridScoredResultsAsync(
-                            query,
-                            questionEmbedding,
-                            questionTokens,
-                            normalizedPlatform,
-                            searchHits);
-
-                        if (scoredResults.Count == 0 && fallbackOnVectorEmpty)
-                        {
-                            _logger.LogWarning("⚠️ 벡터 검색 결과 매핑 실패. 로컬 유사도 fallback 수행");
-                            scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
-                        }
-                    }
+                    semanticHits = await _vectorSearchService.SearchAsync(questionEmbedding, role, normalizedPlatform, SemanticTopK);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "⚠️ 벡터 검색 실패. 로컬 유사도 fallback 수행");
-                    scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
+                    _logger.LogWarning(ex, "⚠️ 벡터 검색 실패. 빈 결과로 진행");
+                    semanticHits = Array.Empty<VectorSearchHit>();
                 }
 
-                var topResults = scoredResults
-                    .OrderByDescending(x => x.adjustedSimilarity)
-                    .Take(FinalTopK)
-                    .Select(x => (x.kb, x.adjustedSimilarity, x.matchedQuestion, x.matchedSimilar))
+                var semanticTop = semanticHits
+                    .GroupBy(x => x.KbId)
+                    .Select(g => g.OrderByDescending(x => x.Score).First())
+                    .OrderByDescending(x => x.Score)
+                    .Take(SemanticTopK)
                     .ToList();
 
-                var docTopK = Math.Clamp(_configuration.GetValue<int?>("Rag:DocumentTopK") ?? 3, 1, 10);
+                // 1-2) 임계치 필터
+                var semanticPassed = semanticTop
+                    .Where(x => x.Score >= similarityThreshold)
+                    .ToList();
+
+                // 2) 질문 키워드 추출
+                var questionTokens = ExtractKeywordTokens(question);
+
+                // 2-1) 제목/키워드 +2, 내용 +1 가중치로 top 10
+                var keywordTop = await BuildKeywordRankedKbCandidatesAsync(kbQuery, questionTokens, KeywordTopK);
+
+                var candidateKbIds = semanticPassed.Select(x => x.KbId)
+                    .Concat(keywordTop.Select(x => x.KbId))
+                    .Distinct()
+                    .ToList();
+
+                var kbById = await kbQuery
+                    .Where(x => candidateKbIds.Contains(x.Id))
+                    .ToDictionaryAsync(x => x.Id);
+
+                var semanticByKb = semanticTop.ToDictionary(x => x.KbId, x => x);
+                var keywordByKb = keywordTop.ToDictionary(x => x.KbId, x => x);
+
+                var mergedCandidates = candidateKbIds
+                    .Where(kbById.ContainsKey)
+                    .Select(id =>
+                    {
+                        semanticByKb.TryGetValue(id, out var semantic);
+                        keywordByKb.TryGetValue(id, out var keyword);
+
+                        var matchedQuestion = semantic?.MatchedQuestion
+                            ?? kbById[id].Title
+                            ?? kbById[id].Problem
+                            ?? string.Empty;
+
+                        var semanticScore = semantic?.Score
+                            ?? ComputeKbSemanticScore(kbById[id], questionEmbedding);
+                        var keywordScore = keyword?.NormalizedScore ?? 0f;
+                        // 최종 유사도는 벡터 유사도만 사용한다. 키워드는 후보 리콜/디버깅 용도.
+                        var finalScore = semanticScore;
+
+                        return new MergedRetrievalCandidate
+                        {
+                            Kb = kbById[id],
+                            MatchedQuestion = matchedQuestion,
+                            SemanticScore = semanticScore,
+                            KeywordScore = keywordScore,
+                            FinalScore = finalScore,
+                            IncludedBySemantic = semantic != null,
+                            IncludedByKeyword = keyword != null,
+                            MatchedKeywords = keyword?.MatchedKeywords ?? new List<string>(),
+                            KeywordMatchCount = keyword?.KeywordScore ?? 0
+                        };
+                    })
+                    .ToList();
+
+                // 3) 중복 제거 후 AI rerank top5
+                var reranked = await ReRankCandidatesAsync(question, mergedCandidates, FinalTopK);
+                var topResults = reranked
+                    .Select(x => (x.Kb, x.FinalScore, x.MatchedQuestion, false))
+                    .ToList();
+
+                var docTopK = Math.Clamp(_configuration.GetValue<int?>("Rag:DocumentTopK") ?? 15, 1, 20);
                 List<DocumentChunkSearchHit> documentHits;
                 try
                 {
-                    documentHits = await _documentKnowledgeService.SearchChunksAsync(
-                        questionEmbedding,
-                        questionTokens,
-                        role,
-                        normalizedPlatform,
-                        docTopK);
+                    // 1-2-1) 임계치 통과 KB가 없을 때만 문서형 근거를 보조로 탐색
+                    if (semanticPassed.Count == 0)
+                    {
+                        documentHits = await _documentKnowledgeService.SearchChunksAsync(
+                            questionEmbedding,
+                            questionTokens,
+                            role,
+                            normalizedPlatform,
+                            docTopK);
+                    }
+                    else
+                    {
+                        documentHits = new List<DocumentChunkSearchHit>();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -202,8 +241,6 @@ namespace AiDeskApi.Services
 
                 _logger.LogInformation($"✓ 검색 완료 (kb={topResults.Count}, doc={documentHits.Count})");
 
-                var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
-
                 // 답변 생성에 사용하는 FAQ 후보는 임계치 이상 사례로 제한
                 var eligibleResults = topResults
                     .Where(x => x.Item2 >= similarityThreshold)
@@ -217,7 +254,7 @@ namespace AiDeskApi.Services
                 // 임계치 이상 FAQ 후보만 충돌 감지/우선안 선택 수행
                 var voteResult = BuildResolutionVote(eligibleResults);
                 var selectedResults = voteResult.SelectedCases;
-                var topResultSet = topResults.Select(x => x.kb.Id).ToHashSet();
+                var topResultSet = topResults.Select(x => x.Item1.Id).ToHashSet();
                 var eligibleSet = eligibleResults.Select(x => x.Item1.Id).ToHashSet();
                 var selectedSet = selectedResults.Select(x => x.kb.Id).ToHashSet();
 
@@ -225,23 +262,23 @@ namespace AiDeskApi.Services
                 {
                     SimilarityThreshold = similarityThreshold,
                     QuestionTokens = questionTokens.OrderBy(x => x).ToList(),
-                    Candidates = scoredResults
-                        .Where(x => topResultSet.Contains(x.kb.Id))
-                        .OrderByDescending(x => x.adjustedSimilarity)
+                    Candidates = mergedCandidates
+                        .Where(x => topResultSet.Contains(x.Kb.Id))
+                        .OrderByDescending(x => x.FinalScore)
                         .Select(x => new RetrievalCandidateDiagnostic
                         {
-                            Id = x.kb.Id,
-                            Title = string.IsNullOrWhiteSpace(x.kb.Title) ? x.kb.Problem : x.kb.Title,
-                            MatchedQuestion = x.matchedQuestion,
-                            BaseSimilarity = x.baseSimilarity,
-                            KeywordBoost = x.keywordBoost,
-                            AdjustedSimilarity = x.adjustedSimilarity,
-                            KeywordMatchCount = x.keywordMatchCount,
-                            MatchedKeywords = x.matchedKeywords,
-                            IncludedBySemantic = x.includedBySemantic,
-                            IncludedByKeyword = x.includedByKeyword,
-                            PassedThreshold = eligibleSet.Contains(x.kb.Id),
-                            SelectedForAnswer = selectedSet.Contains(x.kb.Id)
+                            Id = x.Kb.Id,
+                            Title = string.IsNullOrWhiteSpace(x.Kb.Title) ? x.Kb.Problem : x.Kb.Title,
+                            MatchedQuestion = x.MatchedQuestion,
+                            BaseSimilarity = x.SemanticScore,
+                            KeywordBoost = 0f,
+                            AdjustedSimilarity = x.FinalScore,
+                            KeywordMatchCount = x.KeywordMatchCount,
+                            MatchedKeywords = x.MatchedKeywords,
+                            IncludedBySemantic = x.IncludedBySemantic,
+                            IncludedByKeyword = x.IncludedByKeyword,
+                            PassedThreshold = eligibleSet.Contains(x.Kb.Id),
+                            SelectedForAnswer = selectedSet.Contains(x.Kb.Id)
                         })
                         .ToList()
                 };
@@ -503,7 +540,7 @@ namespace AiDeskApi.Services
             {
                 var (kb, similarity, matchedQuestion, matchedSimilar) = results[i];
                 sb.AppendLine($"\n{i + 1}. 유사도: {similarity:P0}");
-                sb.AppendLine($"   매칭 질문: {matchedQuestion} {(matchedSimilar ? "(유사질문)" : "(대표질문)")}");
+                sb.AppendLine($"   매칭 근거: {matchedQuestion} {(matchedSimilar ? "(예상질문)" : "(제목/내용)")}");
                 sb.AppendLine($"   제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
                 sb.AppendLine($"   해결: {kb.Solution}");
             }
@@ -531,7 +568,7 @@ namespace AiDeskApi.Services
             {
                 var (kb, _, matchedQuestion, matchedSimilar) = results[i];
                 sb.AppendLine($"\n우선순위 {i + 1}");
-                sb.AppendLine($"- 매칭된 질문: {matchedQuestion} {(matchedSimilar ? "(유사질문)" : "(대표질문)")}");
+                sb.AppendLine($"- 매칭된 근거: {matchedQuestion} {(matchedSimilar ? "(예상질문)" : "(제목/내용)")}");
                 sb.AppendLine($"- KB 제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
                 sb.AppendLine($"- 권장 안내: {kb.Solution}");
             }
@@ -1031,6 +1068,218 @@ namespace AiDeskApi.Services
                 .Select(m => m.Value.Trim().ToLowerInvariant())
                 .Where(token => !stopwords.Contains(token))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private async Task<List<KeywordRankedKbCandidate>> BuildKeywordRankedKbCandidatesAsync(
+            IQueryable<KnowledgeBase> baseQuery,
+            HashSet<string> questionTokens,
+            int topK)
+        {
+            if (questionTokens.Count == 0)
+            {
+                return new List<KeywordRankedKbCandidate>();
+            }
+
+            var candidates = await baseQuery
+                .Select(x => new
+                {
+                    x.Id,
+                    x.Title,
+                    x.Solution,
+                    x.Keywords,
+                    x.UpdatedAt
+                })
+                .ToListAsync();
+
+            var ranked = candidates
+                .Select(x =>
+                {
+                    var titleTokens = string.IsNullOrWhiteSpace(x.Title)
+                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        : ExtractKeywordTokens(x.Title);
+
+                    var keywordTokens = string.IsNullOrWhiteSpace(x.Keywords)
+                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        : ParseKeywordTokens(x.Keywords);
+
+                    var contentTokens = string.IsNullOrWhiteSpace(x.Solution)
+                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        : ExtractKeywordTokens(x.Solution);
+
+                    var matchedTitleOrKeyword = questionTokens
+                        .Where(t => titleTokens.Contains(t) || keywordTokens.Contains(t))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var matchedContentOnly = questionTokens
+                        .Where(t => !matchedTitleOrKeyword.Contains(t, StringComparer.OrdinalIgnoreCase) && contentTokens.Contains(t))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var keywordScore = (matchedTitleOrKeyword.Count * 2) + matchedContentOnly.Count;
+                    var normalizedScore = Math.Min(keywordScore / 10f, 0.85f);
+
+                    return new KeywordRankedKbCandidate
+                    {
+                        KbId = x.Id,
+                        KeywordScore = keywordScore,
+                        NormalizedScore = normalizedScore,
+                        MatchedKeywords = matchedTitleOrKeyword.Concat(matchedContentOnly)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(v => v)
+                            .ToList(),
+                        UpdatedAt = x.UpdatedAt
+                    };
+                })
+                .Where(x => x.KeywordScore > 0)
+                .OrderByDescending(x => x.KeywordScore)
+                .ThenByDescending(x => x.UpdatedAt)
+                .Take(topK)
+                .ToList();
+
+            return ranked;
+        }
+
+        private async Task<List<MergedRetrievalCandidate>> ReRankCandidatesAsync(
+            string question,
+            List<MergedRetrievalCandidate> candidates,
+            int topK)
+        {
+            if (candidates.Count <= 1)
+            {
+                return candidates.OrderByDescending(x => x.FinalScore).Take(topK).ToList();
+            }
+
+            var candidateLines = candidates.Select((x, idx) =>
+                $"{idx + 1}. id={x.Kb.Id}, title={x.Kb.Title}, semantic={x.SemanticScore:F3}, content={TruncateText(x.Kb.Solution, 180)}");
+
+            var prompt = $@"사용자 질문과 관련성 순으로 후보를 재정렬하세요.
+
+질문:
+{question}
+
+후보:
+{string.Join("\n", candidateLines)}
+
+규칙:
+- 반드시 JSON 배열만 응답
+- 배열 요소는 후보 id(int)
+- 관련성 높은 순서로 최대 {topK}개 반환
+- 근거가 약한 후보는 제외 가능";
+
+            var request = new
+            {
+                model = _chatModel,
+                messages = new[]
+                {
+                    new { role = "system", content = "당신은 RAG 검색 재정렬기입니다. 반드시 JSON 정수 배열만 응답하세요." },
+                    new { role = "user", content = prompt }
+                },
+                temperature = 0.1,
+                max_tokens = 180
+            };
+
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync(_chatCompletionsEndpoint, request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return candidates.OrderByDescending(x => x.FinalScore).Take(topK).ToList();
+                }
+
+                var raw = await response.Content.ReadAsStringAsync();
+                var root = JsonDocument.Parse(raw).RootElement;
+                var text = root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+                var rankedIds = ParseIdArray(text, topK);
+
+                if (rankedIds.Count == 0)
+                {
+                    return candidates.OrderByDescending(x => x.FinalScore).Take(topK).ToList();
+                }
+
+                var candidateById = candidates.ToDictionary(x => x.Kb.Id);
+                var reranked = rankedIds
+                    .Where(candidateById.ContainsKey)
+                    .Select(id => candidateById[id])
+                    .ToList();
+
+                if (reranked.Count < topK)
+                {
+                    var fill = candidates
+                        .Where(x => !rankedIds.Contains(x.Kb.Id))
+                        .OrderByDescending(x => x.FinalScore)
+                        .Take(topK - reranked.Count);
+                    reranked.AddRange(fill);
+                }
+
+                return reranked.Take(topK).ToList();
+            }
+            catch
+            {
+                return candidates.OrderByDescending(x => x.FinalScore).Take(topK).ToList();
+            }
+        }
+
+        private static List<int> ParseIdArray(string? raw, int maxCount)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new List<int>();
+
+            var trimmed = raw.Trim();
+            var jsonStart = trimmed.IndexOf('[');
+            var jsonEnd = trimmed.LastIndexOf(']');
+            if (jsonStart < 0 || jsonEnd <= jsonStart)
+            {
+                return new List<int>();
+            }
+
+            try
+            {
+                var json = trimmed.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                var ids = JsonSerializer.Deserialize<List<int>>(json) ?? new List<int>();
+                return ids.Distinct().Take(maxCount).ToList();
+            }
+            catch
+            {
+                return new List<int>();
+            }
+        }
+
+        private sealed class KeywordRankedKbCandidate
+        {
+            public int KbId { get; init; }
+            public int KeywordScore { get; init; }
+            public float NormalizedScore { get; init; }
+            public List<string> MatchedKeywords { get; init; } = new();
+            public DateTime UpdatedAt { get; init; }
+        }
+
+        private sealed class MergedRetrievalCandidate
+        {
+            public KnowledgeBase Kb { get; init; } = default!;
+            public string MatchedQuestion { get; init; } = string.Empty;
+            public float SemanticScore { get; init; }
+            public float KeywordScore { get; init; }
+            public float FinalScore { get; init; }
+            public bool IncludedBySemantic { get; init; }
+            public bool IncludedByKeyword { get; init; }
+            public int KeywordMatchCount { get; init; }
+            public List<string> MatchedKeywords { get; init; } = new();
+        }
+
+        private float ComputeKbSemanticScore(KnowledgeBase kb, float[] questionEmbedding)
+        {
+            if (string.IsNullOrWhiteSpace(kb.ProblemEmbedding))
+            {
+                return 0f;
+            }
+
+            var kbEmbedding = ParseEmbedding(kb.ProblemEmbedding);
+            if (kbEmbedding == null || kbEmbedding.Length == 0)
+            {
+                return 0f;
+            }
+
+            return CosineSimilarity(questionEmbedding, kbEmbedding);
         }
 
         private float[]? ParseEmbedding(string? json)

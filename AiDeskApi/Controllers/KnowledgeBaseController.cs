@@ -171,6 +171,7 @@ namespace AiDeskApi.Controllers
                             CreatedAt = DateTime.UtcNow,
                             RelatedKbIds = JsonSerializer.Serialize(relatedIds),
                             RelatedKbMeta = JsonSerializer.Serialize(relatedKbMeta),
+                            RelatedDocumentMeta = JsonSerializer.Serialize(result.RelatedDocuments),
                             RetrievalDebugMeta = JsonSerializer.Serialize(result.RetrievalDiagnostics),
                             TopSimilarity = result.TopSimilarity,
                             IsLowSimilarity = result.IsLowSimilarity
@@ -224,7 +225,10 @@ namespace AiDeskApi.Controllers
                 if (!string.IsNullOrWhiteSpace(validationError))
                     return BadRequest(validationError);
 
-                var representativeEmbedding = await _embeddingService.EmbedTextAsync(request.RepresentativeQuestion!.Trim());
+                var content = ResolveContent(request);
+                var expectedQuestions = ResolveExpectedQuestions(request);
+                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, expectedQuestions);
+                var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 var now = DateTime.Now;
                 var actor = await ResolveActorNameAsync();
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
@@ -232,9 +236,10 @@ namespace AiDeskApi.Controllers
                 var kb = new KnowledgeBase
                 {
                     Title = request.Title?.Trim(),
-                    Problem = request.RepresentativeQuestion.Trim(),
-                    Solution = request.Solution!.Trim(),
-                    ProblemEmbedding = JsonSerializer.Serialize(representativeEmbedding),
+                    // 레거시 호환: Problem/Solution 컬럼은 유지하되 문서형 구조에서는 Title/Content 의미로 저장
+                    Problem = request.Title!.Trim(),
+                    Solution = content,
+                    ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding),
                     Visibility = NormalizeVisibility(request.Visibility),
                     Platform = SerializePlatforms(platforms),
                     Keywords = (request.Keywords ?? request.Tags)?.Trim(),
@@ -244,20 +249,12 @@ namespace AiDeskApi.Controllers
                     UpdatedBy = actor
                 };
 
-                var similarQuestions = request.SimilarQuestions
-                    ?.Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(20)
-                    .ToList() ?? new List<string>();
-
-                foreach (var q in similarQuestions)
+                foreach (var q in expectedQuestions)
                 {
-                    var similarEmbedding = await _embeddingService.EmbedTextAsync(q);
                     kb.SimilarQuestions.Add(new KnowledgeBaseSimilarQuestion
                     {
                         Question = q,
-                        QuestionEmbedding = JsonSerializer.Serialize(similarEmbedding),
+                        QuestionEmbedding = null,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
@@ -298,31 +295,24 @@ namespace AiDeskApi.Controllers
                 if (kb == null)
                     return NotFound("KB를 찾을 수 없습니다.");
 
-                var nextRepresentativeQuestion = request.RepresentativeQuestion!.Trim();
-                var isRepresentativeQuestionChanged = !string.Equals(kb.Problem?.Trim(), nextRepresentativeQuestion, StringComparison.Ordinal);
-                if (isRepresentativeQuestionChanged)
-                {
-                    var representativeEmbedding = await _embeddingService.EmbedTextAsync(nextRepresentativeQuestion);
-                    kb.ProblemEmbedding = JsonSerializer.Serialize(representativeEmbedding);
-                }
+                var content = ResolveContent(request);
+                var expectedQuestions = ResolveExpectedQuestions(request);
+                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, expectedQuestions);
+                var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
+                kb.ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding);
 
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
                 var actor = await ResolveActorNameAsync();
                 kb.Title = request.Title?.Trim();
-                kb.Problem = nextRepresentativeQuestion;
-                kb.Solution = request.Solution!.Trim();
+                kb.Problem = request.Title!.Trim();
+                kb.Solution = content;
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
                 kb.Keywords = (request.Keywords ?? request.Tags)?.Trim();
                 kb.UpdatedAt = DateTime.Now;
                 kb.UpdatedBy = actor;
 
-                var incoming = request.SimilarQuestions
-                    ?.Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(20)
-                    .ToList() ?? new List<string>();
+                var incoming = expectedQuestions;
 
                 var existingByKey = kb.SimilarQuestions
                     .GroupBy(x => NormalizeQuestionKey(x.Question))
@@ -345,11 +335,10 @@ namespace AiDeskApi.Controllers
                         continue;
                     }
 
-                    var similarEmbedding = await _embeddingService.EmbedTextAsync(q);
                     kb.SimilarQuestions.Add(new KnowledgeBaseSimilarQuestion
                     {
                         Question = q,
-                        QuestionEmbedding = JsonSerializer.Serialize(similarEmbedding),
+                        QuestionEmbedding = null,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
@@ -418,7 +407,6 @@ namespace AiDeskApi.Controllers
                     var q = keyword.Trim();
                     query = query.Where(x =>
                         (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
-                        EF.Functions.Like(x.Problem, $"%{q}%") ||
                         EF.Functions.Like(x.Solution, $"%{q}%") ||
                         (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
                         x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
@@ -433,8 +421,7 @@ namespace AiDeskApi.Controllers
                     {
                         x.Id,
                         x.Title,
-                        representativeQuestion = x.Problem,
-                        x.Solution,
+                        content = x.Solution,
                         x.CreatedAt,
                         x.UpdatedAt,
                         x.CreatedBy,
@@ -444,7 +431,7 @@ namespace AiDeskApi.Controllers
                         x.Platform,
                         platforms = SplitPlatforms(x.Platform),
                         keywords = x.Keywords,
-                        similarQuestions = x.SimilarQuestions
+                        expectedQuestions = x.SimilarQuestions
                             .OrderBy(s => s.Id)
                             .Select(s => new { s.Id, s.Question })
                             .ToList()
@@ -624,18 +611,39 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [HttpGet("documents/{id:int}/download")]
+        public async Task<IActionResult> DownloadDocument(int id, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var fileInfo = await _documentKnowledgeService.GetDownloadInfoAsync(id, cancellationToken);
+                if (fileInfo == null)
+                {
+                    return NotFound(new { error = "다운로드 가능한 원본 PDF를 찾을 수 없습니다." });
+                }
+
+                var stream = new FileStream(fileInfo.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return File(stream, "application/pdf", fileInfo.DownloadFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 다운로드 오류 id={Id}", id);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         [HttpPost("generate-similar-questions")]
         public async Task<IActionResult> GenerateSimilarQuestions([FromBody] GenerateSimilarQuestionsRequest request)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(request.Solution))
-                    return BadRequest(new { error = "답변을 먼저 작성해주세요." });
+                if (string.IsNullOrWhiteSpace(request.Content))
+                    return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
                 var generated = await _knowledgeExtractorService.GenerateSimilarQuestionsAsync(
-                    request.RepresentativeQuestion?.Trim() ?? string.Empty,
-                    request.Solution.Trim(),
-                    request.Count ?? 3);
+                    request.Title?.Trim() ?? string.Empty,
+                    request.Content.Trim(),
+                    Math.Clamp(request.Count ?? 5, 1, 5));
 
                 return Ok(new { items = generated });
             }
@@ -652,43 +660,26 @@ namespace AiDeskApi.Controllers
             try
             {
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
+                var source = BuildKbEmbeddingSource(request.Title, request.Content, request.ExpectedQuestions);
 
-                // 검색 키워드 (질문 기반)
-                List<string> searchKeywords = new();
-                if (!string.IsNullOrWhiteSpace(request.RepresentativeQuestion))
+                if (string.IsNullOrWhiteSpace(source))
                 {
-                    searchKeywords = await _knowledgeExtractorService.GenerateKeywordsAsync(
-                        request.RepresentativeQuestion.Trim(),
-                        request.SimilarQuestions,
-                        request.Count ?? 8,
-                        prompts.KeywordSystemPrompt,
-                        prompts.KeywordRulesPrompt,
-                        source: "question");
+                    return BadRequest(new { error = "제목 또는 내용을 먼저 입력해주세요" });
                 }
 
-                // 주제 키워드 (답변 기반)
-                List<string> topicKeywords = new();
-                if (!string.IsNullOrWhiteSpace(request.Solution))
-                {
-                    topicKeywords = await _knowledgeExtractorService.GenerateKeywordsAsync(
-                        request.Solution.Trim(),
-                        null,
-                        request.Count ?? 5,
-                        prompts.TopicKeywordSystemPrompt,
-                        prompts.TopicKeywordRulesPrompt,
-                        source: "answer");
-                }
-
-                if (searchKeywords.Count == 0 && topicKeywords.Count == 0)
-                {
-                    return BadRequest(new { error = "대표질문 또는 답변을 먼저 입력해주세요" });
-                }
+                var count = Math.Clamp(request.Count ?? 5, 1, 5);
+                var generated = await _knowledgeExtractorService.GenerateKeywordsAsync(
+                    source,
+                    request.ExpectedQuestions,
+                    count,
+                    prompts.KeywordSystemPrompt,
+                    prompts.KeywordRulesPrompt,
+                    source: "document");
 
                 return Ok(new 
                 { 
-                    searchKeywords, 
-                    topicKeywords,
-                    combined = searchKeywords.Union(topicKeywords).ToList()
+                    items = generated,
+                    combined = generated
                 });
             }
             catch (Exception ex)
@@ -703,14 +694,14 @@ namespace AiDeskApi.Controllers
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(request.Solution))
-                    return BadRequest(new { error = "답변을 먼저 작성해주세요." });
+                if (string.IsNullOrWhiteSpace(request.Content))
+                    return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
 
                 var refined = await _knowledgeExtractorService.RefineSolutionAsync(
-                    request.RepresentativeQuestion?.Trim() ?? string.Empty,
-                    request.Solution.Trim(),
+                    request.Title?.Trim() ?? string.Empty,
+                    request.Content.Trim(),
                     prompts.AnswerRefineSystemPrompt,
                     prompts.AnswerRefineRulesPrompt);
 
@@ -739,8 +730,7 @@ namespace AiDeskApi.Controllers
                 {
                     kb.Id,
                     kb.Title,
-                    representativeQuestion = kb.Problem,
-                    kb.Solution,
+                    content = kb.Solution,
                     kb.CreatedAt,
                     kb.UpdatedAt,
                     kb.CreatedBy,
@@ -750,7 +740,7 @@ namespace AiDeskApi.Controllers
                     kb.Platform,
                     platforms = SplitPlatforms(kb.Platform),
                     keywords = kb.Keywords,
-                    similarQuestions = kb.SimilarQuestions
+                    expectedQuestions = kb.SimilarQuestions
                         .OrderBy(s => s.Id)
                         .Select(s => new { s.Id, s.Question })
                         .ToList()
@@ -1120,10 +1110,8 @@ namespace AiDeskApi.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.Title))
                 return "제목을 입력해주세요.";
-            if (string.IsNullOrWhiteSpace(request.RepresentativeQuestion))
-                return "대표질문을 입력해주세요.";
-            if (string.IsNullOrWhiteSpace(request.Solution))
-                return "답변을 입력해주세요.";
+            if (string.IsNullOrWhiteSpace(ResolveContent(request)))
+                return "내용을 입력해주세요.";
             if (!string.IsNullOrWhiteSpace(request.Visibility)
                 && !new[] { "admin", "user", "common", "internal" }
                     .Contains(request.Visibility.Trim().ToLowerInvariant()))
@@ -1131,7 +1119,54 @@ namespace AiDeskApi.Controllers
             var platforms = NormalizePlatforms(request.Platforms, request.Platform);
             if (platforms.Any(x => x.Length < 2 && x != "공통"))
                 return "플랫폼명은 2자 이상이어야 합니다.";
+            if (ResolveExpectedQuestions(request).Count > 5)
+                return "예상질문은 최대 5개까지 등록 가능합니다.";
             return null;
+        }
+
+        private static string ResolveContent(UpsertKbRequest request)
+        {
+            return (request.Content ?? request.Solution ?? string.Empty).Trim();
+        }
+
+        private static List<string> ResolveExpectedQuestions(UpsertKbRequest request)
+        {
+            var source = request.ExpectedQuestions ?? request.SimilarQuestions;
+            return (source ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(5)
+                .ToList();
+        }
+
+        private static string BuildKbEmbeddingSource(string? title, string? content, IEnumerable<string>? expectedQuestions)
+        {
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                parts.Add($"제목: {title.Trim()}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                parts.Add($"내용: {content.Trim()}");
+            }
+
+            var expected = (expectedQuestions ?? Enumerable.Empty<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(5)
+                .ToList();
+
+            if (expected.Count > 0)
+            {
+                parts.Add("예상질문: " + string.Join(" | ", expected));
+            }
+
+            return string.Join("\n", parts);
         }
 
         private async Task<string> ResolveActorNameAsync()
@@ -1305,6 +1340,7 @@ namespace AiDeskApi.Controllers
     public class UpsertKbRequest
     {
         public string? Title { get; set; }
+        public string? Content { get; set; }
         public string? RepresentativeQuestion { get; set; }
         public string? Solution { get; set; }
         public string? Visibility { get; set; }
@@ -1313,6 +1349,7 @@ namespace AiDeskApi.Controllers
         public string? Keywords { get; set; }
         // 하위 호환: 구 필드명(tags)
         public string? Tags { get; set; }
+        public List<string>? ExpectedQuestions { get; set; }
         public List<string>? SimilarQuestions { get; set; }
     }
 
@@ -1340,23 +1377,23 @@ namespace AiDeskApi.Controllers
 
     public class GenerateSimilarQuestionsRequest
     {
-        public string? RepresentativeQuestion { get; set; }
-        public string? Solution { get; set; }
+        public string? Title { get; set; }
+        public string? Content { get; set; }
         public int? Count { get; set; }
     }
 
     public class GenerateKeywordsRequest
     {
-        public string? RepresentativeQuestion { get; set; }
-        public List<string>? SimilarQuestions { get; set; }
-        public string? Solution { get; set; }
+        public string? Title { get; set; }
+        public string? Content { get; set; }
+        public List<string>? ExpectedQuestions { get; set; }
         public int? Count { get; set; }
     }
 
     public class RefineSolutionRequest
     {
-        public string? RepresentativeQuestion { get; set; }
-        public string? Solution { get; set; }
+        public string? Title { get; set; }
+        public string? Content { get; set; }
     }
 
     public class UpdatePlatformRequest

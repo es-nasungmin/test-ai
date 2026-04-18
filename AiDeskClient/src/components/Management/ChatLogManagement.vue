@@ -179,7 +179,7 @@ function parseRetrievalDiagnostics(message) {
       ? parsed.candidates
         .map((c) => ({
           id: Number(c?.id),
-          problem: typeof c?.problem === 'string' ? c.problem : '',
+          title: typeof c?.title === 'string' ? c.title : '',
           matchedQuestion: typeof c?.matchedQuestion === 'string' ? c.matchedQuestion : '',
           baseSimilarity: Number(c?.baseSimilarity),
           keywordBoost: Number(c?.keywordBoost),
@@ -217,6 +217,47 @@ function getRelatedKbsSorted(message) {
     })
 }
 
+function parseRelatedDocuments(message) {
+  const raw = message?.relatedDocumentMeta || message?.RelatedDocumentMeta
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .map((doc) => ({
+        documentId: Number(doc?.documentId),
+        documentName: typeof doc?.documentName === 'string' ? doc.documentName : '',
+        pageNumber: Number(doc?.pageNumber),
+        excerpt: typeof doc?.excerpt === 'string' ? doc.excerpt : '',
+        similarity: Number.isFinite(Number(doc?.similarity)) ? Number(doc.similarity) : null
+      }))
+      .filter((doc) => Number.isInteger(doc.documentId) && doc.documentId > 0)
+      .sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1))
+  } catch {
+    return []
+  }
+}
+
+function sourceLabelClass(item) {
+  const bySemantic = item?.includedBySemantic === true
+  const byKeyword = item?.includedByKeyword === true
+  if (bySemantic && byKeyword) return 'both'
+  if (bySemantic) return 'semantic'
+  if (byKeyword) return 'keyword'
+  return ''
+}
+
+function sourceLabelText(item) {
+  const bySemantic = item?.includedBySemantic === true
+  const byKeyword = item?.includedByKeyword === true
+  if (bySemantic && byKeyword) return '벡터+키워드'
+  if (bySemantic) return '벡터'
+  if (byKeyword) return '키워드'
+  return '경로없음'
+}
+
 function formatPercentPart(value) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
@@ -241,45 +282,41 @@ function buildSimilarityEvidence(rawEvidence, fallbackSimilarity) {
     ? Math.floor(keywordMatchCountRaw)
     : matchedKeywords.length
 
-  const storedBoost = toFiniteNumberOrNull(evidence.keywordBoost)
-  const estimatedBoost = Math.min(0.12, keywordMatchCount * 0.03)
-  const keywordBoost = storedBoost ?? estimatedBoost
+  // 최신 로직: 최종 유사도는 벡터(semantic) 점수만 사용하고,
+  // 키워드는 후보 리콜/디버깅 메타로만 사용한다.
+  const semanticSimilarity = toFiniteNumberOrNull(evidence.baseSimilarity)
+    ?? finalSimilarity
 
-  const storedBase = toFiniteNumberOrNull(evidence.baseSimilarity)
-  const baseSimilarity = storedBase ?? (finalSimilarity !== null
-    ? Math.max(0, Math.min(1, finalSimilarity - keywordBoost))
-    : null)
-
-  const adjustedSimilarity = finalSimilarity ?? (baseSimilarity !== null
-    ? Math.min(1, baseSimilarity + keywordBoost)
-    : null)
+  const adjustedSimilarity = finalSimilarity ?? semanticSimilarity
 
   return {
     ...evidence,
     matchedKeywords,
     keywordMatchCount,
-    baseSimilarity,
-    keywordBoost,
+    semanticSimilarity,
     adjustedSimilarity,
-    usedEstimatedBoost: storedBoost === null && keywordMatchCount > 0,
-    usedEstimatedBase: storedBase === null && adjustedSimilarity !== null
+    includedBySemantic: evidence.includedBySemantic === true,
+    includedByKeyword: evidence.includedByKeyword === true
   }
 }
 
 function similarityExplainText(evidence, fallbackSimilarity) {
   const normalized = buildSimilarityEvidence(evidence, fallbackSimilarity)
 
-  const base = formatPercentPart(normalized.baseSimilarity)
-  const boost = formatPercentPart(normalized.keywordBoost)
+  const semantic = formatPercentPart(normalized.semanticSimilarity)
   const adjusted = formatPercentPart(normalized.adjustedSimilarity)
   const keywordInfo = normalized.matchedKeywords.length
     ? `매칭 키워드: ${normalized.matchedKeywords.join(', ')}`
     : '매칭 키워드 없음'
-  const estimateInfo = normalized.usedEstimatedBoost || normalized.usedEstimatedBase
-    ? ' (일부 과거 로그는 저장값이 없어 계산식 일부를 보정해 표시)'
-    : ''
 
-  return `기본 유사도 ${base} + 키워드 가산 ${boost} = 최종 ${adjusted}\n${keywordInfo}${estimateInfo}`
+  const inclusionReasons = []
+  if (normalized.includedBySemantic) inclusionReasons.push('벡터 검색')
+  if (normalized.includedByKeyword) inclusionReasons.push('키워드 리콜')
+  const inclusionText = inclusionReasons.length > 0
+    ? `후보 포함 경로: ${inclusionReasons.join(' + ')}`
+    : '후보 포함 경로: 정보 없음'
+
+  return `최종 유사도(벡터 기준): ${adjusted}\nsemantic 유사도: ${semantic}\n키워드 점수 가산: 없음\n${keywordInfo}\n${inclusionText}`
 }
 
 async function openKbDetail(id, similarity = null, evidence = null) {
@@ -506,6 +543,30 @@ onMounted(async () => {
                 >
                   {{ idx + 1 }}위 · #{{ item.id }} · {{ formatSimilarity(item.similarity) }}
                 </button>
+                <span class="source-label" :class="sourceLabelClass(item)">
+                  {{ sourceLabelText(item) }}
+                </span>
+                <span v-if="item.matchedKeywords?.length" class="source-keywords">
+                  키워드: {{ item.matchedKeywords.join(', ') }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="msg.role === 'bot' && parseRelatedDocuments(msg).length > 0" class="related-kb">
+            <span class="label">참조 문서KB:</span>
+            <div class="related-kb-list">
+              <div
+                v-for="(doc, idx) in parseRelatedDocuments(msg)"
+                :key="`doc-${msg.id}-${doc.documentId}-${idx}`"
+                class="related-kb-item"
+              >
+                <span class="kb-chip">
+                  {{ idx + 1 }}위 · 문서#{{ doc.documentId }} · {{ formatSimilarity(doc.similarity) }}
+                </span>
+                <span class="source-label keyword">
+                  {{ doc.documentName || '문서명 없음' }} · p.{{ Number.isFinite(doc.pageNumber) ? doc.pageNumber : '-' }}
+                </span>
               </div>
             </div>
           </div>
@@ -559,13 +620,8 @@ onMounted(async () => {
           </div>
 
           <div class="kb-section">
-            <div class="kb-section-label">대표질문</div>
-            <div class="kb-q">{{ selectedKbDetail.representativeQuestion || selectedKbDetail.RepresentativeQuestion || selectedKbDetail.problem || selectedKbDetail.Problem || '-' }}</div>
-          </div>
-
-          <div class="kb-section">
-            <div class="kb-section-label">답변</div>
-            <pre class="kb-answer">{{ selectedKbDetail.solution || selectedKbDetail.Solution || '-' }}</pre>
+            <div class="kb-section-label">내용</div>
+            <div class="kb-q">{{ selectedKbDetail.content || selectedKbDetail.Content || selectedKbDetail.solution || selectedKbDetail.Solution || '-' }}</div>
           </div>
 
           <div class="kb-meta-grid">
@@ -589,10 +645,10 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="(selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)?.length" class="kb-section">
-            <div class="kb-section-label">유사질문</div>
+          <div v-if="(selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions || selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)?.length" class="kb-section">
+            <div class="kb-section-label">예상질문</div>
             <ul class="kb-similar-list">
-              <li v-for="sq in (selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)" :key="sq.id || sq.Id">{{ sq.question || sq.Question }}</li>
+              <li v-for="sq in (selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions || selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)" :key="sq.id || sq.Id">{{ sq.question || sq.Question }}</li>
             </ul>
           </div>
         </div>

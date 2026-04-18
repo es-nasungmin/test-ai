@@ -7,9 +7,9 @@ namespace AiDeskApi.Services
     public interface IKnowledgeExtractorService
     {
         Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction);
-        Task<List<string>> GenerateSimilarQuestionsAsync(string representativeQuestion, string solution, int count = 3);
+        Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count = 5);
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
-        Task<string> RefineSolutionAsync(string representativeQuestion, string solution, string systemPrompt, string rulesPrompt);
+        Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt);
     }
 
     public class KnowledgeExtractorService : IKnowledgeExtractorService
@@ -102,55 +102,32 @@ namespace AiDeskApi.Services
             }
         }
 
-        public async Task<List<string>> GenerateSimilarQuestionsAsync(string representativeQuestion, string solution, int count = 3)
+        public async Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count = 5)
         {
-            if (string.IsNullOrWhiteSpace(solution))
-                throw new ArgumentException("답변이 필요합니다.");
+            if (string.IsNullOrWhiteSpace(content))
+                throw new ArgumentException("내용이 필요합니다.");
 
             try
             {
                 var limitedCount = Math.Clamp(count, 1, 5);
-                var rep = representativeQuestion?.Trim();
-                var prompt = string.IsNullOrWhiteSpace(rep)
-                    ? $@"다음 답변 내용을 읽고, 사용자가 실제로 물어볼 법한 유사 질문을 {limitedCount}개 생성하세요.
+                var titleText = string.IsNullOrWhiteSpace(title) ? "(제목 없음)" : title.Trim();
+                var prompt = $@"다음 문서형 KB를 읽고, 사용자가 실제로 물어볼 법한 예상 질문을 {limitedCount}개 생성하세요.
 
-【답변】
-{solution}
+【제목】
+{titleText}
+
+【내용】
+{content.Trim()}
 
 【규칙】
 - 반드시 JSON 배열만 응답
 - 다른 설명 문장 금지
 - 한국어 사용
 - 각 질문은 자연스러운 사용자 말투
-- 답변 내용을 보고 사용자의 상황을 역으로 추론해 질문 만들기
+- 문서에 근거한 질문만 생성
 - 서로 의미가 겹치지 않게 작성
+- 제목을 그대로 복사하지 말 것
 - 질문 길이와 표현을 다양하게 구성
-- 가능하면 아래 3가지 톤을 섞어서 생성
-    1. 짧고 바로 묻는 질문
-    2. 상황을 조금 설명하는 질문
-    3. 사용자가 실제로 말할 법한 자연스러운 변형 질문
-
-예시 형식: JSON 문자열 배열"
-                    : $@"다음 KB를 읽고, 사용자가 실제로 물어볼 법한 유사 질문을 {limitedCount}개 생성하세요.
-
-【대표질문】
-{rep}
-
-【답변】
-{solution}
-
-【규칙】
-- 반드시 JSON 배열만 응답
-- 다른 설명 문장 금지
-- 한국어 사용
-- 각 질문은 자연스러운 사용자 말투
-- 의미만 비슷하고 문장은 겹치지 않게 작성
-- 대표질문을 그대로 복사하지 말 것
-- 질문 길이와 표현을 다양하게 구성
-- 가능하면 아래 3가지 톤을 섞어서 생성
-    1. 짧고 바로 묻는 질문
-    2. 상황을 조금 설명하는 질문
-    3. 사용자가 실제로 말할 법한 자연스러운 변형 질문
 
 예시 형식: JSON 문자열 배열";
 
@@ -183,13 +160,13 @@ namespace AiDeskApi.Services
 
                 var jsonString = await response.Content.ReadAsStringAsync();
                 var json = JsonDocument.Parse(jsonString).RootElement;
-                var content = json
+                var responseContent = json
                     .GetProperty("choices")[0]
                     .GetProperty("message")
                     .GetProperty("content")
                     .GetString();
 
-                var parsed = ParseQuestionList(content, rep, limitedCount);
+                var parsed = ParseQuestionList(responseContent, titleText, limitedCount);
                 return parsed;
             }
             catch (Exception ex)
@@ -257,25 +234,25 @@ namespace AiDeskApi.Services
             return ParseTextList(responseContent, limitedCount);
         }
 
-        private string GenerateSearchKeywordPrompt(string representativeQuestion, List<string> similarQuestions, int limitedCount)
+        private string GenerateSearchKeywordPrompt(string mainContent, List<string> additionalContent, int limitedCount)
         {
-            var similarText = similarQuestions.Count == 0
+            var additionalText = additionalContent.Count == 0
                 ? "없음"
-                : string.Join("\n", similarQuestions.Select((x, i) => $"{i + 1}. {x}"));
+                : string.Join("\n", additionalContent.Select((x, i) => $"{i + 1}. {x}"));
 
-            return $@"아래 KB 질문 데이터를 기준으로 검색 최적화 키워드를 {limitedCount}개 생성하세요.
+            return $@"아래 KB 문서 데이터를 기준으로 검색 최적화 키워드를 {limitedCount}개 생성하세요.
 
-【대표질문】
-{representativeQuestion}
+【주요 텍스트】
+{mainContent}
 
-【유사질문】
-{similarText}
+【보조 텍스트】
+{additionalText}
 
 【추가 규칙】
 - 반드시 JSON 배열만 응답
 - 각 키워드는 짧은 명사형/핵심 구로 작성
 - 중복/유사 표현은 하나로 통합
-- 대표질문과 직접 무관한 단어는 제외
+- 문서 내용과 직접 무관한 단어는 제외
 - count에 맞는 개수로 생성
 - 사용자가 실제로 검색할 법한 표현 우선";
         }
@@ -297,22 +274,22 @@ namespace AiDeskApi.Services
         }
 
         public async Task<string> RefineSolutionAsync(
-            string representativeQuestion,
-            string solution,
+            string title,
+            string content,
             string systemPrompt,
             string rulesPrompt)
         {
-            if (string.IsNullOrWhiteSpace(solution))
-                throw new ArgumentException("답변이 필요합니다.");
+            if (string.IsNullOrWhiteSpace(content))
+                throw new ArgumentException("내용이 필요합니다.");
 
-            var rep = representativeQuestion?.Trim();
+            var titleText = title?.Trim();
             var prompt = $@"아래 KB 답변 초안을 가독성 높은 최종 답변으로 정리하세요.
 
-【대표질문】
-{(string.IsNullOrWhiteSpace(rep) ? "(없음)" : rep)}
+【제목】
+{(string.IsNullOrWhiteSpace(titleText) ? "(없음)" : titleText)}
 
-【답변 초안】
-{solution.Trim()}
+【내용 초안】
+{content.Trim()}
 
 【출력 형식】
 - 한국어 마크다운 텍스트
@@ -342,16 +319,16 @@ namespace AiDeskApi.Services
 
             var jsonString = await response.Content.ReadAsStringAsync();
             var json = JsonDocument.Parse(jsonString).RootElement;
-            var content = json
+            var responseContent = json
                 .GetProperty("choices")[0]
                 .GetProperty("message")
                 .GetProperty("content")
                 .GetString();
 
-            if (string.IsNullOrWhiteSpace(content))
+            if (string.IsNullOrWhiteSpace(responseContent))
                 throw new Exception("답변 정리 결과가 비어 있습니다.");
 
-            return content.Trim();
+            return responseContent.Trim();
         }
 
         private ExtractedKnowledge ParseJson(string? response)

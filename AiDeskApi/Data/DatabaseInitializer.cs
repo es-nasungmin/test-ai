@@ -283,6 +283,7 @@ namespace AiDeskApi.Data
                 CreatedAt TEXT NOT NULL,
                 RelatedKbIds TEXT NULL,
                 RelatedKbMeta TEXT NULL,
+                RelatedDocumentMeta TEXT NULL,
                 RetrievalDebugMeta TEXT NULL,
                 TopSimilarity REAL NULL,
                 IsLowSimilarity INTEGER NOT NULL DEFAULT 0,
@@ -292,6 +293,8 @@ namespace AiDeskApi.Data
 
             EnsureColumnExists(db, "ChatMessages", "RelatedKbMeta",
                 "ALTER TABLE ChatMessages ADD COLUMN RelatedKbMeta TEXT NULL;");
+            EnsureColumnExists(db, "ChatMessages", "RelatedDocumentMeta",
+                "ALTER TABLE ChatMessages ADD COLUMN RelatedDocumentMeta TEXT NULL;");
             EnsureColumnExists(db, "ChatMessages", "RetrievalDebugMeta",
                 "ALTER TABLE ChatMessages ADD COLUMN RetrievalDebugMeta TEXT NULL;");
             EnsureColumnExists(db, "ChatMessages", "TopSimilarity",

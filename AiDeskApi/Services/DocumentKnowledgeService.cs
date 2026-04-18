@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Diagnostics;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -47,6 +48,8 @@ namespace AiDeskApi.Services
             Stream stream,
             string actor,
             CancellationToken cancellationToken = default);
+
+        Task<DocumentDownloadInfo?> GetDownloadInfoAsync(int documentId, CancellationToken cancellationToken = default);
     }
 
     public sealed class DocumentKnowledgeService : IDocumentKnowledgeService
@@ -54,17 +57,20 @@ namespace AiDeskApi.Services
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _environment;
         private readonly ILogger<DocumentKnowledgeService> _logger;
 
         public DocumentKnowledgeService(
             AiDeskContext context,
             IEmbeddingService embeddingService,
             IConfiguration configuration,
+            IWebHostEnvironment environment,
             ILogger<DocumentKnowledgeService> logger)
         {
             _context = context;
             _embeddingService = embeddingService;
             _configuration = configuration;
+            _environment = environment;
             _logger = logger;
         }
 
@@ -82,7 +88,13 @@ namespace AiDeskApi.Services
             var normalizedPlatform = NormalizePlatform(platform);
             var now = DateTime.UtcNow;
 
-            var preparedChunks = await PrepareChunkPayloadsAsync(stream, cancellationToken);
+            var pdfBytes = await ReadAllBytesAsync(stream, cancellationToken);
+            if (pdfBytes.Length == 0)
+            {
+                throw new InvalidOperationException("업로드된 PDF 파일이 비어 있습니다.");
+            }
+
+            var preparedChunks = await PrepareChunkPayloadsAsync(pdfBytes, cancellationToken);
 
             var doc = new DocumentKnowledge
             {
@@ -117,6 +129,8 @@ namespace AiDeskApi.Services
             doc.Status = "ready";
             doc.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
+
+            await SaveOriginalPdfAsync(doc.Id, pdfBytes, cancellationToken);
 
             _logger.LogInformation("문서 인덱싱 완료. docId={DocId}, chunks={ChunkCount}", doc.Id, chunkEntities.Count);
 
@@ -242,6 +256,8 @@ namespace AiDeskApi.Services
             _context.DocumentKnowledges.Remove(doc);
             await _context.SaveChangesAsync(cancellationToken);
 
+            DeleteOriginalPdfIfExists(documentId);
+
             _logger.LogInformation("문서 삭제 완료. docId={DocId}", documentId);
             return true;
         }
@@ -322,7 +338,13 @@ namespace AiDeskApi.Services
                 ?? throw new InvalidOperationException($"문서를 찾을 수 없습니다. id={documentId}");
 
             // 기존 인덱스를 유지하기 위해 새 텍스트/임베딩 준비가 완료된 뒤 교체한다.
-            var preparedChunks = await PrepareChunkPayloadsAsync(stream, cancellationToken);
+            var pdfBytes = await ReadAllBytesAsync(stream, cancellationToken);
+            if (pdfBytes.Length == 0)
+            {
+                throw new InvalidOperationException("교체할 PDF 파일이 비어 있습니다.");
+            }
+
+            var preparedChunks = await PrepareChunkPayloadsAsync(pdfBytes, cancellationToken);
 
             var now = DateTime.UtcNow;
             _context.DocumentKnowledgeChunks.RemoveRange(doc.Chunks);
@@ -344,6 +366,8 @@ namespace AiDeskApi.Services
             doc.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
+            await SaveOriginalPdfAsync(doc.Id, pdfBytes, cancellationToken);
+
             _logger.LogInformation("문서 재인덱싱 완료. docId={DocId}, chunks={ChunkCount}", doc.Id, chunkEntities.Count);
 
             return new DocumentKnowledgeUploadResult
@@ -355,8 +379,39 @@ namespace AiDeskApi.Services
             };
         }
 
+        public async Task<DocumentDownloadInfo?> GetDownloadInfoAsync(int documentId, CancellationToken cancellationToken = default)
+        {
+            var doc = await _context.DocumentKnowledges
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == documentId, cancellationToken);
+
+            if (doc == null)
+            {
+                return null;
+            }
+
+            var filePath = BuildStoredPdfPath(documentId);
+            if (!File.Exists(filePath))
+            {
+                return null;
+            }
+
+            var baseName = string.IsNullOrWhiteSpace(doc.DisplayName) ? doc.FileName : doc.DisplayName;
+            if (!baseName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                baseName += ".pdf";
+            }
+
+            return new DocumentDownloadInfo
+            {
+                DocumentId = doc.Id,
+                FilePath = filePath,
+                DownloadFileName = baseName
+            };
+        }
+
         private async Task<List<PreparedChunkPayload>> PrepareChunkPayloadsAsync(
-            Stream stream,
+            byte[] pdfBytes,
             CancellationToken cancellationToken)
         {
             string fullText;
@@ -366,19 +421,13 @@ namespace AiDeskApi.Services
             bool usedPdfToTextFallback = false;
             bool usedOcrFallback = false;
 
-            using (var ms = new MemoryStream())
+            using (var textStream = new MemoryStream(pdfBytes, writable: false))
             {
-                await stream.CopyToAsync(ms, cancellationToken);
-                var bytes = ms.ToArray();
-
-                using (var textStream = new MemoryStream(bytes, writable: false))
-                {
-                    fullText = ExtractPdfText(textStream, out pageCount, out extractedPages, out usedLetterFallback);
-                }
+                fullText = ExtractPdfText(textStream, out pageCount, out extractedPages, out usedLetterFallback);
 
                 if (string.IsNullOrWhiteSpace(fullText))
                 {
-                    var plainText = await TryExtractPdfTextWithPdfToTextAsync(bytes, cancellationToken);
+                    var plainText = await TryExtractPdfTextWithPdfToTextAsync(pdfBytes, cancellationToken);
                     fullText = plainText.Text;
                     if (plainText.ExtractedPageCount > 0)
                     {
@@ -389,7 +438,7 @@ namespace AiDeskApi.Services
 
                 if (string.IsNullOrWhiteSpace(fullText))
                 {
-                    var ocr = await TryExtractPdfTextWithOcrAsync(bytes, cancellationToken);
+                    var ocr = await TryExtractPdfTextWithOcrAsync(pdfBytes, cancellationToken);
                     fullText = ocr.Text;
                     if (ocr.ExtractedPageCount > 0)
                     {
@@ -955,6 +1004,46 @@ namespace AiDeskApi.Services
             public string Text { get; set; } = string.Empty;
             public string EmbeddingJson { get; set; } = string.Empty;
         }
+
+        private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)
+        {
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms, cancellationToken);
+            return ms.ToArray();
+        }
+
+        private string GetStorageRootPath()
+        {
+            var configured = _configuration["Rag:DocumentStorage:Path"];
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                var trimmed = configured.Trim();
+                if (Path.IsPathRooted(trimmed)) return trimmed;
+                return Path.Combine(_environment.ContentRootPath, trimmed);
+            }
+
+            return Path.Combine(_environment.ContentRootPath, "storage", "documents");
+        }
+
+        private string BuildStoredPdfPath(int documentId)
+        {
+            return Path.Combine(GetStorageRootPath(), $"doc-{documentId}.pdf");
+        }
+
+        private async Task SaveOriginalPdfAsync(int documentId, byte[] pdfBytes, CancellationToken cancellationToken)
+        {
+            var root = GetStorageRootPath();
+            Directory.CreateDirectory(root);
+            var path = BuildStoredPdfPath(documentId);
+            await File.WriteAllBytesAsync(path, pdfBytes, cancellationToken);
+        }
+
+        private void DeleteOriginalPdfIfExists(int documentId)
+        {
+            var path = BuildStoredPdfPath(documentId);
+            if (!File.Exists(path)) return;
+            File.Delete(path);
+        }
     }
 
     public sealed class DocumentKnowledgeUploadResult
@@ -986,5 +1075,12 @@ namespace AiDeskApi.Services
         public string Platform { get; set; } = "공통";
         public string? Keywords { get; set; }
         public DateTime UpdatedAt { get; set; }
+    }
+
+    public sealed class DocumentDownloadInfo
+    {
+        public int DocumentId { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+        public string DownloadFileName { get; set; } = string.Empty;
     }
 }
