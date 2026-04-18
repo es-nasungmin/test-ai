@@ -17,7 +17,7 @@ namespace AiDeskApi.Models
         public string Visibility { get; set; } = "admin";
         // 공통 또는 특정 플랫폼 식별자 (예: 공통, windows, mobile-app)
         public string Platform { get; set; } = "공통";
-        public string? Tags { get; set; }
+        public string? Keywords { get; set; }
 
         public ICollection<KnowledgeBaseSimilarQuestion> SimilarQuestions { get; set; } = new List<KnowledgeBaseSimilarQuestion>();
     }

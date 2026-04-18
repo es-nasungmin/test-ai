@@ -26,20 +26,27 @@ namespace AiDeskApi.Services
     {
         private const float KeywordBoostPerMatch = 0.03f;
         private const float MaxKeywordBoost = 0.12f;
+        private const float MaxTextMatchBoost = 0.08f;
         private const int FinalTopK = 5;
 
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
         private readonly IVectorSearchService _vectorSearchService;
+        private readonly IDocumentKnowledgeService _documentKnowledgeService;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly IChatbotPromptTemplateService _promptTemplates;
         private readonly ILogger<OpenAiRagService> _logger;
+        private readonly string _chatCompletionsEndpoint;
+        private readonly string _chatModel;
+        private readonly float _chatTemperature;
+        private readonly int _chatMaxTokens;
 
         public OpenAiRagService(
             AiDeskContext context,
             IEmbeddingService embeddingService,
             IVectorSearchService vectorSearchService,
+            IDocumentKnowledgeService documentKnowledgeService,
             HttpClient httpClient,
             IConfiguration configuration,
             IChatbotPromptTemplateService promptTemplates,
@@ -48,6 +55,7 @@ namespace AiDeskApi.Services
             _context = context;
             _embeddingService = embeddingService;
             _vectorSearchService = vectorSearchService;
+            _documentKnowledgeService = documentKnowledgeService;
             _httpClient = httpClient;
             _configuration = configuration;
             _promptTemplates = promptTemplates;
@@ -56,6 +64,10 @@ namespace AiDeskApi.Services
             var apiKey = configuration["OpenAI:ApiKey"];
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+            _chatCompletionsEndpoint = configuration["OpenAI:Endpoint"] ?? "https://api.openai.com/v1/chat/completions";
+            _chatModel = configuration["OpenAI:Model"] ?? "gpt-4o-mini";
+            _chatTemperature = Math.Clamp(configuration.GetValue<float?>("OpenAI:ChatTemperature") ?? 0.7f, 0f, 2f);
+            _chatMaxTokens = Math.Clamp(configuration.GetValue<int?>("OpenAI:ChatMaxTokens") ?? 1000, 100, 4000);
         }
 
         public async Task<RagResponse> SearchAndGenerateAsync(
@@ -108,7 +120,7 @@ namespace AiDeskApi.Services
                 var normalizedPlatform = NormalizePlatform(platform);
                 var questionTokens = ExtractKeywordTokens(question);
 
-                List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)> scoredResults;
+                List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)> scoredResults;
                 var fallbackOnVectorEmpty = _configuration.GetValue<bool?>("Rag:FallbackOnVectorEmpty") ?? true;
 
                 try
@@ -116,75 +128,42 @@ namespace AiDeskApi.Services
                     var vectorTopK = _configuration.GetValue<int?>("Rag:VectorTopK") ?? 80;
                     var searchHits = await _vectorSearchService.SearchAsync(questionEmbedding, role, normalizedPlatform, Math.Max(10, vectorTopK));
 
-                    if (searchHits.Count == 0 && fallbackOnVectorEmpty)
+                    if (searchHits.Count == 0)
                     {
-                        _logger.LogWarning("⚠️ 벡터 검색 결과 없음. 로컬 유사도 fallback 수행");
-                        scoredResults = await BuildLocalScoredResultsAsync(query, question, questionEmbedding, questionTokens, normalizedPlatform);
+                        _logger.LogWarning("⚠️ 벡터 검색 결과 없음. 키워드 리콜 + 로컬 재계산 수행");
+                        scoredResults = await BuildHybridScoredResultsAsync(
+                            query,
+                            questionEmbedding,
+                            questionTokens,
+                            normalizedPlatform,
+                            searchHits);
+
+                        if (scoredResults.Count == 0 && fallbackOnVectorEmpty)
+                        {
+                            _logger.LogWarning("⚠️ 하이브리드 리콜 결과 없음. 전체 로컬 유사도 fallback 수행");
+                            scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
+                        }
                     }
                     else
                     {
-                        var candidateKbIds = searchHits
-                            .Select(x => x.KbId)
-                            .Distinct()
-                            .ToList();
-
-                        var kbs = await query
-                            .AsNoTracking()
-                            .Where(x => candidateKbIds.Contains(x.Id))
-                            .ToListAsync();
-                        var kbById = kbs.ToDictionary(x => x.Id, x => x);
-
-                        scoredResults = searchHits
-                            .GroupBy(x => x.KbId)
-                            .Select(group =>
-                            {
-                                if (!kbById.TryGetValue(group.Key, out var kb))
-                                {
-                                    return default((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?);
-                                }
-
-                                var best = group.OrderByDescending(x => x.Score).First();
-
-                                var keywordTokens = string.IsNullOrWhiteSpace(kb.Tags)
-                                    ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                                    : ParseKeywordTokens(kb.Tags);
-                                var matchedKeywords = keywordTokens
-                                    .Where(t => questionTokens.Contains(t))
-                                    .OrderBy(x => x)
-                                    .ToList();
-                                var keywordMatchCount = matchedKeywords.Count;
-
-                                var keywordBoost = CalculateKeywordBoost(question, kb.Tags);
-                                var adjustedSimilarity = Math.Clamp(best.Score + keywordBoost, 0f, 1f);
-
-                                return ((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?)
-                                    (kb, best.Score, keywordBoost, adjustedSimilarity, best.MatchedQuestion, best.IsSimilarQuestion, keywordMatchCount, matchedKeywords);
-                            })
-                            .Where(x => x.HasValue)
-                            .Select(x => x!.Value)
-                            .ToList();
+                        scoredResults = await BuildHybridScoredResultsAsync(
+                            query,
+                            questionEmbedding,
+                            questionTokens,
+                            normalizedPlatform,
+                            searchHits);
 
                         if (scoredResults.Count == 0 && fallbackOnVectorEmpty)
                         {
                             _logger.LogWarning("⚠️ 벡터 검색 결과 매핑 실패. 로컬 유사도 fallback 수행");
-                            scoredResults = await BuildLocalScoredResultsAsync(query, question, questionEmbedding, questionTokens, normalizedPlatform);
+                            scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "⚠️ 벡터 검색 실패. 로컬 유사도 fallback 수행");
-                    scoredResults = await BuildLocalScoredResultsAsync(query, question, questionEmbedding, questionTokens, normalizedPlatform);
-                }
-
-                if (scoredResults.Count == 0)
-                {
-                    _logger.LogWarning("⚠️ KB 데이터 없음");
-                    return new RagResponse
-                    {
-                        Answer = "유사한 상담내역이 없습니다. 담당자에게 문의해주세요.",
-                        RelatedKBs = new List<KBSummary>()
-                    };
+                    scoredResults = await BuildLocalScoredResultsAsync(query, questionEmbedding, questionTokens, normalizedPlatform);
                 }
 
                 var topResults = scoredResults
@@ -193,16 +172,49 @@ namespace AiDeskApi.Services
                     .Select(x => (x.kb, x.adjustedSimilarity, x.matchedQuestion, x.matchedSimilar))
                     .ToList();
 
-                _logger.LogInformation($"✓ 검색 완료 ({topResults.Count}개)");
+                var docTopK = Math.Clamp(_configuration.GetValue<int?>("Rag:DocumentTopK") ?? 3, 1, 10);
+                List<DocumentChunkSearchHit> documentHits;
+                try
+                {
+                    documentHits = await _documentKnowledgeService.SearchChunksAsync(
+                        questionEmbedding,
+                        questionTokens,
+                        role,
+                        normalizedPlatform,
+                        docTopK);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ 문서형 KB 검색 실패. FAQ 채널만 사용");
+                    documentHits = new List<DocumentChunkSearchHit>();
+                }
+
+                if (topResults.Count == 0 && documentHits.Count == 0)
+                {
+                    _logger.LogWarning("⚠️ KB/문서 후보 없음");
+                    return new RagResponse
+                    {
+                        Answer = "유사한 상담내역이 없습니다. 담당자에게 문의해주세요.",
+                        RelatedKBs = new List<KBSummary>(),
+                        RelatedDocuments = new List<DocumentReferenceSummary>()
+                    };
+                }
+
+                _logger.LogInformation($"✓ 검색 완료 (kb={topResults.Count}, doc={documentHits.Count})");
 
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
-                // 답변 생성에 사용하는 후보는 무조건 임계치 이상 사례로만 제한한다.
+                // 답변 생성에 사용하는 FAQ 후보는 임계치 이상 사례로 제한
                 var eligibleResults = topResults
                     .Where(x => x.Item2 >= similarityThreshold)
                     .ToList();
 
-                // 임계치 이상 후보만으로 충돌 감지/우선안 선택을 수행한다.
+                // 문서 후보도 임계치 이상만 근거 컨텍스트에 반영
+                var eligibleDocumentHits = documentHits
+                    .Where(x => x.Score >= similarityThreshold)
+                    .ToList();
+
+                // 임계치 이상 FAQ 후보만 충돌 감지/우선안 선택 수행
                 var voteResult = BuildResolutionVote(eligibleResults);
                 var selectedResults = voteResult.SelectedCases;
                 var topResultSet = topResults.Select(x => x.kb.Id).ToHashSet();
@@ -219,32 +231,40 @@ namespace AiDeskApi.Services
                         .Select(x => new RetrievalCandidateDiagnostic
                         {
                             Id = x.kb.Id,
-                            Problem = x.kb.Problem,
+                            Title = string.IsNullOrWhiteSpace(x.kb.Title) ? x.kb.Problem : x.kb.Title,
                             MatchedQuestion = x.matchedQuestion,
                             BaseSimilarity = x.baseSimilarity,
                             KeywordBoost = x.keywordBoost,
                             AdjustedSimilarity = x.adjustedSimilarity,
                             KeywordMatchCount = x.keywordMatchCount,
                             MatchedKeywords = x.matchedKeywords,
-                            IncludedBySemantic = true,
-                            IncludedByKeyword = false,
+                            IncludedBySemantic = x.includedBySemantic,
+                            IncludedByKeyword = x.includedByKeyword,
                             PassedThreshold = eligibleSet.Contains(x.kb.Id),
                             SelectedForAnswer = selectedSet.Contains(x.kb.Id)
                         })
                         .ToList()
                 };
 
-                // 4. View count 증가
+                // View count 증가 (FAQ 상위 1개)
                 if (!runtimeOptions.DisablePersistence && topResults.Count > 0)
                 {
                     topResults[0].Item1.ViewCount++;
                     await _context.SaveChangesAsync();
                 }
 
-                // 5. GPT로 답변 생성 (사용자는 유사도/점수 노출 없이 명확한 답변 우선)
-                var contextText = BuildContext(eligibleResults, voteResult, role);
-                var topScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
+                // 답변 생성
+                var faqContext = BuildContext(eligibleResults, voteResult, role);
+                var documentContext = BuildDocumentContext(eligibleDocumentHits);
+                var contextText = string.IsNullOrWhiteSpace(documentContext)
+                    ? faqContext
+                    : $"{faqContext}\n\n{documentContext}";
+
+                var topKbScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
+                var topDocScore = documentHits.Count > 0 ? documentHits[0].Score : 0f;
+                var topScore = Math.Max(topKbScore, topDocScore);
                 var topMatchedQuestion = topResults.Count > 0 ? topResults[0].Item3 : null;
+
                 var answer = await GenerateAnswerAsync(question, contextText, role, topScore, history, runtimeOptions);
                 var isLowSimilarity = topScore < similarityThreshold;
 
@@ -263,11 +283,23 @@ namespace AiDeskApi.Services
                         .Select(x => new KBSummary
                         {
                             Id = x.Item1.Id,
-                            Problem = x.Item1.Problem,
+                            Title = string.IsNullOrWhiteSpace(x.Item1.Title) ? x.Item1.Problem : x.Item1.Title,
                             Solution = x.Item1.Solution,
                             Similarity = x.Item2,
                             MatchedQuestion = x.Item3,
                             IsSelected = selectedResults.Any(s => s.kb.Id == x.Item1.Id)
+                        }).ToList(),
+                    RelatedDocuments = isLowSimilarity
+                        ? new List<DocumentReferenceSummary>()
+                        : eligibleDocumentHits
+                        .Select(x => new DocumentReferenceSummary
+                        {
+                            DocumentId = x.DocumentId,
+                            ChunkId = x.ChunkId,
+                            DocumentName = x.DocumentName,
+                            PageNumber = x.PageNumber,
+                            Excerpt = TruncateText(x.Content, 220),
+                            Similarity = x.Score
                         }).ToList()
                 };
             }
@@ -386,14 +418,14 @@ namespace AiDeskApi.Services
 
                 var request = new
                 {
-                    model = "gpt-3.5-turbo",
+                    model = _chatModel,
                     messages,
-                    temperature = 0.7,
-                    max_tokens = 1000
+                    temperature = _chatTemperature,
+                    max_tokens = _chatMaxTokens
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(
-                    "https://api.openai.com/v1/chat/completions",
+                    _chatCompletionsEndpoint,
                     request);
 
                 if (!response.IsSuccessStatusCode)
@@ -467,7 +499,7 @@ namespace AiDeskApi.Services
                 var (kb, similarity, matchedQuestion, matchedSimilar) = results[i];
                 sb.AppendLine($"\n{i + 1}. 유사도: {similarity:P0}");
                 sb.AppendLine($"   매칭 질문: {matchedQuestion} {(matchedSimilar ? "(유사질문)" : "(대표질문)")}");
-                sb.AppendLine($"   문제: {kb.Problem}");
+                sb.AppendLine($"   제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
                 sb.AppendLine($"   해결: {kb.Solution}");
             }
 
@@ -495,12 +527,41 @@ namespace AiDeskApi.Services
                 var (kb, _, matchedQuestion, matchedSimilar) = results[i];
                 sb.AppendLine($"\n우선순위 {i + 1}");
                 sb.AppendLine($"- 매칭된 질문: {matchedQuestion} {(matchedSimilar ? "(유사질문)" : "(대표질문)")}");
-                sb.AppendLine($"- 핵심 질문: {kb.Problem}");
+                sb.AppendLine($"- KB 제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
                 sb.AppendLine($"- 권장 안내: {kb.Solution}");
             }
 
             sb.AppendLine("\n※ 주의: 답변에는 우선순위, 유사도, 사례/내역 건수 같은 내부 기준을 노출하지 말 것.");
             return sb.ToString();
+        }
+
+        private string BuildDocumentContext(List<DocumentChunkSearchHit> documentHits)
+        {
+            if (documentHits.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("【문서형 매뉴얼 근거】");
+
+            for (var i = 0; i < documentHits.Count; i++)
+            {
+                var hit = documentHits[i];
+                sb.AppendLine($"\n문서 근거 {i + 1}");
+                sb.AppendLine($"- 문서: {hit.DocumentName} (p.{hit.PageNumber})");
+                sb.AppendLine($"- 내용: {TruncateText(hit.Content, 380)}");
+            }
+
+            return sb.ToString();
+        }
+
+        private static string TruncateText(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            var text = value.Trim();
+            if (text.Length <= maxLength) return text;
+            return text[..maxLength] + "...";
         }
 
         private ResolutionVoteResult BuildResolutionVote(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedSimilar)> results)
@@ -569,21 +630,9 @@ namespace AiDeskApi.Services
             return normA == 0 || normB == 0 ? 0 : (float)(dotProduct / (Math.Sqrt(normA) * Math.Sqrt(normB)));
         }
 
-        private float CalculateKeywordBoost(string question, string? rawKeywords)
+        private float CalculateKeywordBoost(HashSet<string> questionTokens, HashSet<string> keywordTokens)
         {
-            if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(rawKeywords))
-            {
-                return 0f;
-            }
-
-            var questionTokens = ExtractKeywordTokens(question);
-            if (questionTokens.Count == 0)
-            {
-                return 0f;
-            }
-
-            var keywordTokens = ParseKeywordTokens(rawKeywords);
-            if (keywordTokens.Count == 0)
+            if (questionTokens.Count == 0 || keywordTokens.Count == 0)
             {
                 return 0f;
             }
@@ -597,23 +646,284 @@ namespace AiDeskApi.Services
             return Math.Min(matchedCount * KeywordBoostPerMatch, MaxKeywordBoost);
         }
 
-        private async Task<List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)>>
+        private float CalculateTextMatchBoost(HashSet<string> questionTokens, string? matchedQuestion)
+        {
+            if (questionTokens.Count == 0 || string.IsNullOrWhiteSpace(matchedQuestion))
+            {
+                return 0f;
+            }
+
+            var matchedQuestionTokens = ExtractKeywordTokens(matchedQuestion);
+            if (matchedQuestionTokens.Count == 0)
+            {
+                return 0f;
+            }
+
+            var intersectionCount = questionTokens.Count(t => matchedQuestionTokens.Contains(t));
+            if (intersectionCount == 0)
+            {
+                return 0f;
+            }
+
+            var unionCount = questionTokens.Union(matchedQuestionTokens, StringComparer.OrdinalIgnoreCase).Count();
+            if (unionCount <= 0)
+            {
+                return 0f;
+            }
+
+            var jaccard = (float)intersectionCount / unionCount;
+            return Math.Min(jaccard * MaxTextMatchBoost, MaxTextMatchBoost);
+        }
+
+        private async Task<List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)>>
+            BuildHybridScoredResultsAsync(
+                IQueryable<KnowledgeBase> baseQuery,
+                float[] questionEmbedding,
+                HashSet<string> questionTokens,
+                string normalizedPlatform,
+                IReadOnlyList<VectorSearchHit> searchHits)
+        {
+            var keywordRecallTopK = Math.Clamp(_configuration.GetValue<int?>("Rag:KeywordRecallTopK") ?? 60, 10, 500);
+            var keywordRecallTokenLimit = Math.Clamp(_configuration.GetValue<int?>("Rag:KeywordRecallTokenLimit") ?? 8, 3, 20);
+
+            var vectorBestByKb = searchHits
+                .GroupBy(x => x.KbId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(x => x.Score).First());
+
+            var keywordCandidateIds = await BuildKeywordRecallKbIdsAsync(
+                baseQuery,
+                questionTokens,
+                normalizedPlatform,
+                keywordRecallTopK,
+                keywordRecallTokenLimit);
+
+            var candidateKbIds = vectorBestByKb.Keys
+                .Concat(keywordCandidateIds)
+                .Distinct()
+                .ToList();
+
+            if (candidateKbIds.Count == 0)
+            {
+                return new List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)>();
+            }
+
+            var kbs = await baseQuery
+                .AsNoTracking()
+                .Where(x => candidateKbIds.Contains(x.Id))
+                .ToListAsync();
+
+            var results = new List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)>();
+
+            foreach (var kb in kbs)
+            {
+                var includedBySemantic = vectorBestByKb.TryGetValue(kb.Id, out var semanticHit);
+                var includedByKeyword = keywordCandidateIds.Contains(kb.Id);
+
+                float baseSimilarity;
+                string matchedQuestion;
+                bool matchedSimilar;
+
+                if (includedBySemantic)
+                {
+                    baseSimilarity = semanticHit!.Score;
+                    matchedQuestion = semanticHit.MatchedQuestion;
+                    matchedSimilar = semanticHit.IsSimilarQuestion;
+                }
+                else if (TryFindBestLocalMatch(kb, questionEmbedding, out var localSimilarity, out var localMatchedQuestion, out var localMatchedSimilar))
+                {
+                    baseSimilarity = localSimilarity;
+                    matchedQuestion = localMatchedQuestion;
+                    matchedSimilar = localMatchedSimilar;
+                }
+                else
+                {
+                    continue;
+                }
+
+                var keywordTokens = BuildKbKeywordTokens(kb);
+                var matchedKeywords = keywordTokens
+                    .Where(t => questionTokens.Contains(t))
+                    .OrderBy(x => x)
+                    .ToList();
+                var keywordMatchCount = matchedKeywords.Count;
+
+                var keywordBoost = CalculateKeywordBoost(questionTokens, keywordTokens);
+                var textMatchBoost = CalculateTextMatchBoost(questionTokens, matchedQuestion);
+                var adjustedSimilarity = Math.Clamp(baseSimilarity + keywordBoost + textMatchBoost, 0f, 1f);
+
+                results.Add((
+                    kb,
+                    baseSimilarity,
+                    keywordBoost,
+                    adjustedSimilarity,
+                    matchedQuestion,
+                    matchedSimilar,
+                    keywordMatchCount,
+                    matchedKeywords,
+                    includedBySemantic,
+                    includedByKeyword));
+            }
+
+            return results;
+        }
+
+        private async Task<HashSet<int>> BuildKeywordRecallKbIdsAsync(
+            IQueryable<KnowledgeBase> baseQuery,
+            HashSet<string> questionTokens,
+            string normalizedPlatform,
+            int topK,
+            int tokenLimit)
+        {
+            if (questionTokens.Count == 0)
+            {
+                return new HashSet<int>();
+            }
+
+            var limitedTokenSet = questionTokens
+                .Where(x => x.Length >= 2)
+                .Take(tokenLimit)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (limitedTokenSet.Count == 0)
+            {
+                return new HashSet<int>();
+            }
+
+            // Include된 네비게이션 로드를 피하기 위해 키워드 리콜은 경량 컬럼만 사용
+            var keywordBaseQuery = baseQuery
+                .AsNoTracking()
+                .Where(x => !string.IsNullOrWhiteSpace(x.Keywords))
+                .Select(x => new KeywordRecallCandidate
+                {
+                    Id = x.Id,
+                    Keywords = x.Keywords,
+                    Platform = x.Platform,
+                    UpdatedAt = x.UpdatedAt
+                });
+
+            IQueryable<KeywordRecallCandidate>? keywordMatchedQuery = null;
+            foreach (var token in limitedTokenSet)
+            {
+                var pattern = $"%{token}%";
+                var perTokenQuery = keywordBaseQuery
+                    .Where(x => x.Keywords != null && EF.Functions.Like(x.Keywords, pattern));
+
+                keywordMatchedQuery = keywordMatchedQuery == null
+                    ? perTokenQuery
+                    : keywordMatchedQuery.Union(perTokenQuery);
+            }
+
+            if (keywordMatchedQuery == null)
+            {
+                return new HashSet<int>();
+            }
+
+            var candidates = await keywordMatchedQuery
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.Id)
+                .ToListAsync();
+
+            if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+            {
+                candidates = candidates
+                    .Where(kb =>
+                    {
+                        var targets = ParsePlatforms(kb.Platform);
+                        return targets.Contains("공통") || targets.Contains(normalizedPlatform);
+                    })
+                    .ToList();
+            }
+
+            return candidates
+                .Select(kb => new
+                {
+                    kb.Id,
+                    MatchCount = ParseKeywordTokens(kb.Keywords ?? string.Empty).Count(t => limitedTokenSet.Contains(t)),
+                    kb.UpdatedAt
+                })
+                .Where(x => x.MatchCount > 0)
+                .OrderByDescending(x => x.MatchCount)
+                .ThenByDescending(x => x.UpdatedAt)
+                .Take(topK)
+                .Select(x => x.Id)
+                .ToHashSet();
+        }
+
+        private sealed class KeywordRecallCandidate
+        {
+            public int Id { get; init; }
+            public string? Keywords { get; init; }
+            public string Platform { get; init; } = "공통";
+            public DateTime UpdatedAt { get; init; }
+        }
+
+        private bool TryFindBestLocalMatch(
+            KnowledgeBase kb,
+            float[] questionEmbedding,
+            out float similarity,
+            out string matchedQuestion,
+            out bool matchedSimilar)
+        {
+            similarity = 0f;
+            matchedQuestion = string.Empty;
+            matchedSimilar = false;
+
+            var hasCandidate = false;
+
+            if (!string.IsNullOrWhiteSpace(kb.ProblemEmbedding) && !string.IsNullOrWhiteSpace(kb.Problem))
+            {
+                var representativeEmbedding = ParseEmbedding(kb.ProblemEmbedding);
+                if (representativeEmbedding != null)
+                {
+                    similarity = CosineSimilarity(questionEmbedding, representativeEmbedding);
+                    matchedQuestion = kb.Problem;
+                    matchedSimilar = false;
+                    hasCandidate = true;
+                }
+            }
+
+            foreach (var sq in kb.SimilarQuestions)
+            {
+                if (string.IsNullOrWhiteSpace(sq.QuestionEmbedding) || string.IsNullOrWhiteSpace(sq.Question))
+                {
+                    continue;
+                }
+
+                var similarEmbedding = ParseEmbedding(sq.QuestionEmbedding);
+                if (similarEmbedding == null)
+                {
+                    continue;
+                }
+
+                var sim = CosineSimilarity(questionEmbedding, similarEmbedding);
+                if (!hasCandidate || sim > similarity)
+                {
+                    similarity = sim;
+                    matchedQuestion = sq.Question;
+                    matchedSimilar = true;
+                    hasCandidate = true;
+                }
+            }
+
+            return hasCandidate;
+        }
+
+        private async Task<List<(KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)>>
             BuildLocalScoredResultsAsync(
                 IQueryable<KnowledgeBase> baseQuery,
-                string question,
                 float[] questionEmbedding,
                 HashSet<string> questionTokens,
                 string normalizedPlatform)
         {
-            var maxCandidateKb = _configuration.GetValue<int?>("Rag:MaxCandidateKb") ?? 0;
+            var maxCandidateKb = Math.Clamp(_configuration.GetValue<int?>("Rag:MaxCandidateKb") ?? 500, 100, 5000);
             var candidateQuery = baseQuery.AsNoTracking();
-            if (maxCandidateKb > 0)
-            {
-                candidateQuery = candidateQuery
-                    .OrderByDescending(x => x.UpdatedAt)
-                    .ThenByDescending(x => x.Id)
-                    .Take(maxCandidateKb);
-            }
+            candidateQuery = candidateQuery
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.Id)
+                .Take(maxCandidateKb);
 
             var kbs = await candidateQuery.ToListAsync();
 
@@ -662,24 +972,23 @@ namespace AiDeskApi.Services
                         ));
                     }
 
-                    if (candidates.Count == 0) return default((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?);
+                    if (candidates.Count == 0) return default((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)?);
 
                     var best = candidates.OrderByDescending(x => x.similarity).First();
 
-                    var keywordTokens = string.IsNullOrWhiteSpace(kb.Tags)
-                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        : ParseKeywordTokens(kb.Tags);
+                    var keywordTokens = BuildKbKeywordTokens(kb);
                     var matchedKeywords = keywordTokens
                         .Where(t => questionTokens.Contains(t))
                         .OrderBy(x => x)
                         .ToList();
                     var keywordMatchCount = matchedKeywords.Count;
 
-                    var keywordBoost = CalculateKeywordBoost(question, kb.Tags);
-                    var adjustedSimilarity = Math.Clamp(best.similarity + keywordBoost, 0f, 1f);
+                    var keywordBoost = CalculateKeywordBoost(questionTokens, keywordTokens);
+                    var textMatchBoost = CalculateTextMatchBoost(questionTokens, best.question);
+                    var adjustedSimilarity = Math.Clamp(best.similarity + keywordBoost + textMatchBoost, 0f, 1f);
 
-                    return ((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords)?)
-                        (kb, best.similarity, keywordBoost, adjustedSimilarity, best.question, best.isSimilar, keywordMatchCount, matchedKeywords);
+                    return ((KnowledgeBase kb, float baseSimilarity, float keywordBoost, float adjustedSimilarity, string matchedQuestion, bool matchedSimilar, int keywordMatchCount, List<string> matchedKeywords, bool includedBySemantic, bool includedByKeyword)?)
+                        (kb, best.similarity, keywordBoost, adjustedSimilarity, best.question, best.isSimilar, keywordMatchCount, matchedKeywords, false, false);
                 })
                 .Where(x => x.HasValue)
                 .Select(x => x!.Value)
@@ -692,6 +1001,18 @@ namespace AiDeskApi.Services
                 .Split(new[] { ',', ';', '|', '/', '#' }, StringSplitOptions.RemoveEmptyEntries)
                 .SelectMany(ExtractKeywordTokens)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static HashSet<string> BuildKbKeywordTokens(KnowledgeBase kb)
+        {
+            var tokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(kb.Keywords))
+            {
+                tokens.UnionWith(ParseKeywordTokens(kb.Keywords));
+            }
+
+            return tokens;
         }
 
         private static HashSet<string> ExtractKeywordTokens(string text)
@@ -812,6 +1133,7 @@ namespace AiDeskApi.Services
         public string? DecisionRule { get; set; }
         public RetrievalDiagnostics? RetrievalDiagnostics { get; set; }
         public List<KBSummary> RelatedKBs { get; set; } = new();
+        public List<DocumentReferenceSummary> RelatedDocuments { get; set; } = new();
     }
 
     public class RetrievalDiagnostics
@@ -824,7 +1146,7 @@ namespace AiDeskApi.Services
     public class RetrievalCandidateDiagnostic
     {
         public int Id { get; set; }
-        public string? Problem { get; set; }
+        public string? Title { get; set; }
         public string? MatchedQuestion { get; set; }
         public float BaseSimilarity { get; set; }
         public float KeywordBoost { get; set; }
@@ -840,7 +1162,7 @@ namespace AiDeskApi.Services
     public class KBSummary
     {
         public int Id { get; set; }
-        public string? Problem { get; set; }
+        public string? Title { get; set; }
         public string? Solution { get; set; }
         public float Similarity { get; set; }
         public string? MatchedQuestion { get; set; }
@@ -852,6 +1174,16 @@ namespace AiDeskApi.Services
         public bool ConflictDetected { get; set; }
         public string DecisionRule { get; set; } = string.Empty;
         public List<(KnowledgeBase kb, float similarity)> SelectedCases { get; set; } = new();
+    }
+
+    public class DocumentReferenceSummary
+    {
+        public int DocumentId { get; set; }
+        public int ChunkId { get; set; }
+        public string DocumentName { get; set; } = string.Empty;
+        public int PageNumber { get; set; }
+        public string Excerpt { get; set; } = string.Empty;
+        public float Similarity { get; set; }
     }
 
     public class RagRuntimeOptions

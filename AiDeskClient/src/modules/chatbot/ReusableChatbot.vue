@@ -1,9 +1,10 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useChatbotSession } from './useChatbotSession'
+import { API_BASE_URL } from '../../config'
 
 const props = defineProps({
-  apiBaseUrl: { type: String, default: 'http://localhost:8080/api' },
+  apiBaseUrl: { type: String, default: API_BASE_URL },
   role: { type: String, default: 'user' },
   title: { type: String, default: 'AI 상담 어시스턴트' },
   defaultPlatform: { type: String, default: '전체 플랫폼' },
@@ -252,10 +253,21 @@ function handleOpenEvent(event) {
               <div v-for="(kb, j) in msg.relatedKBs" :key="j" class="kb-chip">
                 <span class="sim">{{ Math.round(kb.similarity * 100) }}%</span>
                 <div class="kb-texts">
-                  <div class="kb-problem">{{ kb.problem }}</div>
+                  <div class="kb-problem">{{ kb.title || kb.problem }}</div>
                   <div v-if="kb.matchedQuestion" class="kb-badge">
                     매칭 질문: {{ kb.matchedQuestion }}
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="isAdmin && msg.relatedDocuments && msg.relatedDocuments.length" class="related">
+              <div class="related-label">📄 참고한 문서</div>
+              <div v-for="(doc, j) in msg.relatedDocuments" :key="j" class="kb-chip doc-chip">
+                <span class="sim">{{ Math.round(doc.similarity * 100) }}%</span>
+                <div class="kb-texts">
+                  <div class="kb-problem">{{ doc.displayName }}</div>
+                  <div class="kb-badge">p.{{ doc.pageNumber }}</div>
                 </div>
               </div>
             </div>
@@ -639,6 +651,10 @@ function handleOpenEvent(event) {
 .kb-chip:first-of-type {
   border-top: none;
   padding-top: 0;
+}
+
+.doc-chip .sim {
+  background: #2d9c7f;
 }
 
 .sim {

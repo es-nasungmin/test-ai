@@ -20,6 +20,9 @@ namespace AiDeskApi.Data
         public DbSet<KbPlatform> KbPlatforms { get; set; } = null!;
         public DbSet<KnowledgeBaseSimilarQuestion> KnowledgeBaseSimilarQuestions { get; set; } = null!;
         public DbSet<LowSimilarityQuestion> LowSimilarityQuestions { get; set; } = null!;
+        public DbSet<KnowledgeBaseWriterPromptTemplate> KnowledgeBaseWriterPromptTemplates { get; set; } = null!;
+        public DbSet<DocumentKnowledge> DocumentKnowledges { get; set; } = null!;
+        public DbSet<DocumentKnowledgeChunk> DocumentKnowledgeChunks { get; set; } = null!;
 
         // 챗봇 세션/메시지
         public DbSet<ChatSession> ChatSessions { get; set; } = null!;
@@ -79,7 +82,9 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Tags).HasMaxLength(500);
+                entity.Property(e => e.Keywords).HasColumnName("Tags").HasMaxLength(500);
+                entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
+                entity.HasIndex(e => e.UpdatedAt);
                 entity.HasMany(e => e.SimilarQuestions)
                     .WithOne(x => x.KnowledgeBase)
                     .HasForeignKey(x => x.KnowledgeBaseId)
@@ -108,6 +113,40 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.TopMatchedQuestion).HasMaxLength(500);
                 entity.HasIndex(e => new { e.IsResolved, e.CreatedAt });
+            });
+
+            modelBuilder.Entity<KnowledgeBaseWriterPromptTemplate>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.KeywordSystemPrompt).IsRequired();
+                entity.Property(e => e.KeywordRulesPrompt).IsRequired();
+                entity.Property(e => e.AnswerRefineSystemPrompt).IsRequired();
+                entity.Property(e => e.AnswerRefineRulesPrompt).IsRequired();
+            });
+
+            modelBuilder.Entity<DocumentKnowledge>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.FileName).IsRequired().HasMaxLength(260);
+                entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(260);
+                entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Keywords).HasMaxLength(1000);
+                entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+                entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);
+                entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
+            });
+
+            modelBuilder.Entity<DocumentKnowledgeChunk>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Content).IsRequired();
+                entity.HasIndex(e => new { e.DocumentKnowledgeId, e.ChunkOrder });
+                entity.HasOne(e => e.DocumentKnowledge)
+                    .WithMany(x => x.Chunks)
+                    .HasForeignKey(e => e.DocumentKnowledgeId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<ChatMessage>(entity =>

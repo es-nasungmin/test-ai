@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
@@ -76,6 +78,12 @@ namespace AiDeskApi.Services
             var response = await _httpClient.PutAsJsonAsync($"/collections/{_collectionName}", body, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                if ((int)response.StatusCode == 409)
+                {
+                    _collectionEnsured = true;
+                    return;
+                }
+
                 var message = await response.Content.ReadAsStringAsync(cancellationToken);
                 throw new InvalidOperationException($"Qdrant 컬렉션 생성 실패: {message}");
             }
@@ -248,16 +256,16 @@ namespace AiDeskApi.Services
         private IEnumerable<QdrantPoint> BuildPoints(KnowledgeBase kb)
         {
             var platforms = ParsePlatforms(kb.Platform);
-            var tags = string.IsNullOrWhiteSpace(kb.Tags)
+            var keywords = string.IsNullOrWhiteSpace(kb.Keywords)
                 ? Array.Empty<string>()
-                : kb.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+                : kb.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
 
             var repEmbedding = ParseEmbedding(kb.ProblemEmbedding);
             if (repEmbedding != null && !string.IsNullOrWhiteSpace(kb.Problem))
             {
                 yield return new QdrantPoint
                 {
-                    id = $"kb-{kb.Id}-rep",
+                    id = CreatePointId($"kb-{kb.Id}-rep"),
                     vector = repEmbedding,
                     payload = new
                     {
@@ -266,7 +274,7 @@ namespace AiDeskApi.Services
                         question = kb.Problem,
                         visibility = kb.Visibility,
                         platforms,
-                        tags,
+                        keywords,
                         updatedAt = kb.UpdatedAt
                     }
                 };
@@ -279,7 +287,7 @@ namespace AiDeskApi.Services
 
                 yield return new QdrantPoint
                 {
-                    id = $"kb-{kb.Id}-sq-{sq.Id}",
+                    id = CreatePointId($"kb-{kb.Id}-sq-{sq.Id}"),
                     vector = sqEmbedding,
                     payload = new
                     {
@@ -289,7 +297,7 @@ namespace AiDeskApi.Services
                         question = sq.Question,
                         visibility = kb.Visibility,
                         platforms,
-                        tags,
+                        keywords,
                         updatedAt = kb.UpdatedAt
                     }
                 };
@@ -348,6 +356,12 @@ namespace AiDeskApi.Services
             }
 
             return null;
+        }
+
+        private static string CreatePointId(string rawKey)
+        {
+            var hash = MD5.HashData(Encoding.UTF8.GetBytes(rawKey));
+            return new Guid(hash).ToString();
         }
     }
 }

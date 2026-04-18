@@ -1,8 +1,9 @@
 <script setup>
 import { ref, nextTick, computed, onMounted } from 'vue'
 import axios from 'axios'
+import { API_BASE_URL } from '../config'
 
-const API_URL = 'http://localhost:8080/api'
+const API_URL = API_BASE_URL
 
 // ---- Props ----
 const props = defineProps({
@@ -151,6 +152,7 @@ async function send() {
       role: 'bot',
       text: res.data.answer,
       relatedKBs: res.data.relatedKBs || [],
+      relatedDocuments: res.data.relatedDocuments || [],
       time: now()
     })
   } catch (err) {
@@ -256,10 +258,21 @@ function onCompositionEnd() { isComposing.value = false }
               <div v-for="(kb, j) in msg.relatedKBs" :key="j" class="kb-chip">
                 <span class="sim">{{ Math.round(kb.similarity * 100) }}%</span>
                 <div class="kb-texts">
-                  <div class="kb-problem">{{ kb.problem }}</div>
+                  <div class="kb-problem">{{ kb.title || kb.problem }}</div>
                   <div v-if="kb.matchedQuestion" class="kb-badge">
                     매칭 질문: {{ kb.matchedQuestion }}
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="isAdmin && msg.relatedDocuments && msg.relatedDocuments.length" class="related">
+              <div class="related-label">📄 참고한 문서</div>
+              <div v-for="(doc, j) in msg.relatedDocuments" :key="j" class="kb-chip doc-chip">
+                <span class="sim">{{ Math.round(doc.similarity * 100) }}%</span>
+                <div class="kb-texts">
+                  <div class="kb-problem">{{ doc.displayName }}</div>
+                  <div class="kb-badge">p.{{ doc.pageNumber }}</div>
                 </div>
               </div>
             </div>
@@ -621,6 +634,10 @@ function onCompositionEnd() { isComposing.value = false }
 .kb-chip:first-of-type {
   border-top: none;
   padding-top: 0;
+}
+
+.doc-chip .sim {
+  background: #2d9c7f;
 }
 
 .sim {

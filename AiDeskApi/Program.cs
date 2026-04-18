@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
 using AiDeskApi.Services;
+using System.Linq;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,8 +45,10 @@ builder.Services.AddHttpClient<IEmbeddingService, OpenAiEmbeddingService>();
 builder.Services.AddHttpClient<IKnowledgeExtractorService, KnowledgeExtractorService>();
 builder.Services.AddHttpClient<IRagService, OpenAiRagService>();
 builder.Services.AddHttpClient<IVectorSearchService, QdrantVectorSearchService>();
+builder.Services.AddScoped<IDocumentKnowledgeService, DocumentKnowledgeService>();
 builder.Services.AddSingleton<ISummaryPromptTemplateService, SummaryPromptTemplateService>();
 builder.Services.AddSingleton<IChatbotPromptTemplateService, ChatbotPromptTemplateService>();
+builder.Services.AddScoped<IKnowledgeBaseWriterPromptTemplateService, KnowledgeBaseWriterPromptTemplateService>();
 
 // JWT 인증 설정
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -74,25 +77,55 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
-// 로컬 프론트 연동을 위한 CORS 허용
+var corsOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()?
+    .Where(x => !string.IsNullOrWhiteSpace(x))
+    .Select(x => x.Trim())
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray() ?? Array.Empty<string>();
+
+if (corsOrigins.Length == 0)
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        corsOrigins = new[]
+        {
+            "http://localhost:5173",
+            "http://127.0.0.1:5173"
+        };
+    }
+    else
+    {
+        throw new InvalidOperationException("Cors:AllowedOrigins 설정이 필요합니다. 운영 환경에서는 허용 Origin을 명시해야 합니다.");
+    }
+}
+
+// CORS 설정 (운영: 명시된 Origin만 허용)
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", builder =>
+    options.AddPolicy("ConfiguredCors", policy =>
     {
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader();
+        policy.WithOrigins(corsOrigins)
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-app.UseSwagger();
-app.UseSwaggerUI();
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
-app.UseHttpsRedirection();
-app.UseCors("AllowAll");
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+app.UseCors("ConfiguredCors");
 
 // JWT 인증/권한 미들웨어 추가
 app.UseAuthentication();

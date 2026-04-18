@@ -107,6 +107,7 @@ export function useChatbotSession(options) {
         text: toSafeText(data.answer, '답변을 생성하지 못했습니다.'),
         time: now(),
         relatedKBs: data.relatedKBs || [],
+        relatedDocuments: data.relatedDocuments || [],
         topSimilarity: data.topSimilarity,
         isLowSimilarity: data.isLowSimilarity
       })

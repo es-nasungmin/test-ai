@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch } from 'vue'
 import axios from 'axios'
+import { API_BASE_URL } from '../../config'
 
-const API_URL = 'http://localhost:8080/api'
+const API_URL = API_BASE_URL
 
 const props = defineProps({
   customer: {

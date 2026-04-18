@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
+import { API_BASE_URL } from '../../config'
 
-const API_URL = 'http://localhost:8080/api'
+const API_URL = API_BASE_URL
 
 const kbList = ref([])
 const loading = ref(false)
@@ -27,6 +28,8 @@ const renamingPlatformName = ref('')
 const savingRename = ref(false)
 const deletingPlatform = ref('')
 const showPlatformEditor = ref(false)
+const isComposingPlatformName = ref(false)
+const isComposingRenamePlatform = ref(false)
 const showSimilarityGuide = ref(false)
 
 const keyword = ref('')
@@ -103,7 +106,20 @@ const similarDraft = ref([])
 const isComposingSimilar = ref(false)
 const lastAdded = ref({ text: '', at: 0 })
 const generatingSimilar = ref(false)
-const MAX_SIMILAR_QUESTIONS = 10
+const generatingKeywords = ref(false)
+const refiningSolution = ref(false)
+const generatedCandidates = ref([])
+const showRefinePreview = ref(false)
+const refinedSolutionPreview = ref('')
+const showWriterPromptEditor = ref(false)
+const savingWriterPromptTemplate = ref(false)
+const writerPromptTemplateForm = ref({
+  keywordSystemPrompt: '',
+  keywordRulesPrompt: '',
+  answerRefineSystemPrompt: '',
+  answerRefineRulesPrompt: ''
+})
+const MAX_SIMILAR_QUESTIONS = 20
 
 const kbTotalPages = computed(() => Math.max(1, Math.ceil(kbTotal.value / kbPageSize)))
 const lowSimilarityTotalPages = computed(() => Math.max(1, Math.ceil(lowSimilarityTotal.value / lowSimilarityPageSize)))
@@ -316,23 +332,10 @@ async function generateSimilarQuestions() {
     })
 
     const items = Array.isArray(res.data?.items) ? res.data.items : []
-    const room = Math.max(0, MAX_SIMILAR_QUESTIONS - similarDraft.value.length)
-    const merged = [...similarDraft.value, ...items]
-      .map((x) => (typeof x === 'string' ? x.trim() : ''))
-      .filter(Boolean)
-      .filter((x) => !form.value.representativeQuestion.trim() || x.toLowerCase() !== form.value.representativeQuestion.trim().toLowerCase())
-
-    similarDraft.value = Array.from(new Set(merged.map((x) => x.toLowerCase())))
-      .map((key) => merged.find((item) => item.toLowerCase() === key))
-      .filter(Boolean)
-      .slice(0, MAX_SIMILAR_QUESTIONS)
+    generatedCandidates.value = items
 
     if (items.length === 0) {
       alert('추가할 예상 질문을 생성하지 못했습니다.')
-    } else if (room === 0) {
-      alert(`유사질문은 최대 ${MAX_SIMILAR_QUESTIONS}개까지 등록 가능합니다.`)
-    } else if (items.length > room) {
-      alert(`남은 자리만큼만 추가되었습니다. 유사질문은 최대 ${MAX_SIMILAR_QUESTIONS}개까지 등록 가능합니다.`)
     }
   } catch (err) {
     if (err.code === 'ERR_NETWORK') {
@@ -363,6 +366,9 @@ function resetForm() {
   keywordDraft.value = []
   platformInput.value = '공통'
   similarDraft.value = []
+  generatedCandidates.value = []
+  refinedSolutionPreview.value = ''
+  showRefinePreview.value = false
 }
 
 function startEdit(kb) {
@@ -375,9 +381,10 @@ function startEdit(kb) {
   form.value.platforms = extractPlatforms(kb)
   form.value.similarInput = ''
   keywordInput.value = ''
-  keywordDraft.value = normalizeKeywords((kb.tags || '').split(','))
+  keywordDraft.value = normalizeKeywords((kb.keywords || kb.tags || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
   similarDraft.value = (kb.similarQuestions || []).map((item) => item.question)
+  generatedCandidates.value = []
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -403,6 +410,10 @@ function addPlatformToForm() {
   form.value.platforms = normalizeSelectedPlatforms([...form.value.platforms, selected])
 }
 
+function onPlatformSelectChanged() {
+  addPlatformToForm()
+}
+
 function removePlatformFromForm(index) {
   const current = form.value.platforms[index]
   form.value.platforms = normalizeSelectedPlatforms(
@@ -414,18 +425,18 @@ function removePlatformFromForm(index) {
 }
 
 async function saveKb() {
-  if (!form.value.representativeQuestion.trim() || !form.value.solution.trim()) {
-    alert('대표질문과 답변은 필수입니다.')
+  if (!form.value.title.trim() || !form.value.representativeQuestion.trim() || !form.value.solution.trim()) {
+    alert('제목, 대표질문, 답변은 필수입니다.')
     return
   }
 
   saving.value = true
   try {
     const payload = {
-      title: form.value.title?.trim() || null,
+      title: form.value.title.trim(),
       representativeQuestion: form.value.representativeQuestion,
       solution: form.value.solution,
-      tags: normalizeKeywords(keywordDraft.value).join(', '),
+      keywords: normalizeKeywords(keywordDraft.value).join(', '),
       visibility: form.value.visibility,
       platforms: normalizeSelectedPlatforms(form.value.platforms),
       similarQuestions: similarDraft.value
@@ -448,6 +459,174 @@ async function saveKb() {
     alert('저장에 실패했습니다.')
   } finally {
     saving.value = false
+  }
+}
+
+function setRepresentativeQuestion(candidate) {
+  const text = typeof candidate === 'string' ? candidate.trim() : ''
+  if (!text) return
+  form.value.representativeQuestion = text
+}
+
+function addGeneratedAsRepresentative(candidate) {
+  setRepresentativeQuestion(candidate)
+}
+
+function addGeneratedAsSimilar(candidate) {
+  const text = typeof candidate === 'string' ? candidate.trim() : ''
+  if (!text) return
+  if (similarDraft.value.length >= MAX_SIMILAR_QUESTIONS) {
+    alert(`유사질문은 최대 ${MAX_SIMILAR_QUESTIONS}개까지 등록 가능합니다.`)
+    return
+  }
+
+  const rep = form.value.representativeQuestion.trim().toLowerCase()
+  if (rep && rep === text.toLowerCase()) {
+    alert('대표질문과 동일한 문장은 유사질문으로 추가할 수 없습니다.')
+    return
+  }
+
+  const exists = similarDraft.value.some((x) => x.toLowerCase() === text.toLowerCase())
+  if (exists) return
+  similarDraft.value.push(text)
+}
+
+async function generateKeywords() {
+  if (!form.value.representativeQuestion.trim()) {
+    alert('대표질문을 먼저 작성해주세요')
+    return
+  }
+
+  generatingKeywords.value = true
+  try {
+    const res = await axios.post(`${API_URL}/knowledgebase/generate-keywords`, {
+      representativeQuestion: form.value.representativeQuestion,
+      similarQuestions: similarDraft.value,
+      solution: form.value.solution,
+      count: 8
+    })
+
+    const generated = Array.isArray(res.data?.combined)
+      ? res.data.combined
+      : (Array.isArray(res.data?.items) ? res.data.items : [])
+    if (generated.length === 0) {
+      alert('추가할 키워드를 생성하지 못했습니다.')
+      return
+    }
+
+    keywordDraft.value = normalizeKeywords([...keywordDraft.value, ...generated])
+  } catch (err) {
+    if (err.response?.data?.error) {
+      alert(`키워드 생성 실패: ${err.response.data.error}`)
+    } else {
+      alert(`키워드 생성 실패: ${err.message || '알 수 없는 오류'}`)
+    }
+  } finally {
+    generatingKeywords.value = false
+  }
+}
+
+async function refineSolutionWithAi() {
+  if (!form.value.solution.trim()) {
+    alert('답변을 먼저 작성해주세요.')
+    return
+  }
+
+  refiningSolution.value = true
+  try {
+    const res = await axios.post(`${API_URL}/knowledgebase/refine-solution`, {
+      representativeQuestion: form.value.representativeQuestion,
+      solution: form.value.solution
+    })
+
+    const refined = typeof res.data?.solution === 'string' ? res.data.solution.trim() : ''
+    if (!refined) {
+      alert('정리된 답변을 생성하지 못했습니다.')
+      return
+    }
+
+    refinedSolutionPreview.value = refined
+    showRefinePreview.value = true
+  } catch (err) {
+    if (err.response?.data?.error) {
+      alert(`답변 정리 실패: ${err.response.data.error}`)
+    } else {
+      alert(`답변 정리 실패: ${err.message || '알 수 없는 오류'}`)
+    }
+  } finally {
+    refiningSolution.value = false
+  }
+}
+
+function applyRefinedSolution() {
+  if (!refinedSolutionPreview.value.trim()) return
+  form.value.solution = refinedSolutionPreview.value
+  showRefinePreview.value = false
+}
+
+function cancelRefinedSolution() {
+  refinedSolutionPreview.value = ''
+  showRefinePreview.value = false
+}
+
+function normalizeLineBreaks(value) {
+  if (typeof value !== 'string') return ''
+  return value.replace(/\\n/g, '\n').replace(/\r\n/g, '\n')
+}
+
+async function fetchWriterPromptTemplate() {
+  const response = await axios.get(`${API_URL}/knowledgebase/writer-prompt-template`)
+  writerPromptTemplateForm.value = {
+    keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
+    keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
+    answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
+    answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt)
+  }
+}
+
+async function openWriterPromptEditor() {
+  try {
+    await fetchWriterPromptTemplate()
+    showWriterPromptEditor.value = true
+  } catch (err) {
+    alert('KB 작성 프롬프트를 불러오지 못했습니다: ' + (err.response?.data?.error || err.message))
+  }
+}
+
+async function saveWriterPromptTemplate() {
+  const formData = writerPromptTemplateForm.value
+  if (
+    !formData.keywordSystemPrompt.trim() ||
+    !formData.keywordRulesPrompt.trim() ||
+    !formData.answerRefineSystemPrompt.trim() ||
+    !formData.answerRefineRulesPrompt.trim()
+  ) {
+    alert('KB 작성 프롬프트 항목을 모두 입력해주세요.')
+    return
+  }
+
+  savingWriterPromptTemplate.value = true
+  try {
+    const response = await axios.put(`${API_URL}/knowledgebase/writer-prompt-template`, {
+      keywordSystemPrompt: formData.keywordSystemPrompt,
+      keywordRulesPrompt: formData.keywordRulesPrompt,
+      answerRefineSystemPrompt: formData.answerRefineSystemPrompt,
+      answerRefineRulesPrompt: formData.answerRefineRulesPrompt
+    })
+
+    writerPromptTemplateForm.value = {
+      keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
+      keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
+      answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
+      answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt)
+    }
+
+    alert('KB 작성 프롬프트가 저장되었습니다. 다음 생성부터 반영됩니다.')
+    showWriterPromptEditor.value = false
+  } catch (err) {
+    alert('KB 작성 프롬프트 저장에 실패했습니다: ' + (err.response?.data?.error || err.message))
+  } finally {
+    savingWriterPromptTemplate.value = false
   }
 }
 
@@ -530,11 +709,342 @@ onMounted(async () => {
   await fetchPlatforms()
   await fetchKbs()
   await fetchLowSimilarityQuestions()
+  await fetchDocuments()
 })
+
+// ─── 문서 관리 ─────────────────────────────────────────────────
+const activeTab = ref('kb') // 'kb' | 'documents'
+const documentList = ref([])
+const loadingDocuments = ref(false)
+const documentError = ref('')
+const docPlatformFilter = ref('all')
+const uploadingDocument = ref(false)
+const updatingDocId = ref(null)
+const editingDocumentId = ref(null)
+const docFileInput = ref(null)
+const selectedDocumentFile = ref(null)
+const selectedEditDocumentFile = ref(null)
+const docForm = ref({ displayName: '', visibility: 'admin', platform: '공통', keywords: '' })
+const editDocForm = ref({ displayName: '', visibility: 'admin', platform: '공통', keywords: '' })
+
+async function fetchDocuments() {
+  loadingDocuments.value = true
+  documentError.value = ''
+  try {
+    const platform = docPlatformFilter.value === 'all' ? undefined : docPlatformFilter.value
+    const res = await axios.get(`${API_URL}/knowledgebase/documents`, {
+      params: { role: 'admin', platform }
+    })
+    documentList.value = res.data.data || []
+    if (editingDocumentId.value && !documentList.value.some((x) => x.id === editingDocumentId.value)) {
+      editingDocumentId.value = null
+    }
+  } catch {
+    documentError.value = '문서 목록을 불러오지 못했습니다.'
+  } finally {
+    loadingDocuments.value = false
+  }
+}
+
+function startEditDocument(doc) {
+  editingDocumentId.value = doc.id
+  selectedEditDocumentFile.value = null
+  editDocForm.value = {
+    displayName: doc.displayName || '',
+    visibility: doc.visibility || 'admin',
+    platform: doc.platform || '공통',
+    keywords: doc.keywords || ''
+  }
+}
+
+function cancelEditDocument() {
+  const currentEditingId = editingDocumentId.value
+  editingDocumentId.value = null
+  selectedEditDocumentFile.value = null
+  if (currentEditingId) {
+    const inputEl = document.getElementById(`edit-file-input-${currentEditingId}`)
+    if (inputEl) {
+      inputEl.value = ''
+    }
+  }
+}
+
+function onSelectEditDocumentFile(e) {
+  const file = e.target.files?.[0] || null
+  selectedEditDocumentFile.value = file
+}
+
+async function updateDocument(doc) {
+  const displayName = (editDocForm.value.displayName || '').trim()
+  if (!displayName) {
+    alert('표시 이름을 입력해주세요.')
+    return
+  }
+
+  if (updatingDocId.value) return
+  updatingDocId.value = doc.id
+
+  try {
+    await axios.put(`${API_URL}/knowledgebase/documents/${doc.id}`, {
+      displayName,
+      visibility: editDocForm.value.visibility || 'admin',
+      platform: editDocForm.value.platform || '공통',
+      keywords: (editDocForm.value.keywords || '').trim()
+    }, {
+      headers: getActorHeader()
+    })
+
+    if (selectedEditDocumentFile.value) {
+      const fileName = selectedEditDocumentFile.value.name || ''
+      if (!fileName.toLowerCase().endsWith('.pdf')) {
+        alert('파일 교체는 PDF만 가능합니다.')
+        return
+      }
+
+      const fd = new FormData()
+      fd.append('file', selectedEditDocumentFile.value)
+      try {
+        await axios.post(`${API_URL}/knowledgebase/documents/${doc.id}/reindex`, fd, {
+          headers: getActorHeader()
+        })
+      } catch (err) {
+        await fetchDocuments()
+        alert(err.response?.data?.error || '메타데이터는 저장됐지만 파일 재인덱싱에 실패했습니다.')
+        return
+      }
+    }
+
+    selectedEditDocumentFile.value = null
+    const editInputEl = document.getElementById(`edit-file-input-${doc.id}`)
+    if (editInputEl) {
+      editInputEl.value = ''
+    }
+    editingDocumentId.value = null
+    await fetchDocuments()
+  } catch (err) {
+    if (err.response?.status === 405) {
+      alert('백엔드가 최신 코드로 반영되지 않았습니다. 서버를 재시작한 뒤 다시 시도해주세요.')
+    } else {
+      alert(err.response?.data?.error || '문서 메타데이터 수정에 실패했습니다.')
+    }
+  } finally {
+    updatingDocId.value = null
+  }
+}
+
+function onSelectDocumentFile(e) {
+  const file = e.target.files?.[0] || null
+  selectedDocumentFile.value = file
+}
+
+async function uploadDocument() {
+  const file = selectedDocumentFile.value
+  if (!file) {
+    alert('먼저 업로드할 PDF 파일을 선택해주세요.')
+    return
+  }
+
+  if (uploadingDocument.value) return
+  uploadingDocument.value = true
+  documentError.value = ''
+
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (docForm.value.displayName.trim()) fd.append('displayName', docForm.value.displayName.trim())
+    fd.append('visibility', docForm.value.visibility)
+    fd.append('platform', docForm.value.platform || '공통')
+    if (docForm.value.keywords.trim()) fd.append('keywords', docForm.value.keywords.trim())
+
+    await axios.post(`${API_URL}/knowledgebase/documents/upload`, fd, {
+      headers: { ...getActorHeader(), 'Content-Type': 'multipart/form-data' }
+    })
+    docForm.value.displayName = ''
+    docForm.value.keywords = ''
+    selectedDocumentFile.value = null
+    if (docFileInput.value) {
+      docFileInput.value.value = ''
+    }
+    await fetchDocuments()
+  } catch (err) {
+    documentError.value = err.response?.data?.error || '업로드에 실패했습니다.'
+  } finally {
+    uploadingDocument.value = false
+  }
+}
+
+async function deleteDocument(doc) {
+  if (!confirm(`"${doc.displayName}" 문서를 삭제하시겠습니까?`)) return
+  try {
+    await axios.delete(`${API_URL}/knowledgebase/documents/${doc.id}`, {
+      headers: getActorHeader()
+    })
+    await fetchDocuments()
+  } catch (err) {
+    alert(err.response?.data?.error || '삭제에 실패했습니다.')
+  }
+}
+
+function formatDate(val) {
+  if (!val) return '-'
+  const d = new Date(val)
+  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
 </script>
 
 <template>
   <section class="kb-wrap">
+    <div class="tab-bar">
+      <button class="tab-btn" :class="{ active: activeTab === 'kb' }" @click="activeTab = 'kb'">FAQ KB</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'documents' }" @click="activeTab = 'documents'">문서 KB (PDF)</button>
+    </div>
+
+    <template v-if="activeTab === 'documents'">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>PDF 문서 업로드</h3>
+        </div>
+        <div class="doc-upload-form">
+          <label>
+            표시 이름
+            <input v-model="docForm.displayName" placeholder="예) 사용자 매뉴얼 v2.pdf" />
+          </label>
+          <label>
+            공개수준
+            <select v-model="docForm.visibility">
+              <option value="user">사용자 공개</option>
+              <option value="admin">관리자 전용</option>
+            </select>
+          </label>
+          <label>
+            <div class="label-head-inline">
+              <span class="field-title">플랫폼</span>
+              <button class="ghost" type="button" @click="openPlatformEditor">관리</button>
+            </div>
+            <select v-model="docForm.platform">
+              <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </label>
+          <label>
+            키워드 <span class="hint">(쉼표 구분)</span>
+            <input v-model="docForm.keywords" placeholder="예) 매뉴얼, 설치, 연동" />
+          </label>
+          <div class="upload-btn-row">
+            <input ref="docFileInput" type="file" accept=".pdf" style="display:none" @change="onSelectDocumentFile" />
+            <button class="secondary" :disabled="uploadingDocument" @click="docFileInput.click()">
+              파일 업로드
+            </button>
+            <button class="primary" :disabled="uploadingDocument || !selectedDocumentFile" @click="uploadDocument">
+              {{ uploadingDocument ? '등록 중...' : '등록' }}
+            </button>
+          </div>
+          <div v-if="selectedDocumentFile" class="selected-file-name hint">선택됨: {{ selectedDocumentFile.name }}</div>
+          <div v-if="documentError" class="error">{{ documentError }}</div>
+        </div>
+      </div>
+
+      <div class="panel list-panel">
+        <div class="panel-head">
+          <h3>문서 목록</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select v-model="docPlatformFilter" @change="fetchDocuments">
+              <option value="all">플랫폼 전체</option>
+              <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <button class="ghost" :disabled="loadingDocuments" @click="fetchDocuments">새로고침</button>
+          </div>
+        </div>
+
+        <div v-if="loadingDocuments" class="empty">불러오는 중...</div>
+        <div v-else-if="documentList.length === 0" class="empty">업로드된 문서가 없습니다.</div>
+
+        <div v-else class="kb-list">
+          <article v-for="doc in documentList" :key="doc.id" class="kb-item">
+            <div class="kb-top">
+              <div class="badges">
+                <span class="scope" :class="doc.status === 'ready' ? 'user' : 'admin'">
+                  {{ doc.status === 'ready' ? '✅ 준비됨' : '⏳ 인덱싱 중' }}
+                </span>
+                <span class="scope" :class="doc.visibility">
+                  {{ doc.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}
+                </span>
+                <span class="scope platform">{{ doc.platform || '공통' }}</span>
+              </div>
+              <div class="kb-item-actions">
+                <button class="secondary" :disabled="updatingDocId === doc.id" @click="startEditDocument(doc)">수정</button>
+                <button class="danger" @click="deleteDocument(doc)">삭제</button>
+              </div>
+            </div>
+            <div class="kb-body">
+              <div class="kb-row">
+                <div class="kb-label">파일명</div>
+                <div class="kb-value">{{ doc.fileName }}</div>
+              </div>
+              <div class="kb-row">
+                <div class="kb-label">표시명</div>
+                <div v-if="editingDocumentId === doc.id" class="kb-value">
+                  <input v-model="editDocForm.displayName" placeholder="표시 이름" />
+                </div>
+                <div v-else class="kb-value kb-title">{{ doc.displayName }}</div>
+              </div>
+              <div class="kb-row">
+                <div class="kb-label">공개수준</div>
+                <div v-if="editingDocumentId === doc.id" class="kb-value">
+                  <select v-model="editDocForm.visibility">
+                    <option value="user">사용자 공개</option>
+                    <option value="admin">관리자 전용</option>
+                  </select>
+                </div>
+                <div v-else class="kb-value">{{ doc.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}</div>
+              </div>
+              <div class="kb-row">
+                <div class="kb-label">플랫폼</div>
+                <div v-if="editingDocumentId === doc.id" class="kb-value">
+                  <select v-model="editDocForm.platform">
+                    <option v-for="p in platformOptions" :key="`doc-edit-${doc.id}-${p}`" :value="p">{{ p }}</option>
+                  </select>
+                </div>
+                <div v-else class="kb-value">{{ doc.platform || '공통' }}</div>
+              </div>
+              <div v-if="doc.keywords" class="kb-row">
+                <div class="kb-label">키워드</div>
+                <div class="kb-value"><span class="kw-chip" v-for="kw in doc.keywords.split(',')" :key="kw">{{ kw.trim() }}</span></div>
+              </div>
+              <div v-if="editingDocumentId === doc.id" class="kb-row">
+                <div class="kb-label">키워드</div>
+                <div class="kb-value">
+                  <input v-model="editDocForm.keywords" placeholder="예) 매뉴얼, 설치, 연동" />
+                </div>
+              </div>
+              <div v-if="editingDocumentId === doc.id" class="kb-row">
+                <div class="kb-label">파일 교체</div>
+                <div class="kb-value">
+                  <div class="doc-file-inline-row">
+                    <input class="doc-file-picker" :id="`edit-file-input-${doc.id}`" type="file" accept=".pdf" @change="onSelectEditDocumentFile" />
+                    <span class="hint">파일을 선택하지 않으면 기존 PDF 파일이 그대로 유지됩니다.</span>
+                  </div>
+                  <div class="upload-btn-row" v-if="selectedEditDocumentFile">
+                    <span class="hint">현재 선택된 파일: {{ selectedEditDocumentFile.name }} (저장 시 파일이 교체됩니다)</span>
+                  </div>
+                </div>
+              </div>
+              <div class="kb-row">
+                <div class="kb-label">수정일</div>
+                <div class="kb-value">{{ formatDate(doc.updatedAt) }}</div>
+              </div>
+              <div v-if="editingDocumentId === doc.id" class="upload-btn-row">
+                <button class="primary" :disabled="updatingDocId === doc.id" @click="updateDocument(doc)">
+                  {{ updatingDocId === doc.id ? (selectedEditDocumentFile ? '저장/인덱싱 중...' : '저장 중...') : '수정 저장' }}
+                </button>
+                <button class="ghost" :disabled="updatingDocId === doc.id" @click="cancelEditDocument">취소</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
     <div class="panel form-panel" :class="{ collapsed: !showWriter }">
       <div class="panel-head">
         <div class="panel-head-title">
@@ -546,6 +1056,7 @@ onMounted(async () => {
             {{ showWriter ? '작성 영역 닫기' : '작성 영역 열기' }}
           </button>
           <button class="ghost" @click="resetForm">초기화</button>
+          <button class="ghost" type="button" @click="openWriterPromptEditor">프롬프트 설정</button>
         </div>
       </div>
 
@@ -569,12 +1080,22 @@ onMounted(async () => {
         </label>
 
         <label>
-          답변
+          <div class="label-head-inline">
+            <span class="field-title">답변</span>
+            <button class="ghost" type="button" :disabled="refiningSolution" @click="refineSolutionWithAi">
+              {{ refiningSolution ? '정리 중...' : 'AI로 답변 정리' }}
+            </button>
+          </div>
           <textarea v-model="form.solution" rows="4" placeholder="예) 인증서 위치를 확인한 뒤 다시 로그인하세요..." />
         </label>
 
         <label>
-          키워드(선택)
+          <div class="label-head-inline">
+            <span class="field-title">키워드</span>
+            <button class="ghost" type="button" :disabled="generatingKeywords" @click="generateKeywords">
+              {{ generatingKeywords ? '생성 중...' : '키워드 생성하기' }}
+            </button>
+          </div>
           <div class="similar-input-row">
             <input
               v-model="keywordInput"
@@ -586,7 +1107,7 @@ onMounted(async () => {
             <button class="secondary" type="button" @click="addKeywordFromInput">추가</button>
           </div>
           <div class="chips" v-if="keywordDraft.length > 0">
-            <span v-for="(item, idx) in keywordDraft" :key="`tag-${item}-${idx}`" class="chip">
+            <span v-for="(item, idx) in keywordDraft" :key="`keyword-${item}-${idx}`" class="chip">
               #{{ item }}
               <button type="button" @click="removeKeyword(idx)">×</button>
             </span>
@@ -599,12 +1120,9 @@ onMounted(async () => {
             <button class="ghost" type="button" @click="openPlatformEditor">관리</button>
           </div>
           <div class="field-header">
-            <select v-model="platformInput">
+            <select v-model="platformInput" @change="onPlatformSelectChanged">
               <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
             </select>
-            <div class="field-actions">
-              <button class="secondary" type="button" @click="addPlatformToForm">추가</button>
-            </div>
           </div>
           <div class="chips" v-if="form.platforms.length > 0">
             <span v-for="(item, idx) in form.platforms" :key="`platform-${item}-${idx}`" class="chip">
@@ -632,8 +1150,21 @@ onMounted(async () => {
             />
             <button class="secondary" @click="addSimilarFromInput">추가</button>
           </div>
-          <small class="hint">예상질문 생성은 3개씩 추가되며, 유사질문은 최대 10개까지 등록 가능합니다.</small>
+          <small class="hint">예상질문 생성은 3개씩 추가되며, 유사질문은 최대 20개까지 등록 가능합니다.</small>
         </label>
+
+        <div v-if="generatedCandidates.length > 0" class="generated-candidates">
+          <div class="field-title">최근 생성된 예상질문</div>
+          <div class="generated-list">
+            <div v-for="(item, idx) in generatedCandidates" :key="`generated-${idx}-${item}`" class="generated-item">
+              <span>{{ item }}</span>
+              <div class="generated-actions">
+                <button class="ghost" type="button" @click="addGeneratedAsRepresentative(item)">대표질문 추가하기</button>
+                <button class="ghost" type="button" @click="addGeneratedAsSimilar(item)">유사질문 추가하기</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="chips" v-if="similarDraft.length > 0">
           <span v-for="(item, idx) in similarDraft" :key="`${item}-${idx}`" class="chip">
@@ -709,7 +1240,7 @@ onMounted(async () => {
           </div>
 
           <div class="meta">
-            <span class="meta-chip" v-if="kb.tags">키워드: {{ kb.tags }}</span>
+            <span class="meta-chip" v-if="kb.keywords">키워드: {{ kb.keywords }}</span>
             <span class="meta-chip">조회수: {{ kb.viewCount }}</span>
             <span class="meta-chip">등록: {{ kb.createdBy || '-' }} · {{ formatDateTime(kb.createdAt) }}</span>
             <span v-if="hasUpdateHistory(kb)" class="meta-chip">수정: {{ kb.updatedBy || '-' }} · {{ formatDateTime(kb.updatedAt) }}</span>
@@ -812,7 +1343,7 @@ onMounted(async () => {
           <div class="guide-card">
             <strong>3) 유사질문은 표현 다양화가 핵심입니다</strong>
             <p>
-              같은 의미를 다른 표현으로 3~10개 정도 등록하세요.
+              같은 의미를 다른 표현으로 3~20개 정도 등록하세요.
               예: "로그인 실패", "인증서 고른 뒤 접속 불가", "서명 후 메인 화면 안 넘어감"
             </p>
             <p>오탈자/축약어(예: 공인인증서, 인증서, cert)도 자주 들어오면 함께 넣어두세요.</p>
@@ -839,6 +1370,67 @@ onMounted(async () => {
       </div>
     </div>
 
+    <div v-if="showWriterPromptEditor" class="modal-overlay" @click="showWriterPromptEditor = false">
+      <div class="modal info-modal" @click.stop>
+        <div class="modal-head">
+          <h4>KB 작성 AI 프롬프트 설정</h4>
+          <button class="ghost" type="button" @click="showWriterPromptEditor = false">닫기</button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            키워드 생성 시스템 프롬프트
+            <textarea v-model="writerPromptTemplateForm.keywordSystemPrompt" rows="3" />
+          </label>
+          <label>
+            키워드 생성 규칙 프롬프트
+            <textarea v-model="writerPromptTemplateForm.keywordRulesPrompt" rows="4" />
+          </label>
+          <label>
+            답변 정리 시스템 프롬프트
+            <textarea v-model="writerPromptTemplateForm.answerRefineSystemPrompt" rows="3" />
+          </label>
+          <label>
+            답변 정리 규칙 프롬프트
+            <textarea v-model="writerPromptTemplateForm.answerRefineRulesPrompt" rows="4" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="primary" type="button" :disabled="savingWriterPromptTemplate" @click="saveWriterPromptTemplate">
+            {{ savingWriterPromptTemplate ? '저장 중...' : '저장' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showRefinePreview" class="modal-overlay" @click="cancelRefinedSolution">
+      <div class="modal info-modal" @click.stop>
+        <div class="modal-head">
+          <h4>AI 답변 정리 미리보기</h4>
+          <button class="ghost" type="button" @click="cancelRefinedSolution">닫기</button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            현재 답변
+            <textarea :value="form.solution" rows="5" readonly />
+          </label>
+          <label>
+            정리된 답변
+            <textarea :value="refinedSolutionPreview" rows="7" readonly />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="ghost" type="button" @click="cancelRefinedSolution">적용 안함</button>
+          <button class="primary" type="button" @click="applyRefinedSolution">적용하기</button>
+        </div>
+      </div>
+    </div>
+    </template><!-- /tab:kb -->
+
+    <!-- ── 공유 모달: 플랫폼 관리 (탭 공통) ── -->
     <div v-if="showPlatformEditor" class="modal-overlay" @click="showPlatformEditor = false">
       <div class="modal" @click.stop>
         <div class="modal-head">
@@ -850,7 +1442,9 @@ onMounted(async () => {
           <input
             v-model="newPlatformName"
             placeholder="예) windows, android"
-            @keydown.enter.prevent="addPlatform"
+            @compositionstart="isComposingPlatformName = true"
+            @compositionend="isComposingPlatformName = false"
+            @keydown.enter.prevent="() => { if (!isComposingPlatformName) addPlatform() }"
           />
           <button class="secondary" :disabled="addingPlatform" @click="addPlatform">추가</button>
         </div>
@@ -858,20 +1452,24 @@ onMounted(async () => {
         <div class="platform-items" v-if="platformOptions.length > 0">
           <div v-for="p in platformOptions" :key="p" class="platform-item">
             <template v-if="renamingPlatform === p">
-              <input v-model="renamingPlatformName" @keydown.enter.prevent="submitRenamePlatform" />
-              <button class="secondary" :disabled="savingRename" @click="submitRenamePlatform">저장</button>
-              <button class="ghost" :disabled="savingRename" @click="cancelRenamePlatform">취소</button>
+              <input v-model="renamingPlatformName"
+                @compositionstart="isComposingRenamePlatform = true"
+                @compositionend="isComposingRenamePlatform = false"
+                @keydown.enter.prevent="() => { if (!isComposingRenamePlatform) submitRenamePlatform() }" />
+              <button class="secondary compact-btn" :disabled="savingRename" @click="submitRenamePlatform">저장</button>
+              <button class="ghost compact-btn" :disabled="savingRename" @click="cancelRenamePlatform">취소</button>
             </template>
             <template v-else>
               <span class="platform-name">{{ p }}</span>
               <span v-if="p === '공통'" class="scope platform">기본(삭제불가)</span>
-              <button v-else class="secondary" @click="startRenamePlatform(p)">수정</button>
-              <button v-if="p !== '공통'" class="danger" :disabled="deletingPlatform === p" @click="removePlatform(p)">삭제</button>
+              <button v-else class="secondary compact-btn" @click="startRenamePlatform(p)">수정</button>
+              <button v-if="p !== '공통'" class="danger compact-btn" :disabled="deletingPlatform === p" @click="removePlatform(p)">삭제</button>
             </template>
           </div>
         </div>
       </div>
     </div>
+
   </section>
 </template>
 
@@ -879,6 +1477,109 @@ onMounted(async () => {
 .kb-wrap {
   display: grid;
   gap: 14px;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #dee2e6;
+  padding-bottom: 0;
+  margin-bottom: 4px;
+}
+
+.tab-btn {
+  padding: 7px 20px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #f8f9fa;
+  color: #6c757d;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-btn.active {
+  background: #ffffff;
+  color: #1f7a6d;
+  border-color: #dee2e6;
+  border-bottom-color: #ffffff;
+  margin-bottom: -2px;
+}
+
+.doc-upload-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(140px, 0.8fr) minmax(160px, 0.9fr) minmax(220px, 1.4fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 8px;
+}
+
+.upload-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.selected-file-name {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
+
+.doc-file-picker {
+  width: 100%;
+  max-width: 360px;
+  border: 1px solid #cfd8e3;
+  border-radius: 10px;
+  padding: 4px;
+  background: #fff;
+  color: #334155;
+}
+
+.doc-file-picker::file-selector-button {
+  border: 1px solid #0d6efd;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f7fbff 0%, #e8f2ff 100%);
+  color: #0d6efd;
+  font-weight: 700;
+  padding: 6px 12px;
+  margin-right: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.doc-file-picker:hover::file-selector-button {
+  background: linear-gradient(180deg, #edf5ff 0%, #dcecff 100%);
+}
+
+.doc-file-picker:active::file-selector-button {
+  transform: translateY(1px);
+}
+
+.doc-file-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kw-chip {
+  display: inline-block;
+  background: #e9f5f3;
+  color: #1f7a6d;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 0.8rem;
+  margin: 1px 3px 1px 0;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: #868e96;
+  font-weight: 400;
 }
 
 .panel {
@@ -1009,7 +1710,7 @@ select:focus {
 
 .field-header {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 8px;
   align-items: center;
 }
@@ -1050,6 +1751,41 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.generated-candidates {
+  display: grid;
+  gap: 6px;
+}
+
+.generated-list {
+  display: grid;
+  gap: 6px;
+}
+
+.generated-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #dbe6f2;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #334155;
+}
+
+.generated-item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.generated-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 .hint {
@@ -1271,6 +2007,12 @@ select:focus {
   background: #fdecef;
 }
 
+.compact-btn {
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
 .filters {
   display: grid;
   grid-template-columns: 170px 170px 1fr;
@@ -1481,8 +2223,16 @@ select:focus {
 
 @media (max-width: 900px) {
   .row-two,
+  .doc-upload-form,
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .upload-btn-row {
+    justify-self: stretch;
+    justify-content: flex-start;
+    white-space: normal;
+    flex-wrap: wrap;
   }
 
   .kb-row {

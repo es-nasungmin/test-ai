@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
+import { API_BASE_URL } from '../../config'
 
-const API_URL = 'http://localhost:8080/api'
+const API_URL = API_BASE_URL
 
 const loading = ref(false)
 const sessions = ref([])
@@ -370,9 +371,9 @@ function getKbPlatforms(detail) {
 }
 
 function getKbTags(detail) {
-  const tags = detail?.tags || detail?.Tags
-  if (typeof tags !== 'string') return []
-  return tags.split(',').map((x) => x.trim()).filter(Boolean)
+  const keywords = detail?.keywords || detail?.Keywords || detail?.tags || detail?.Tags
+  if (typeof keywords !== 'string') return []
+  return keywords.split(',').map((x) => x.trim()).filter(Boolean)
 }
 
 watch([roleFilter, platformFilter, sessionPageSize], () => {

@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import ReusableChatbot from './ReusableChatbot.vue'
+import { API_BASE_URL } from '../../config'
 
 function resolveTarget(target) {
   if (target == null) {
@@ -22,7 +23,7 @@ export function mountChatbotWidget(target, options = {}) {
   const isCreatedContainer = Boolean(resolved.created)
 
   const app = createApp(ReusableChatbot, {
-    apiBaseUrl: options.apiBaseUrl || 'http://localhost:8080/api',
+    apiBaseUrl: options.apiBaseUrl || API_BASE_URL,
     role: options.role || 'user',
     title: options.title || 'AI Chat',
     defaultPlatform: options.defaultPlatform || '전체 플랫폼',

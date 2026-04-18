@@ -19,6 +19,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import ManagementPage from './views/ManagementPage.vue'
 import LoginPage from './views/LoginPage.vue'
+import { API_BASE_URL } from './config'
 
 const isLoggedIn = ref(false)
 const currentUser = ref(null)
@@ -109,7 +110,7 @@ async function loadChatWidgets() {
   destroyWidgets()
 
   adminWidget = createWidget({
-    apiBaseUrl: 'http://localhost:8080/api',
+    apiBaseUrl: API_BASE_URL,
     role: 'admin',
     title: '관리자 위젯',
     platformName: '테스트',
@@ -124,7 +125,7 @@ async function loadChatWidgets() {
   })
 
   userWidget = createWidget({
-    apiBaseUrl: 'http://localhost:8080/api',
+    apiBaseUrl: API_BASE_URL,
     role: 'user',
     title: '사용자 위젯',
     platformName: '테스트',

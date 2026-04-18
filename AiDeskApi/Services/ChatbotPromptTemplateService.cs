@@ -33,7 +33,7 @@ namespace AiDeskApi.Services
         private string _userLowSimilarityMessage = "현재 보유한 지식으로는 정확한 안내가 어렵습니다. 관리자에게 문의해 주세요.";
         private string _adminLowSimilarityMessage = "현재 KB 유사도가 낮아 신뢰 가능한 답변 생성이 어렵습니다. 해당 질문을 신규 KB 후보로 등록해 주세요.";
 
-        private float _similarityThreshold = 0.42f;
+        private float _similarityThreshold = 0.55f;
 
         public string UserSystemPrompt { get { lock (_sync) { return _userSystemPrompt; } } }
         public string AdminSystemPrompt { get { lock (_sync) { return _adminSystemPrompt; } } }

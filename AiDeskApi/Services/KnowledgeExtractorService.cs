@@ -8,6 +8,8 @@ namespace AiDeskApi.Services
     {
         Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction);
         Task<List<string>> GenerateSimilarQuestionsAsync(string representativeQuestion, string solution, int count = 3);
+        Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
+        Task<string> RefineSolutionAsync(string representativeQuestion, string solution, string systemPrompt, string rulesPrompt);
     }
 
     public class KnowledgeExtractorService : IKnowledgeExtractorService
@@ -15,6 +17,8 @@ namespace AiDeskApi.Services
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly ILogger<KnowledgeExtractorService> _logger;
+        private readonly string _chatCompletionsEndpoint;
+        private readonly string _chatModel;
 
         public KnowledgeExtractorService(HttpClient httpClient, IConfiguration configuration, ILogger<KnowledgeExtractorService> logger)
         {
@@ -25,6 +29,8 @@ namespace AiDeskApi.Services
             var apiKey = configuration["OpenAI:ApiKey"];
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+            _chatCompletionsEndpoint = configuration["OpenAI:Endpoint"] ?? "https://api.openai.com/v1/chat/completions";
+            _chatModel = configuration["OpenAI:Model"] ?? "gpt-4o-mini";
         }
 
         public async Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction)
@@ -51,7 +57,7 @@ namespace AiDeskApi.Services
 
                 var request = new
                 {
-                    model = "gpt-3.5-turbo",
+                    model = _chatModel,
                     messages = new[]
                     {
                         new
@@ -66,7 +72,7 @@ namespace AiDeskApi.Services
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(
-                    "https://api.openai.com/v1/chat/completions",
+                    _chatCompletionsEndpoint,
                     request);
 
                 if (!response.IsSuccessStatusCode)
@@ -150,7 +156,7 @@ namespace AiDeskApi.Services
 
                 var request = new
                 {
-                    model = "gpt-3.5-turbo",
+                    model = _chatModel,
                     messages = new[]
                     {
                         new
@@ -165,7 +171,7 @@ namespace AiDeskApi.Services
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(
-                    "https://api.openai.com/v1/chat/completions",
+                    _chatCompletionsEndpoint,
                     request);
 
                 if (!response.IsSuccessStatusCode)
@@ -191,6 +197,161 @@ namespace AiDeskApi.Services
                 _logger.LogError($"❌ 유사 질문 생성 오류: {ex.Message}");
                 throw;
             }
+        }
+
+        public async Task<List<string>> GenerateKeywordsAsync(
+            string content,
+            List<string>? additionalContent,
+            int count,
+            string systemPrompt,
+            string rulesPrompt,
+            string source = "question")
+        {
+            if (string.IsNullOrWhiteSpace(content))
+                throw new ArgumentException("콘텐츠가 필요합니다.");
+
+            var limitedCount = Math.Clamp(count, 3, 20);
+            var mainContent = content.Trim();
+            var additional = (additionalContent ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(20)
+                .ToList();
+
+            string prompt = source.ToLower() switch
+            {
+                "answer" => GenerateTopicKeywordPrompt(mainContent, additional, limitedCount),
+                _ => GenerateSearchKeywordPrompt(mainContent, additional, limitedCount)
+            };
+
+            var request = new
+            {
+                model = _chatModel,
+                messages = new[]
+                {
+                    new { role = "system", content = $"{systemPrompt}\n\n{rulesPrompt}" },
+                    new { role = "user", content = prompt }
+                },
+                temperature = 0.3,
+                max_tokens = 250
+            };
+
+            var response = await _httpClient.PostAsJsonAsync(_chatCompletionsEndpoint, request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"키워드 생성 실패: {error}");
+                throw new Exception("키워드 생성 실패");
+            }
+
+            var jsonString = await response.Content.ReadAsStringAsync();
+            var json = JsonDocument.Parse(jsonString).RootElement;
+            var responseContent = json
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString();
+
+            return ParseTextList(responseContent, limitedCount);
+        }
+
+        private string GenerateSearchKeywordPrompt(string representativeQuestion, List<string> similarQuestions, int limitedCount)
+        {
+            var similarText = similarQuestions.Count == 0
+                ? "없음"
+                : string.Join("\n", similarQuestions.Select((x, i) => $"{i + 1}. {x}"));
+
+            return $@"아래 KB 질문 데이터를 기준으로 검색 최적화 키워드를 {limitedCount}개 생성하세요.
+
+【대표질문】
+{representativeQuestion}
+
+【유사질문】
+{similarText}
+
+【추가 규칙】
+- 반드시 JSON 배열만 응답
+- 각 키워드는 짧은 명사형/핵심 구로 작성
+- 중복/유사 표현은 하나로 통합
+- 대표질문과 직접 무관한 단어는 제외
+- count에 맞는 개수로 생성
+- 사용자가 실제로 검색할 법한 표현 우선";
+        }
+
+        private string GenerateTopicKeywordPrompt(string solution, List<string> _, int limitedCount)
+        {
+            return $@"아래 KB 답변 내용을 기준으로 주제/도메인 키워드를 {limitedCount}개 생성하세요.
+
+【답변】
+{solution}
+
+【추가 규칙】
+- 반드시 JSON 배열만 응답
+- 각 키워드는 도메인 용어 또는 주제 중심
+- 중복/유사 표현은 하나로 통합
+- 답변의 핵심 개념과 카테고리 반영
+- count에 맞는 개수로 생성
+- 다른 KB와의 관련도 연결에 도움이 되는 키워드 우선";
+        }
+
+        public async Task<string> RefineSolutionAsync(
+            string representativeQuestion,
+            string solution,
+            string systemPrompt,
+            string rulesPrompt)
+        {
+            if (string.IsNullOrWhiteSpace(solution))
+                throw new ArgumentException("답변이 필요합니다.");
+
+            var rep = representativeQuestion?.Trim();
+            var prompt = $@"아래 KB 답변 초안을 가독성 높은 최종 답변으로 정리하세요.
+
+【대표질문】
+{(string.IsNullOrWhiteSpace(rep) ? "(없음)" : rep)}
+
+【답변 초안】
+{solution.Trim()}
+
+【출력 형식】
+- 한국어 마크다운 텍스트
+- 필요 시 번호 목록 사용
+- 원문 의미는 유지";
+
+            var request = new
+            {
+                model = _chatModel,
+                messages = new[]
+                {
+                    new { role = "system", content = $"{systemPrompt}\n\n{rulesPrompt}" },
+                    new { role = "user", content = prompt }
+                },
+                temperature = 0.2,
+                max_tokens = 700
+            };
+
+            var response = await _httpClient.PostAsJsonAsync(_chatCompletionsEndpoint, request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"답변 정리 실패: {error}");
+                throw new Exception("답변 정리 실패");
+            }
+
+            var jsonString = await response.Content.ReadAsStringAsync();
+            var json = JsonDocument.Parse(jsonString).RootElement;
+            var content = json
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString();
+
+            if (string.IsNullOrWhiteSpace(content))
+                throw new Exception("답변 정리 결과가 비어 있습니다.");
+
+            return content.Trim();
         }
 
         private ExtractedKnowledge ParseJson(string? response)
@@ -250,6 +411,35 @@ namespace AiDeskApi.Services
             catch (Exception ex)
             {
                 throw new Exception($"유사 질문 JSON 파싱 실패: {ex.Message}\n응답: {response}");
+            }
+        }
+
+        private static List<string> ParseTextList(string? response, int count)
+        {
+            try
+            {
+                var raw = response?.Trim();
+                if (string.IsNullOrWhiteSpace(raw))
+                    throw new Exception("응답이 비어 있습니다.");
+
+                var jsonStart = raw.IndexOf('[');
+                var jsonEnd = raw.LastIndexOf(']');
+                if (jsonStart < 0 || jsonEnd <= jsonStart)
+                    throw new Exception("JSON 배열 형식을 찾을 수 없습니다.");
+
+                var jsonArray = raw.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                var items = JsonSerializer.Deserialize<List<string>>(jsonArray) ?? new List<string>();
+
+                return items
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(count)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"JSON 배열 파싱 실패: {ex.Message}\n응답: {response}");
             }
         }
 

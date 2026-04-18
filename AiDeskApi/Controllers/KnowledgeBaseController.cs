@@ -17,7 +17,9 @@ namespace AiDeskApi.Controllers
         private readonly IRagService _ragService;
         private readonly IVectorSearchService _vectorSearchService;
         private readonly IChatbotPromptTemplateService _chatbotPromptTemplates;
+        private readonly IKnowledgeBaseWriterPromptTemplateService _kbWriterPromptTemplates;
         private readonly IKnowledgeExtractorService _knowledgeExtractorService;
+        private readonly IDocumentKnowledgeService _documentKnowledgeService;
         private readonly ILogger<KnowledgeBaseController> _logger;
 
         public KnowledgeBaseController(
@@ -26,7 +28,9 @@ namespace AiDeskApi.Controllers
             IRagService ragService,
             IVectorSearchService vectorSearchService,
             IKnowledgeExtractorService knowledgeExtractorService,
+            IDocumentKnowledgeService documentKnowledgeService,
             IChatbotPromptTemplateService chatbotPromptTemplates,
+            IKnowledgeBaseWriterPromptTemplateService kbWriterPromptTemplates,
             ILogger<KnowledgeBaseController> logger)
         {
             _context = context;
@@ -34,7 +38,9 @@ namespace AiDeskApi.Controllers
             _ragService = ragService;
             _vectorSearchService = vectorSearchService;
             _knowledgeExtractorService = knowledgeExtractorService;
+            _documentKnowledgeService = documentKnowledgeService;
             _chatbotPromptTemplates = chatbotPromptTemplates;
+            _kbWriterPromptTemplates = kbWriterPromptTemplates;
             _logger = logger;
         }
 
@@ -51,6 +57,7 @@ namespace AiDeskApi.Controllers
                 _logger.LogInformation($"❓ [{role}] 질문: {request.Question}");
 
                 var noSave = request.NoSave == true;
+                var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 6, 0, 20);
                 var runtimeOptions = new RagRuntimeOptions
                 {
                     DisablePersistence = noSave,
@@ -62,9 +69,26 @@ namespace AiDeskApi.Controllers
                 };
 
                 ChatSession? session = null;
-                if (!noSave && request.SessionId.HasValue)
+                List<(string Role, string Content)> history = new();
+
+                if (request.SessionId.HasValue)
                 {
                     session = await _context.ChatSessions.FindAsync(request.SessionId.Value);
+
+                    if (session == null)
+                        return NotFound("세션을 찾을 수 없습니다.");
+
+                    if (historyTurnCount > 0)
+                    {
+                        history = await _context.ChatMessages
+                            .AsNoTracking()
+                            .Where(x => x.SessionId == request.SessionId.Value)
+                            .OrderByDescending(x => x.CreatedAt)
+                            .Take(historyTurnCount)
+                            .OrderBy(x => x.CreatedAt)
+                            .Select(x => new ValueTuple<string, string>(x.Role, x.Content))
+                            .ToListAsync();
+                    }
                 }
                 else if (!noSave && request.CreateSession == true)
                 {
@@ -82,7 +106,12 @@ namespace AiDeskApi.Controllers
                     await _context.SaveChangesAsync();
                 }
 
-                var result = await _ragService.SearchAndGenerateAsync(request.Question, role, platform, null, runtimeOptions);
+                var result = await _ragService.SearchAndGenerateAsync(
+                    request.Question,
+                    role,
+                    platform,
+                    history,
+                    runtimeOptions);
 
                 if (!noSave && result.IsLowSimilarity)
                 {
@@ -162,6 +191,7 @@ namespace AiDeskApi.Controllers
                     result.TopSimilarity,
                     result.IsLowSimilarity,
                     result.RelatedKBs,
+                    result.RelatedDocuments,
                     result.ConflictDetected,
                     result.DecisionRule,
                     result.RetrievalDiagnostics,
@@ -171,6 +201,16 @@ namespace AiDeskApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError($"❌ 질문 오류: {ex.Message}");
+
+                var errorText = ex.ToString();
+                if (errorText.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase)
+                    || errorText.Contains("Incorrect API key", StringComparison.OrdinalIgnoreCase)
+                    || errorText.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
+                    || errorText.Contains("401", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(503, new { error = "OpenAI API 키가 유효하지 않거나 설정되지 않았습니다. 서버 환경변수(OpenAI__ApiKey)를 확인해주세요." });
+                }
+
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -197,7 +237,7 @@ namespace AiDeskApi.Controllers
                     ProblemEmbedding = JsonSerializer.Serialize(representativeEmbedding),
                     Visibility = NormalizeVisibility(request.Visibility),
                     Platform = SerializePlatforms(platforms),
-                    Tags = request.Tags?.Trim(),
+                    Keywords = (request.Keywords ?? request.Tags)?.Trim(),
                     CreatedAt = now,
                     UpdatedAt = now,
                     CreatedBy = actor,
@@ -208,7 +248,7 @@ namespace AiDeskApi.Controllers
                     ?.Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(10)
+                    .Take(20)
                     .ToList() ?? new List<string>();
 
                 foreach (var q in similarQuestions)
@@ -273,7 +313,7 @@ namespace AiDeskApi.Controllers
                 kb.Solution = request.Solution!.Trim();
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
-                kb.Tags = request.Tags?.Trim();
+                kb.Keywords = (request.Keywords ?? request.Tags)?.Trim();
                 kb.UpdatedAt = DateTime.Now;
                 kb.UpdatedBy = actor;
 
@@ -281,7 +321,7 @@ namespace AiDeskApi.Controllers
                     ?.Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(10)
+                    .Take(20)
                     .ToList() ?? new List<string>();
 
                 var existingByKey = kb.SimilarQuestions
@@ -380,7 +420,7 @@ namespace AiDeskApi.Controllers
                         (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
                         EF.Functions.Like(x.Problem, $"%{q}%") ||
                         EF.Functions.Like(x.Solution, $"%{q}%") ||
-                        (x.Tags != null && EF.Functions.Like(x.Tags, $"%{q}%")) ||
+                        (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
                         x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
                 }
 
@@ -403,7 +443,7 @@ namespace AiDeskApi.Controllers
                         x.Visibility,
                         x.Platform,
                         platforms = SplitPlatforms(x.Platform),
-                        x.Tags,
+                        keywords = x.Keywords,
                         similarQuestions = x.SimilarQuestions
                             .OrderBy(s => s.Id)
                             .Select(s => new { s.Id, s.Question })
@@ -415,6 +455,171 @@ namespace AiDeskApi.Controllers
             }
             catch (Exception ex)
             {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("documents/upload")]
+        [RequestSizeLimit(1024L * 1024L * 30L)]
+        public async Task<IActionResult> UploadDocument([FromForm] UploadDocumentRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (request.File == null || request.File.Length == 0)
+                    return BadRequest(new { error = "PDF 파일을 첨부해주세요." });
+
+                var ext = Path.GetExtension(request.File.FileName);
+                if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { error = "현재는 PDF 파일만 지원합니다." });
+
+                var actor = await ResolveActorNameAsync();
+                await using var stream = request.File.OpenReadStream();
+                var result = await _documentKnowledgeService.UploadPdfAsync(
+                    stream,
+                    request.File.FileName,
+                    request.DisplayName ?? request.File.FileName,
+                    request.Visibility ?? "admin",
+                    request.Platform ?? "공통",
+                    request.Keywords,
+                    actor,
+                    cancellationToken);
+
+                return Ok(new
+                {
+                    result.DocumentId,
+                    result.DisplayName,
+                    result.Status,
+                    result.ChunkCount
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 업로드/인덱싱 오류");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpGet("documents")]
+        public async Task<IActionResult> ListDocuments([FromQuery] string? role = "admin", [FromQuery] string? platform = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var items = await _documentKnowledgeService.ListAsync(role ?? "admin", platform, cancellationToken);
+                return Ok(new { data = items, total = items.Count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 목록 조회 오류");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPut("documents/{id:int}")]
+        public async Task<IActionResult> UpdateDocument(int id, [FromBody] UpdateDocumentRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest(new { error = "요청 본문이 필요합니다." });
+
+                var hasAnyField = request.DisplayName != null
+                    || request.Visibility != null
+                    || request.Platform != null
+                    || request.Keywords != null;
+
+                if (!hasAnyField)
+                    return BadRequest(new { error = "수정할 항목을 하나 이상 입력해주세요." });
+
+                if (request.DisplayName != null && string.IsNullOrWhiteSpace(request.DisplayName))
+                    return BadRequest(new { error = "표시 이름은 비워둘 수 없습니다." });
+
+                var actor = await ResolveActorNameAsync();
+                var updated = await _documentKnowledgeService.UpdateAsync(
+                    id,
+                    request.DisplayName,
+                    request.Visibility,
+                    request.Platform,
+                    request.Keywords,
+                    actor,
+                    cancellationToken);
+
+                if (updated == null)
+                    return NotFound(new { error = "문서를 찾을 수 없습니다." });
+
+                return Ok(new
+                {
+                    message = "문서가 수정되었습니다.",
+                    data = updated
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 수정 오류 id={Id}", id);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpDelete("documents/{id:int}")]
+        public async Task<IActionResult> DeleteDocument(int id, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var deleted = await _documentKnowledgeService.DeleteAsync(id, cancellationToken);
+                if (!deleted) return NotFound(new { error = "문서를 찾을 수 없습니다." });
+                return Ok(new { message = "문서가 삭제되었습니다." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 삭제 오류 id={Id}", id);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("documents/{id:int}/reindex")]
+        [RequestSizeLimit(30 * 1024 * 1024)]
+        public async Task<IActionResult> ReindexDocument(int id, IFormFile file, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                    return BadRequest(new { error = "파일을 첨부해주세요." });
+
+                var ext = Path.GetExtension(file.FileName);
+                if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { error = "현재는 PDF 파일만 지원합니다." });
+
+                var actor = await ResolveActorNameAsync();
+                await using var stream = file.OpenReadStream();
+                var result = await _documentKnowledgeService.ReindexAsync(id, stream, actor, cancellationToken);
+
+                return Ok(new
+                {
+                    result.DocumentId,
+                    result.DisplayName,
+                    result.Status,
+                    result.ChunkCount
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                if (ex.Message.Contains("문서를 찾을 수 없습니다", StringComparison.OrdinalIgnoreCase))
+                {
+                    return NotFound(new { error = ex.Message });
+                }
+
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 문서 재인덱싱 오류 id={Id}", id);
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -437,6 +642,83 @@ namespace AiDeskApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError($"❌ 유사 질문 생성 오류: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("generate-keywords")]
+        public async Task<IActionResult> GenerateKeywords([FromBody] GenerateKeywordsRequest request)
+        {
+            try
+            {
+                var prompts = await _kbWriterPromptTemplates.GetAsync();
+
+                // 검색 키워드 (질문 기반)
+                List<string> searchKeywords = new();
+                if (!string.IsNullOrWhiteSpace(request.RepresentativeQuestion))
+                {
+                    searchKeywords = await _knowledgeExtractorService.GenerateKeywordsAsync(
+                        request.RepresentativeQuestion.Trim(),
+                        request.SimilarQuestions,
+                        request.Count ?? 8,
+                        prompts.KeywordSystemPrompt,
+                        prompts.KeywordRulesPrompt,
+                        source: "question");
+                }
+
+                // 주제 키워드 (답변 기반)
+                List<string> topicKeywords = new();
+                if (!string.IsNullOrWhiteSpace(request.Solution))
+                {
+                    topicKeywords = await _knowledgeExtractorService.GenerateKeywordsAsync(
+                        request.Solution.Trim(),
+                        null,
+                        request.Count ?? 5,
+                        prompts.TopicKeywordSystemPrompt,
+                        prompts.TopicKeywordRulesPrompt,
+                        source: "answer");
+                }
+
+                if (searchKeywords.Count == 0 && topicKeywords.Count == 0)
+                {
+                    return BadRequest(new { error = "대표질문 또는 답변을 먼저 입력해주세요" });
+                }
+
+                return Ok(new 
+                { 
+                    searchKeywords, 
+                    topicKeywords,
+                    combined = searchKeywords.Union(topicKeywords).ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ 키워드 생성 오류: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("refine-solution")]
+        public async Task<IActionResult> RefineSolution([FromBody] RefineSolutionRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.Solution))
+                    return BadRequest(new { error = "답변을 먼저 작성해주세요." });
+
+                var prompts = await _kbWriterPromptTemplates.GetAsync();
+
+                var refined = await _knowledgeExtractorService.RefineSolutionAsync(
+                    request.RepresentativeQuestion?.Trim() ?? string.Empty,
+                    request.Solution.Trim(),
+                    prompts.AnswerRefineSystemPrompt,
+                    prompts.AnswerRefineRulesPrompt);
+
+                return Ok(new { solution = refined });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"❌ 답변 정리 오류: {ex.Message}");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -467,7 +749,7 @@ namespace AiDeskApi.Controllers
                     kb.Visibility,
                     kb.Platform,
                     platforms = SplitPlatforms(kb.Platform),
-                    kb.Tags,
+                    keywords = kb.Keywords,
                     similarQuestions = kb.SimilarQuestions
                         .OrderBy(s => s.Id)
                         .Select(s => new { s.Id, s.Question })
@@ -547,6 +829,50 @@ namespace AiDeskApi.Controllers
                 AdminLowSimilarityMessage = _chatbotPromptTemplates.AdminLowSimilarityMessage,
                 SimilarityThreshold = _chatbotPromptTemplates.SimilarityThreshold
             });
+        }
+
+        [HttpGet("writer-prompt-template")]
+        public async Task<IActionResult> GetWriterPromptTemplate()
+        {
+            var template = await _kbWriterPromptTemplates.GetAsync();
+            return Ok(new KnowledgeBaseWriterPromptTemplateResponse
+            {
+                KeywordSystemPrompt = template.KeywordSystemPrompt,
+                KeywordRulesPrompt = template.KeywordRulesPrompt,
+                TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
+                TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
+                AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
+                AnswerRefineRulesPrompt = template.AnswerRefineRulesPrompt
+            });
+        }
+
+        [HttpPut("writer-prompt-template")]
+        public async Task<IActionResult> UpdateWriterPromptTemplate([FromBody] UpdateKnowledgeBaseWriterPromptTemplateRequest request)
+        {
+            try
+            {
+                var template = await _kbWriterPromptTemplates.UpdateAsync(
+                    request.KeywordSystemPrompt,
+                    request.KeywordRulesPrompt,
+                    request.TopicKeywordSystemPrompt,
+                    request.TopicKeywordRulesPrompt,
+                    request.AnswerRefineSystemPrompt,
+                    request.AnswerRefineRulesPrompt);
+
+                return Ok(new KnowledgeBaseWriterPromptTemplateResponse
+                {
+                    KeywordSystemPrompt = template.KeywordSystemPrompt,
+                    KeywordRulesPrompt = template.KeywordRulesPrompt,
+                    TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
+                    TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
+                    AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
+                    AnswerRefineRulesPrompt = template.AnswerRefineRulesPrompt
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
         }
 
         [HttpPut("chatbot-prompt-template")]
@@ -792,6 +1118,8 @@ namespace AiDeskApi.Controllers
 
         private static string? ValidateRequest(UpsertKbRequest request)
         {
+            if (string.IsNullOrWhiteSpace(request.Title))
+                return "제목을 입력해주세요.";
             if (string.IsNullOrWhiteSpace(request.RepresentativeQuestion))
                 return "대표질문을 입력해주세요.";
             if (string.IsNullOrWhiteSpace(request.Solution))
@@ -961,6 +1289,7 @@ namespace AiDeskApi.Controllers
         public int? SessionId { get; set; }
         public bool? CreateSession { get; set; }
         public bool? NoSave { get; set; }
+        public int? HistoryTurnCount { get; set; }
         public AskPromptOverrideRequest? PromptOverride { get; set; }
     }
 
@@ -981,8 +1310,27 @@ namespace AiDeskApi.Controllers
         public string? Visibility { get; set; }
         public List<string>? Platforms { get; set; }
         public string? Platform { get; set; }
+        public string? Keywords { get; set; }
+        // 하위 호환: 구 필드명(tags)
         public string? Tags { get; set; }
         public List<string>? SimilarQuestions { get; set; }
+    }
+
+    public class UploadDocumentRequest
+    {
+        public IFormFile? File { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Visibility { get; set; }
+        public string? Platform { get; set; }
+        public string? Keywords { get; set; }
+    }
+
+    public class UpdateDocumentRequest
+    {
+        public string? DisplayName { get; set; }
+        public string? Visibility { get; set; }
+        public string? Platform { get; set; }
+        public string? Keywords { get; set; }
     }
 
     public class AddPlatformRequest
@@ -995,6 +1343,20 @@ namespace AiDeskApi.Controllers
         public string? RepresentativeQuestion { get; set; }
         public string? Solution { get; set; }
         public int? Count { get; set; }
+    }
+
+    public class GenerateKeywordsRequest
+    {
+        public string? RepresentativeQuestion { get; set; }
+        public List<string>? SimilarQuestions { get; set; }
+        public string? Solution { get; set; }
+        public int? Count { get; set; }
+    }
+
+    public class RefineSolutionRequest
+    {
+        public string? RepresentativeQuestion { get; set; }
+        public string? Solution { get; set; }
     }
 
     public class UpdatePlatformRequest
@@ -1022,5 +1384,25 @@ namespace AiDeskApi.Controllers
         public string UserLowSimilarityMessage { get; set; } = string.Empty;
         public string AdminLowSimilarityMessage { get; set; } = string.Empty;
         public float SimilarityThreshold { get; set; }
+    }
+
+    public class KnowledgeBaseWriterPromptTemplateResponse
+    {
+        public string KeywordSystemPrompt { get; set; } = string.Empty;
+        public string KeywordRulesPrompt { get; set; } = string.Empty;
+        public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
+        public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
+        public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
+        public string AnswerRefineRulesPrompt { get; set; } = string.Empty;
+    }
+
+    public class UpdateKnowledgeBaseWriterPromptTemplateRequest
+    {
+        public string KeywordSystemPrompt { get; set; } = string.Empty;
+        public string KeywordRulesPrompt { get; set; } = string.Empty;
+        public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
+        public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
+        public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
+        public string AnswerRefineRulesPrompt { get; set; } = string.Empty;
     }
 }

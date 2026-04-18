@@ -9,8 +9,9 @@ import KBManagement from '../components/Management/KBManagement.vue'
 import ChatLogManagement from '../components/Management/ChatLogManagement.vue'
 import PromptTestPanel from '../components/Management/PromptTestPanel.vue'
 import UserApproval from '../components/Management/UserApproval.vue'
+import { API_BASE_URL } from '../config'
 
-const API_URL = 'http://localhost:8080/api'
+const API_URL = API_BASE_URL
 
 const companies = ref([])
 const consultations = ref([])

@@ -122,7 +122,7 @@ npm run dev
 ### 3) 권장: 스크립트로 한 번에 실행/중지
 
 ```bash
-cd /Users/nasungmin/Projects/AITestPJ
+cd /Users/nasungmin/Projects/AIDeskPJ
 
 # 백엔드 + 프론트 한 번에 실행
 ./scripts/run-all.sh
@@ -206,6 +206,8 @@ cd /Users/nasungmin/Projects/AITestPJ
 ## 운영 메모
 
 - `appsettings.Development.json`에 실제 API 키를 입력하세요. `appsettings.json`의 키는 플레이스홀더입니다.
+- 프론트 API 주소는 `AiDeskClient/.env`의 `VITE_API_BASE_URL`로 설정합니다. (기본: `/api`)
+- 운영/스테이징은 `AiDeskApi/appsettings.Production.json` 또는 `AiDeskApi/appsettings.Staging.json`의 `Cors:AllowedOrigins`를 실제 도메인으로 반드시 교체하세요.
 - DB는 앱 시작 시 자동 생성됩니다 (EF Core `EnsureCreated` + raw SQL).
 - 기존 DB에 새 컬럼이 없으면 `ALTER TABLE`이 자동 실행됩니다 (idempotent).
 - 상담 저장 직후 KB 분석은 비동기 처리이므로 반영까지 수 초 걸릴 수 있습니다.
