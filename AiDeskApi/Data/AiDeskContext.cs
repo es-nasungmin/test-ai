@@ -131,7 +131,6 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(260);
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Keywords).HasMaxLength(1000);
                 entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
                 entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);

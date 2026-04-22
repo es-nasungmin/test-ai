@@ -704,8 +704,8 @@ const editingDocumentId = ref(null)
 const docFileInput = ref(null)
 const selectedDocumentFile = ref(null)
 const selectedEditDocumentFile = ref(null)
-const docForm = ref({ displayName: '', visibility: 'admin', platform: '공통', keywords: '' })
-const editDocForm = ref({ displayName: '', visibility: 'admin', platform: '공통', keywords: '' })
+const docForm = ref({ displayName: '', visibility: 'admin', platform: '공통' })
+const editDocForm = ref({ displayName: '', visibility: 'admin', platform: '공통' })
 
 async function fetchDocuments() {
   loadingDocuments.value = true
@@ -732,8 +732,7 @@ function startEditDocument(doc) {
   editDocForm.value = {
     displayName: doc.displayName || '',
     visibility: doc.visibility || 'admin',
-    platform: doc.platform || '공통',
-    keywords: doc.keywords || ''
+    platform: doc.platform || '공통'
   }
 }
 
@@ -768,8 +767,7 @@ async function updateDocument(doc) {
     await axios.put(`${API_URL}/knowledgebase/documents/${doc.id}`, {
       displayName,
       visibility: editDocForm.value.visibility || 'admin',
-      platform: editDocForm.value.platform || '공통',
-      keywords: (editDocForm.value.keywords || '').trim()
+      platform: editDocForm.value.platform || '공통'
     }, {
       headers: getActorHeader()
     })
@@ -834,13 +832,11 @@ async function uploadDocument() {
     if (docForm.value.displayName.trim()) fd.append('displayName', docForm.value.displayName.trim())
     fd.append('visibility', docForm.value.visibility)
     fd.append('platform', docForm.value.platform || '공통')
-    if (docForm.value.keywords.trim()) fd.append('keywords', docForm.value.keywords.trim())
 
     await axios.post(`${API_URL}/knowledgebase/documents/upload`, fd, {
       headers: { ...getActorHeader(), 'Content-Type': 'multipart/form-data' }
     })
     docForm.value.displayName = ''
-    docForm.value.keywords = ''
     selectedDocumentFile.value = null
     if (docFileInput.value) {
       docFileInput.value.value = ''
@@ -931,10 +927,6 @@ function formatDate(val) {
               <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
             </select>
           </label>
-          <label>
-            키워드 <span class="hint">(쉼표 구분)</span>
-            <input v-model="docForm.keywords" placeholder="예) 매뉴얼, 설치, 연동" />
-          </label>
           <div class="upload-btn-row">
             <input ref="docFileInput" type="file" accept=".pdf" style="display:none" @change="onSelectDocumentFile" />
             <button class="secondary" :disabled="uploadingDocument" @click="docFileInput.click()">
@@ -1013,16 +1005,6 @@ function formatDate(val) {
                   </select>
                 </div>
                 <div v-else class="kb-value">{{ doc.platform || '공통' }}</div>
-              </div>
-              <div v-if="doc.keywords" class="kb-row">
-                <div class="kb-label">키워드</div>
-                <div class="kb-value"><span class="kw-chip" v-for="kw in doc.keywords.split(',')" :key="kw">{{ kw.trim() }}</span></div>
-              </div>
-              <div v-if="editingDocumentId === doc.id" class="kb-row">
-                <div class="kb-label">키워드</div>
-                <div class="kb-value">
-                  <input v-model="editDocForm.keywords" placeholder="예) 매뉴얼, 설치, 연동" />
-                </div>
               </div>
               <div v-if="editingDocumentId === doc.id" class="kb-row">
                 <div class="kb-label">파일 교체</div>

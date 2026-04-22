@@ -7,7 +7,6 @@ namespace AiDeskApi.Models
         public string DisplayName { get; set; } = string.Empty;
         public string Visibility { get; set; } = "admin";
         public string Platform { get; set; } = "공통";
-        public string? Keywords { get; set; }
         public string Status { get; set; } = "ready";
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

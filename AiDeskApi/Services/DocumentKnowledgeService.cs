@@ -18,13 +18,11 @@ namespace AiDeskApi.Services
             string displayName,
             string visibility,
             string platform,
-            string? keywords,
             string actor,
             CancellationToken cancellationToken = default);
 
         Task<List<DocumentChunkSearchHit>> SearchChunksAsync(
             float[] questionEmbedding,
-            HashSet<string> questionTokens,
             string role,
             string platform,
             int topK,
@@ -39,7 +37,6 @@ namespace AiDeskApi.Services
             string? displayName,
             string? visibility,
             string? platform,
-            string? keywords,
             string actor,
             CancellationToken cancellationToken = default);
 
@@ -80,7 +77,6 @@ namespace AiDeskApi.Services
             string displayName,
             string visibility,
             string platform,
-            string? keywords,
             string actor,
             CancellationToken cancellationToken = default)
         {
@@ -102,7 +98,6 @@ namespace AiDeskApi.Services
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? fileName : displayName.Trim(),
                 Visibility = normalizedVisibility,
                 Platform = normalizedPlatform,
-                Keywords = keywords?.Trim(),
                 Status = "indexing",
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -145,7 +140,6 @@ namespace AiDeskApi.Services
 
         public async Task<List<DocumentChunkSearchHit>> SearchChunksAsync(
             float[] questionEmbedding,
-            HashSet<string> questionTokens,
             string role,
             string platform,
             int topK,
@@ -188,9 +182,7 @@ namespace AiDeskApi.Services
                     if (embedding == null) return null;
 
                     var baseSimilarity = CosineSimilarity(questionEmbedding, embedding);
-                    var keywordBoost = CalculateKeywordBoost(questionTokens, ParseKeywordTokens(chunk.DocumentKnowledge.Keywords));
-                    var textBoost = CalculateTextMatchBoost(questionTokens, chunk.Content);
-                    var score = Math.Clamp(baseSimilarity + keywordBoost + textBoost, 0f, 1f);
+                    var score = Math.Clamp(baseSimilarity, 0f, 1f);
 
                     return new DocumentChunkSearchHit
                     {
@@ -238,7 +230,6 @@ namespace AiDeskApi.Services
                     Status = x.Status,
                     Visibility = x.Visibility,
                     Platform = x.Platform,
-                    Keywords = x.Keywords,
                     UpdatedAt = x.UpdatedAt
                 })
                 .ToListAsync(cancellationToken);
@@ -267,7 +258,6 @@ namespace AiDeskApi.Services
             string? displayName,
             string? visibility,
             string? platform,
-            string? keywords,
             string actor,
             CancellationToken cancellationToken = default)
         {
@@ -300,12 +290,6 @@ namespace AiDeskApi.Services
                 doc.Platform = NormalizePlatform(platform);
             }
 
-            if (keywords != null)
-            {
-                var normalizedKeywords = keywords.Trim();
-                doc.Keywords = string.IsNullOrWhiteSpace(normalizedKeywords) ? null : normalizedKeywords;
-            }
-
             doc.UpdatedAt = DateTime.UtcNow;
             doc.UpdatedBy = string.IsNullOrWhiteSpace(actor) ? "알 수 없음" : actor.Trim();
 
@@ -321,7 +305,6 @@ namespace AiDeskApi.Services
                 Status = doc.Status,
                 Visibility = doc.Visibility,
                 Platform = doc.Platform,
-                Keywords = doc.Keywords,
                 UpdatedAt = doc.UpdatedAt
             };
         }
@@ -831,105 +814,127 @@ namespace AiDeskApi.Services
 
         private static List<(int PageNumber, string Text)> BuildChunks(string fullText)
         {
-            var lines = fullText
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .ToList();
+            const int MaxChunkSize = 900;
+            const int MinChunkSize = 20;
 
             var chunks = new List<(int PageNumber, string Text)>();
-            var sb = new StringBuilder();
             var currentPage = 1;
 
-            foreach (var line in lines)
+            // [Page N] 마커 기준으로 페이지 블록 분리
+            var pageBlocks = new List<(int Page, string Content)>();
+            var sb = new StringBuilder();
+
+            foreach (var line in fullText.Split('\n'))
             {
-                if (line.StartsWith("[Page ", StringComparison.OrdinalIgnoreCase) && line.EndsWith(']'))
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("[Page ", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith(']'))
                 {
-                    if (sb.Length >= 80)
+                    if (sb.Length > 0)
                     {
-                        var text = NormalizeExtractedText(sb.ToString());
-                        if (!string.IsNullOrWhiteSpace(text))
-                        {
-                            chunks.Add((currentPage, text));
-                        }
+                        pageBlocks.Add((currentPage, sb.ToString()));
                         sb.Clear();
                     }
-
-                    var numberPart = line.Replace("[Page ", string.Empty).Replace("]", string.Empty);
-                    if (int.TryParse(numberPart, out var parsed))
-                    {
-                        currentPage = parsed;
-                    }
+                    var numberPart = trimmed["[Page ".Length..^1];
+                    if (int.TryParse(numberPart, out var parsed)) currentPage = parsed;
                     continue;
                 }
+                sb.AppendLine(trimmed);
+            }
+            if (sb.Length > 0) pageBlocks.Add((currentPage, sb.ToString()));
 
-                if (sb.Length + line.Length > 900)
+            // 페이지 블록을 문단 → 문장 순으로 청킹
+            foreach (var (page, content) in pageBlocks)
+            {
+                // 빈 줄(\n\n) 기준 문단 분리
+                var paragraphs = content
+                    .Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => p.Trim())
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToList();
+
+                var buffer = new StringBuilder();
+                string lastSentence = string.Empty;
+
+                foreach (var para in paragraphs)
                 {
-                    var text = NormalizeExtractedText(sb.ToString());
-                    if (!string.IsNullOrWhiteSpace(text))
+                    // 문단이 최대 크기를 초과하면 문장 단위로 추가 분리
+                    var segments = para.Length <= MaxChunkSize
+                        ? new List<string> { para }
+                        : SplitBySentence(para, MaxChunkSize);
+
+                    foreach (var segment in segments)
                     {
-                        chunks.Add((currentPage, text));
-                    }
-                    var carry = sb.Length > 180 ? sb.ToString()[Math.Max(0, sb.Length - 140)..] : string.Empty;
-                    sb.Clear();
-                    if (!string.IsNullOrWhiteSpace(carry))
-                    {
-                        sb.AppendLine(carry.Trim());
+                        if (buffer.Length > 0 && buffer.Length + segment.Length > MaxChunkSize)
+                        {
+                            var text = NormalizeExtractedText(buffer.ToString());
+                            if (!string.IsNullOrWhiteSpace(text))
+                                chunks.Add((page, text));
+
+                            // 오버랩: 직전 문장 1개 이어붙이기
+                            buffer.Clear();
+                            if (!string.IsNullOrWhiteSpace(lastSentence))
+                                buffer.AppendLine(lastSentence);
+                        }
+
+                        buffer.AppendLine(segment);
+                        lastSentence = segment;
                     }
                 }
 
-                sb.AppendLine(line);
-            }
-
-            if (sb.Length >= 20)
-            {
-                var text = NormalizeExtractedText(sb.ToString());
-                if (!string.IsNullOrWhiteSpace(text))
+                if (buffer.Length >= MinChunkSize)
                 {
-                    chunks.Add((currentPage, text));
+                    var text = NormalizeExtractedText(buffer.ToString());
+                    if (!string.IsNullOrWhiteSpace(text))
+                        chunks.Add((page, text));
+                    buffer.Clear();
                 }
             }
 
             return chunks;
         }
 
-        private static HashSet<string> ParseKeywordTokens(string? rawKeywords)
+        private static List<string> SplitBySentence(string text, int maxSize)
         {
-            if (string.IsNullOrWhiteSpace(rawKeywords)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 문장 구분자: 마침표/느낌표/물음표 뒤 공백 or 줄바꿈
+            var sentenceEnders = new[] { ". ", ".\n", "! ", "!\n", "? ", "?\n", "。" };
+            var results = new List<string>();
+            var sb = new StringBuilder();
 
-            return rawKeywords
-                .Split(new[] { ',', ';', '|', '/', '#' }, StringSplitOptions.RemoveEmptyEntries)
-                .SelectMany(ExtractKeywordTokens)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
+            var i = 0;
+            while (i < text.Length)
+            {
+                sb.Append(text[i]);
 
-        private static HashSet<string> ExtractKeywordTokens(string text)
-        {
-            return System.Text.RegularExpressions.Regex.Matches(text, "[\\p{L}\\p{Nd}]{2,}")
-                .Select(m => m.Value.Trim().ToLowerInvariant())
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
+                bool isBoundary = false;
+                foreach (var ender in sentenceEnders)
+                {
+                    if (i + ender.Length <= text.Length &&
+                        text.Substring(i, ender.Length) == ender)
+                    {
+                        // ender 나머지 문자 추가
+                        for (var j = 1; j < ender.Length; j++)
+                            sb.Append(text[++i]);
+                        isBoundary = true;
+                        break;
+                    }
+                }
 
-        private static float CalculateKeywordBoost(HashSet<string> questionTokens, HashSet<string> keywordTokens)
-        {
-            if (questionTokens.Count == 0 || keywordTokens.Count == 0) return 0f;
-            var matchedCount = keywordTokens.Count(t => questionTokens.Contains(t));
-            return Math.Min(matchedCount * 0.02f, 0.08f);
-        }
+                if (isBoundary && sb.Length >= maxSize / 2)
+                {
+                    results.Add(sb.ToString().Trim());
+                    sb.Clear();
+                }
+                else if (sb.Length >= maxSize)
+                {
+                    results.Add(sb.ToString().Trim());
+                    sb.Clear();
+                }
 
-        private static float CalculateTextMatchBoost(HashSet<string> questionTokens, string content)
-        {
-            if (questionTokens.Count == 0 || string.IsNullOrWhiteSpace(content)) return 0f;
-            var contentTokens = ExtractKeywordTokens(content);
-            if (contentTokens.Count == 0) return 0f;
+                i++;
+            }
 
-            var intersection = questionTokens.Count(t => contentTokens.Contains(t));
-            if (intersection == 0) return 0f;
-
-            var union = questionTokens.Union(contentTokens, StringComparer.OrdinalIgnoreCase).Count();
-            if (union == 0) return 0f;
-
-            return Math.Min((float)intersection / union * 0.06f, 0.06f);
+            if (sb.Length > 0) results.Add(sb.ToString().Trim());
+            return results.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         }
 
         private static float[]? ParseEmbedding(string? json)
@@ -1073,7 +1078,6 @@ namespace AiDeskApi.Services
         public string Status { get; set; } = string.Empty;
         public string Visibility { get; set; } = "admin";
         public string Platform { get; set; } = "공통";
-        public string? Keywords { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
 

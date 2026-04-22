@@ -467,7 +467,6 @@ namespace AiDeskApi.Controllers
                     request.DisplayName ?? request.File.FileName,
                     request.Visibility ?? "admin",
                     request.Platform ?? "공통",
-                    request.Keywords,
                     actor,
                     cancellationToken);
 
@@ -515,8 +514,7 @@ namespace AiDeskApi.Controllers
 
                 var hasAnyField = request.DisplayName != null
                     || request.Visibility != null
-                    || request.Platform != null
-                    || request.Keywords != null;
+                    || request.Platform != null;
 
                 if (!hasAnyField)
                     return BadRequest(new { error = "수정할 항목을 하나 이상 입력해주세요." });
@@ -530,7 +528,6 @@ namespace AiDeskApi.Controllers
                     request.DisplayName,
                     request.Visibility,
                     request.Platform,
-                    request.Keywords,
                     actor,
                     cancellationToken);
 
@@ -1359,7 +1356,6 @@ namespace AiDeskApi.Controllers
         public string? DisplayName { get; set; }
         public string? Visibility { get; set; }
         public string? Platform { get; set; }
-        public string? Keywords { get; set; }
     }
 
     public class UpdateDocumentRequest
@@ -1367,7 +1363,6 @@ namespace AiDeskApi.Controllers
         public string? DisplayName { get; set; }
         public string? Visibility { get; set; }
         public string? Platform { get; set; }
-        public string? Keywords { get; set; }
     }
 
     public class AddPlatformRequest

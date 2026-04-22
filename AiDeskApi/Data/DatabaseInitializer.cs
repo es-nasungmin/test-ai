@@ -228,7 +228,6 @@ namespace AiDeskApi.Data
                 DisplayName TEXT NOT NULL,
                 Visibility TEXT NOT NULL DEFAULT 'admin',
                 Platform TEXT NOT NULL DEFAULT '공통',
-                Keywords TEXT NULL,
                 Status TEXT NOT NULL DEFAULT 'ready',
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL,
@@ -323,18 +322,27 @@ namespace AiDeskApi.Data
                 Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseWriterPromptTemplates PRIMARY KEY AUTOINCREMENT,
                 KeywordSystemPrompt TEXT NOT NULL,
                 KeywordRulesPrompt TEXT NOT NULL,
+                TopicKeywordSystemPrompt TEXT NOT NULL,
+                TopicKeywordRulesPrompt TEXT NOT NULL,
                 AnswerRefineSystemPrompt TEXT NOT NULL,
                 AnswerRefineRulesPrompt TEXT NOT NULL,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL
             );");
 
+            EnsureColumnExists(db, "KnowledgeBaseWriterPromptTemplates", "TopicKeywordSystemPrompt",
+                "ALTER TABLE KnowledgeBaseWriterPromptTemplates ADD COLUMN TopicKeywordSystemPrompt TEXT NOT NULL DEFAULT '당신은 고객센터 KB 분류 도우미입니다. 답변 내용을 기준으로 주제와 도메인 키워드를 추출합니다.';");
+            EnsureColumnExists(db, "KnowledgeBaseWriterPromptTemplates", "TopicKeywordRulesPrompt",
+                "ALTER TABLE KnowledgeBaseWriterPromptTemplates ADD COLUMN TopicKeywordRulesPrompt TEXT NOT NULL DEFAULT '1) 반드시 JSON 문자열 배열만 응답한다\n2) 도메인 용어와 주제 분류에 중점을 둔다\n3) 다른 KB와의 관련도 연결에 도움이 되는 키워드를 우선한다\n4) 너무 일반적인 단어는 제외한다';");
+
             db.Database.ExecuteSqlRaw(@"
             INSERT INTO KnowledgeBaseWriterPromptTemplates
-            (KeywordSystemPrompt, KeywordRulesPrompt, AnswerRefineSystemPrompt, AnswerRefineRulesPrompt, CreatedAt, UpdatedAt)
+            (KeywordSystemPrompt, KeywordRulesPrompt, TopicKeywordSystemPrompt, TopicKeywordRulesPrompt, AnswerRefineSystemPrompt, AnswerRefineRulesPrompt, CreatedAt, UpdatedAt)
             SELECT
                 '당신은 고객센터 KB 작성 도우미입니다. 대표질문과 유사질문을 바탕으로 검색 효율이 높은 한국어 키워드를 추출합니다.',
                 '1) 반드시 JSON 문자열 배열만 응답한다\n2) 중복/유사어 반복을 제거한다\n3) 사용자 검색어 관점에서 짧고 구체적인 키워드를 우선한다\n4) 너무 포괄적인 단어(예: 오류, 문제)는 지양한다',
+                '당신은 고객센터 KB 분류 도우미입니다. 답변 내용을 기준으로 주제와 도메인 키워드를 추출합니다.',
+                '1) 반드시 JSON 문자열 배열만 응답한다\n2) 도메인 용어와 주제 분류에 중점을 둔다\n3) 다른 KB와의 관련도 연결에 도움이 되는 키워드를 우선한다\n4) 너무 일반적인 단어는 제외한다',
                 '당신은 고객 지원 KB 문서 편집자입니다. 초안을 고객이 읽기 쉬운 안내문으로 다듬습니다.',
                 '1) 사실을 바꾸지 말고 문장만 정리한다\n2) 단계가 있으면 번호 목록으로 정리한다\n3) 한 문단이 너무 길지 않게 끊는다\n4) 불필요한 수식어를 줄이고 실행 지시를 명확히 쓴다',
                 datetime('now'),
@@ -346,12 +354,16 @@ namespace AiDeskApi.Data
             SET
                 KeywordSystemPrompt = REPLACE(KeywordSystemPrompt, CHAR(92) || 'n', CHAR(10)),
                 KeywordRulesPrompt = REPLACE(KeywordRulesPrompt, CHAR(92) || 'n', CHAR(10)),
+                TopicKeywordSystemPrompt = REPLACE(TopicKeywordSystemPrompt, CHAR(92) || 'n', CHAR(10)),
+                TopicKeywordRulesPrompt = REPLACE(TopicKeywordRulesPrompt, CHAR(92) || 'n', CHAR(10)),
                 AnswerRefineSystemPrompt = REPLACE(AnswerRefineSystemPrompt, CHAR(92) || 'n', CHAR(10)),
                 AnswerRefineRulesPrompt = REPLACE(AnswerRefineRulesPrompt, CHAR(92) || 'n', CHAR(10)),
                 UpdatedAt = datetime('now')
             WHERE
                 INSTR(KeywordSystemPrompt, CHAR(92) || 'n') > 0
                 OR INSTR(KeywordRulesPrompt, CHAR(92) || 'n') > 0
+                OR INSTR(TopicKeywordSystemPrompt, CHAR(92) || 'n') > 0
+                OR INSTR(TopicKeywordRulesPrompt, CHAR(92) || 'n') > 0
                 OR INSTR(AnswerRefineSystemPrompt, CHAR(92) || 'n') > 0
                 OR INSTR(AnswerRefineRulesPrompt, CHAR(92) || 'n') > 0;");
         }
