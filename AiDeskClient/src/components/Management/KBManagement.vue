@@ -118,7 +118,7 @@ const writerPromptTemplateForm = ref({
   answerRefineSystemPrompt: '',
   answerRefineRulesPrompt: ''
 })
-const MAX_EXPECTED_QUESTIONS = 5
+const MAX_EXPECTED_QUESTIONS = 10
 
 const kbTotalPages = computed(() => Math.max(1, Math.ceil(kbTotal.value / kbPageSize)))
 const lowSimilarityTotalPages = computed(() => Math.max(1, Math.ceil(lowSimilarityTotal.value / lowSimilarityPageSize)))
@@ -1135,7 +1135,7 @@ function formatDate(val) {
             />
             <button class="secondary" @click="addSimilarFromInput">추가</button>
           </div>
-          <small class="hint">예상질문은 최대 5개까지 등록 가능합니다.</small>
+          <small class="hint">예상질문은 최대 10개까지 등록 가능합니다.</small>
         </div>
 
         <div v-if="generatedCandidates.length > 0" class="generated-candidates">
@@ -1221,7 +1221,7 @@ function formatDate(val) {
 
           <div class="meta">
             <span class="meta-chip" v-if="kb.keywords">키워드: {{ kb.keywords }}</span>
-            <span class="meta-chip">조회수: {{ kb.viewCount }}</span>
+            <span class="meta-chip">참조수: {{ kb.viewCount }}</span>
             <span class="meta-chip">등록: {{ kb.createdBy || '-' }} · {{ formatDateTime(kb.createdAt) }}</span>
             <span v-if="hasUpdateHistory(kb)" class="meta-chip">수정: {{ kb.updatedBy || '-' }} · {{ formatDateTime(kb.updatedAt) }}</span>
           </div>
@@ -1241,51 +1241,6 @@ function formatDate(val) {
         <button class="ghost" :disabled="kbPage <= 1" @click="goKbPage(kbPage - 1)">이전</button>
         <span>{{ kbPage }} / {{ kbTotalPages }} (총 {{ kbTotal }}건)</span>
         <button class="ghost" :disabled="kbPage >= kbTotalPages" @click="goKbPage(kbPage + 1)">다음</button>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h3>저유사도 문의 관리</h3>
-        <div class="panel-tools">
-          <select v-model="lowSimilarityPlatformFilter">
-            <option value="all">플랫폼 전체</option>
-            <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
-          </select>
-          <button class="ghost refresh-fit" :disabled="loadingLowSimilarity" @click="fetchLowSimilarityQuestions">새로고침</button>
-        </div>
-      </div>
-
-      <div v-if="loadingLowSimilarity" class="empty">불러오는 중...</div>
-      <div v-else-if="lowSimilarityQuestions.length === 0" class="empty">미처리 문의가 없습니다.</div>
-
-      <div v-else class="kb-list">
-        <article v-for="item in lowSimilarityQuestions" :key="item.id" class="kb-item">
-          <div class="kb-top">
-            <strong>Q. {{ item.question }}</strong>
-            <div class="badges">
-              <span class="scope" :class="item.role === 'admin' ? 'admin' : 'user'">
-                {{ item.role === 'admin' ? '관리자 챗봇' : '사용자 챗봇' }}
-              </span>
-              <span class="scope platform">{{ item.platform || '공통' }}</span>
-            </div>
-          </div>
-
-          <p class="meta">
-            <span>최대 유사도: {{ Math.round((item.topSimilarity || 0) * 100) }}%</span>
-            <span v-if="item.topMatchedQuestion">매칭 후보: {{ item.topMatchedQuestion }}</span>
-          </p>
-
-          <div class="item-actions">
-            <button class="secondary" @click="resolveLowSimilarityQuestion(item)">처리완료</button>
-          </div>
-        </article>
-      </div>
-
-      <div v-if="!loadingLowSimilarity && lowSimilarityTotal > 0" class="pager">
-        <button class="ghost" :disabled="lowSimilarityPage <= 1" @click="goLowSimilarityPage(lowSimilarityPage - 1)">이전</button>
-        <span>{{ lowSimilarityPage }} / {{ lowSimilarityTotalPages }} (총 {{ lowSimilarityTotal }}건)</span>
-        <button class="ghost" :disabled="lowSimilarityPage >= lowSimilarityTotalPages" @click="goLowSimilarityPage(lowSimilarityPage + 1)">다음</button>
       </div>
     </div>
 
@@ -1322,7 +1277,7 @@ function formatDate(val) {
           <div class="guide-card">
             <strong>3) 예상질문은 표현 다양화가 핵심입니다</strong>
             <p>
-              같은 의미를 다른 표현으로 최대 5개 등록하세요.
+              같은 의미를 다른 표현으로 최대 10개 등록하세요.
               예: "로그인 실패", "인증서 고른 뒤 접속 불가", "서명 후 메인 화면 안 넘어감"
             </p>
             <p>오탈자/축약어(예: 공인인증서, 인증서, cert)도 자주 들어오면 함께 넣어두세요.</p>

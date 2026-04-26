@@ -13,6 +13,7 @@ const sessionTotal = ref(0)
 const sessionPageSizeOptions = [10, 20, 50, 100]
 const roleFilter = ref('all')
 const platformFilter = ref('all')
+const keywordFilter = ref('')
 const platformOptions = ref(['공통'])
 const selectedSessionId = ref(null)
 const selectedSession = ref(null)
@@ -37,12 +38,26 @@ async function fetchSessions() {
     }
     if (roleFilter.value !== 'all') params.role = roleFilter.value
     if (platformFilter.value !== 'all') params.platform = platformFilter.value
+    const keyword = keywordFilter.value.trim()
+    if (keyword) params.keyword = keyword
     const res = await axios.get(`${API_URL}/chat/sessions`, { params })
     sessions.value = res.data?.data || []
     sessionTotal.value = Number(res.data?.total || 0)
   } finally {
     loading.value = false
   }
+}
+
+function applyKeywordFilter() {
+  sessionPage.value = 1
+  fetchSessions()
+}
+
+function clearKeywordFilter() {
+  if (!keywordFilter.value) return
+  keywordFilter.value = ''
+  sessionPage.value = 1
+  fetchSessions()
 }
 
 function goSessionPage(page) {
@@ -446,20 +461,34 @@ onMounted(async () => {
     <div class="panel list-panel">
       <div class="panel-head">
         <h3>채팅 세션</h3>
+        <button class="ghost refresh-top" :disabled="loading" @click="fetchSessions">새로고침</button>
+      </div>
+      <div class="panel-toolbar-wrap">
         <div class="toolbar">
-          <select v-model="roleFilter">
-            <option value="all">전체</option>
-            <option value="user">사용자 챗봇</option>
-            <option value="admin">관리자 챗봇</option>
-          </select>
-          <select v-model="platformFilter">
-            <option value="all">플랫폼 전체</option>
-            <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
-          </select>
-          <select v-model.number="sessionPageSize">
-            <option v-for="size in sessionPageSizeOptions" :key="`size-${size}`" :value="size">{{ size }}개씩</option>
-          </select>
-          <button class="ghost refresh-fit" :disabled="loading" @click="fetchSessions">새로고침</button>
+          <div class="toolbar-row toolbar-row-top">
+            <select v-model="roleFilter">
+              <option value="all">전체</option>
+              <option value="user">사용자 챗봇</option>
+              <option value="admin">관리자 챗봇</option>
+            </select>
+            <select v-model="platformFilter">
+              <option value="all">플랫폼 전체</option>
+              <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <select v-model.number="sessionPageSize">
+              <option v-for="size in sessionPageSizeOptions" :key="`size-${size}`" :value="size">{{ size }}개씩</option>
+            </select>
+          </div>
+          <div class="toolbar-row toolbar-row-bottom">
+            <input
+              v-model="keywordFilter"
+              type="text"
+              placeholder="채팅자/세션명 키워드"
+              @keyup.enter="applyKeywordFilter"
+            >
+            <button class="ghost" :disabled="loading" @click="applyKeywordFilter">검색</button>
+            <button class="ghost" :disabled="loading || !keywordFilter" @click="clearKeywordFilter">초기화</button>
+          </div>
         </div>
       </div>
 
@@ -478,6 +507,7 @@ onMounted(async () => {
           <div class="session-meta">
             <span class="badge" :class="session.userRole">{{ session.userRole === 'admin' ? '관리자' : '사용자' }}</span>
             <span class="badge platform">{{ session.platform || '공통' }}</span>
+            <span>채팅자 {{ session.actorName || '알 수 없음' }}</span>
             <span>메시지 {{ session.messageCount }}</span>
             <span>{{ new Date(session.updatedAt).toLocaleString('ko-KR') }}</span>
           </div>
@@ -514,6 +544,11 @@ onMounted(async () => {
       <div v-else-if="!selectedSession" class="empty">세부 내역이 없습니다.</div>
 
       <div v-else class="message-list">
+        <div class="detail-meta-row">
+          <span>채팅자: {{ selectedSession.actorName || '알 수 없음' }}</span>
+          <span>역할: {{ selectedSession.userRole === 'admin' ? '관리자' : '사용자' }}</span>
+          <span>플랫폼: {{ selectedSession.platform || '공통' }}</span>
+        </div>
         <article v-for="msg in selectedSession.messages || []" :key="msg.id" class="message-item" :class="msg.role">
           <div class="message-head">
             <strong>{{ msg.role === 'user' ? '질문' : '답변' }}</strong>
@@ -701,20 +736,44 @@ onMounted(async () => {
   color: #212529;
 }
 
+.panel-toolbar-wrap {
+  margin-bottom: 10px;
+}
+
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px auto;
   gap: 8px;
-  align-items: center;
   width: 100%;
   margin-left: auto;
 }
 
-.toolbar > * {
+.toolbar-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar-row-top {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px;
+}
+
+.toolbar-row-bottom {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.toolbar-row > * {
   min-width: 0;
 }
 
 select {
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.toolbar input {
   border: 1px solid #ced4da;
   border-radius: 8px;
   padding: 6px 8px;
@@ -747,10 +806,8 @@ select {
   cursor: not-allowed;
 }
 
-.refresh-fit {
-  width: 100%;
-  min-width: 96px;
-  margin-left: 0;
+.refresh-top {
+  min-width: 88px;
 }
 
 .pager {
@@ -775,6 +832,18 @@ select {
 .message-list {
   display: grid;
   gap: 8px;
+}
+
+.detail-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #5b6b7c;
+  border: 1px solid #dbe4f2;
+  background: #f8fbff;
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 .session-item {
@@ -1422,6 +1491,11 @@ select {
   .toolbar {
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .toolbar-row-top,
+  .toolbar-row-bottom {
+    grid-template-columns: 1fr;
   }
 
   .kb-meta-grid {

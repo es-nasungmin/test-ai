@@ -57,6 +57,7 @@ namespace AiDeskApi.Controllers
                 _logger.LogInformation($"❓ [{role}] 질문: {request.Question}");
 
                 var noSave = request.NoSave == true;
+                var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync();
                 var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 6, 0, 20);
                 var runtimeOptions = new RagRuntimeOptions
                 {
@@ -98,6 +99,7 @@ namespace AiDeskApi.Controllers
                             ? request.Question[..50] + "..."
                             : request.Question,
                         UserRole = role,
+                        ActorName = actorName,
                         Platform = platform,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -119,9 +121,13 @@ namespace AiDeskApi.Controllers
                     {
                         Question = request.Question,
                         Role = role,
+                        ActorName = actorName,
                         Platform = platform,
                         TopSimilarity = result.TopSimilarity,
                         TopMatchedQuestion = result.TopMatchedQuestion ?? result.RelatedKBs.FirstOrDefault()?.MatchedQuestion,
+                        TopMatchedKbTitle = result.TopMatchedKbTitle,
+                        TopMatchedKbContent = result.TopMatchedKbContent,
+                        SessionId = session?.Id,
                         CreatedAt = DateTime.UtcNow,
                         IsResolved = false
                     });
@@ -130,6 +136,10 @@ namespace AiDeskApi.Controllers
                 if (!noSave && session != null)
                 {
                     session.Platform = platform;
+                    if (string.IsNullOrWhiteSpace(session.ActorName))
+                    {
+                        session.ActorName = actorName;
+                    }
                     var diagnosticsById = (result.RetrievalDiagnostics?.Candidates ?? new List<RetrievalCandidateDiagnostic>())
                         .GroupBy(c => c.Id)
                         .ToDictionary(g => g.Key, g => g.First());
@@ -139,12 +149,14 @@ namespace AiDeskApi.Controllers
                         .Select(g =>
                         {
                             var similarity = g.Max(x => x.Similarity);
+                            var isSelected = g.Any(x => x.IsSelected);
                             diagnosticsById.TryGetValue(g.Key, out var cand);
 
                             return new
                             {
                                 id = g.Key,
                                 similarity,
+                                isSelected,
                                 includedBySemantic = cand?.IncludedBySemantic == true,
                                 includedByKeyword = cand?.IncludedByKeyword == true,
                                 matchedKeywords = cand?.MatchedKeywords ?? new List<string>(),
@@ -154,7 +166,7 @@ namespace AiDeskApi.Controllers
                             };
                         })
                         .ToList();
-                    var relatedIds = relatedKbMeta.Select(x => x.id).ToList();
+                    var relatedIds = relatedKbMeta.Where(x => x.isSelected).Select(x => x.id).ToList();
                     _context.ChatMessages.AddRange(
                         new ChatMessage
                         {
@@ -227,7 +239,7 @@ namespace AiDeskApi.Controllers
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, expectedQuestions);
+                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, request.Keywords ?? request.Tags, expectedQuestions);
                 var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 var now = DateTime.Now;
                 var actor = await ResolveActorNameAsync();
@@ -297,7 +309,7 @@ namespace AiDeskApi.Controllers
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, expectedQuestions);
+                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, request.Keywords ?? request.Tags, expectedQuestions);
                 var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 kb.ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding);
 
@@ -657,7 +669,7 @@ namespace AiDeskApi.Controllers
             try
             {
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
-                var source = BuildKbEmbeddingSource(request.Title, request.Content, request.ExpectedQuestions);
+                var source = BuildKbEmbeddingSource(request.Title, request.Content, null, request.ExpectedQuestions);
 
                 if (string.IsNullOrWhiteSpace(source))
                 {
@@ -919,11 +931,66 @@ namespace AiDeskApi.Controllers
 
             var total = await query.CountAsync();
 
-            var data = await query
+            var items = await query
                 .OrderByDescending(x => x.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
+
+            var data = new List<object>(items.Count);
+            foreach (var item in items)
+            {
+                int? matchedSessionId = item.SessionId;
+                var actorName = string.IsNullOrWhiteSpace(item.ActorName) ? null : item.ActorName;
+
+                if (!matchedSessionId.HasValue)
+                {
+                    var fallbackSessionId = await _context.ChatMessages
+                        .AsNoTracking()
+                        .Where(m => m.Role == "user" && m.Content == item.Question)
+                        .Join(
+                            _context.ChatSessions.AsNoTracking(),
+                            m => m.SessionId,
+                            s => s.Id,
+                            (m, s) => new { m.SessionId, m.CreatedAt, s.UserRole, s.Platform })
+                        .Where(x => x.UserRole == item.Role && x.Platform == item.Platform)
+                        .OrderByDescending(x => x.CreatedAt)
+                        .Select(x => x.SessionId)
+                        .FirstOrDefaultAsync();
+
+                    if (fallbackSessionId > 0)
+                    {
+                        matchedSessionId = fallbackSessionId;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(actorName) && matchedSessionId.HasValue)
+                {
+                    actorName = await _context.ChatSessions
+                        .AsNoTracking()
+                        .Where(x => x.Id == matchedSessionId.Value)
+                        .Select(x => x.ActorName)
+                        .FirstOrDefaultAsync();
+                }
+
+                data.Add(new
+                {
+                    item.Id,
+                    item.Question,
+                    item.Role,
+                    ActorName = string.IsNullOrWhiteSpace(actorName) ? "알 수 없음" : actorName,
+                    item.Platform,
+                    item.TopSimilarity,
+                    item.TopMatchedQuestion,
+                    item.TopMatchedKbTitle,
+                    item.TopMatchedKbContent,
+                    item.CreatedAt,
+                    item.IsResolved,
+                    item.ResolvedAt,
+                    item.SessionId,
+                    MatchedSessionId = matchedSessionId
+                });
+            }
 
             return Ok(new { total, page, pageSize, data });
         }
@@ -1116,8 +1183,8 @@ namespace AiDeskApi.Controllers
             var platforms = NormalizePlatforms(request.Platforms, request.Platform);
             if (platforms.Any(x => x.Length < 2 && x != "공통"))
                 return "플랫폼명은 2자 이상이어야 합니다.";
-            if (ResolveExpectedQuestions(request).Count > 5)
-                return "예상질문은 최대 5개까지 등록 가능합니다.";
+            if (ResolveExpectedQuestions(request).Count > 10)
+                return "예상질문은 최대 10개까지 등록 가능합니다.";
             return null;
         }
 
@@ -1133,11 +1200,11 @@ namespace AiDeskApi.Controllers
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(5)
+                .Take(10)
                 .ToList();
         }
 
-        private static string BuildKbEmbeddingSource(string? title, string? content, IEnumerable<string>? expectedQuestions)
+        private static string BuildKbEmbeddingSource(string? title, string? content, string? keywords, IEnumerable<string>? expectedQuestions)
         {
             var parts = new List<string>();
 
@@ -1151,11 +1218,24 @@ namespace AiDeskApi.Controllers
                 parts.Add($"내용: {content.Trim()}");
             }
 
+            var keywordList = (keywords ?? string.Empty)
+                .Split(new[] { ',', ';', '|', '/', '#' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(20)
+                .ToList();
+
+            if (keywordList.Count > 0)
+            {
+                parts.Add("키워드: " + string.Join(" | ", keywordList));
+            }
+
             var expected = (expectedQuestions ?? Enumerable.Empty<string>())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(5)
+                .Take(10)
                 .ToList();
 
             if (expected.Count > 0)

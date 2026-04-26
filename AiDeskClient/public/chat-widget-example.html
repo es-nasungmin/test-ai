@@ -285,7 +285,7 @@
             <br>
             먼저 이 방식으로 붙여서 확인한 뒤, 필요하면 옵션을 추가하세요.
             <br>
-            <b>platformName</b>은 인사말에 보여줄 이름이고, <b>defaultPlatform</b>은 실제 조회에 사용할 플랫폼 값입니다.
+            <b>platformLabel</b>은 인사말에 보여줄 이름이고, <b>platform</b>은 실제 조회에 사용할 플랫폼 값입니다.
           </p>
 
           <div class="code" style="margin-top:14px">
@@ -294,12 +294,14 @@
   const widget = window.createCrmChatWidget({
     apiBaseUrl: 'http://localhost:8080/api',
     role: 'user',
+    userId: 'user-1001',
+    username: '홍길동',
     title: '트러스트온 고객 챗봇',
-    platformName: '트러스트온',
-    defaultPlatform: 'truston',
+    platformLabel: '트러스트온',
+    platform: 'truston',
     showPlatformSelector: false,
     buttonLabel: 'Chat',
-    accent: '#0f766e',
+    themeColor: '#0f766e',
     initiallyOpen: false
   })
 
@@ -350,7 +352,7 @@
             <div class="step">
               <div class="step-num">4</div>
               <div class="step-body">
-                <b><code>platformName</code>과 <code>defaultPlatform</code>을 구분해서 쓰세요.</b><br>
+                <b><code>platformLabel</code>과 <code>platform</code>을 구분해서 쓰세요.</b><br>
                 예를 들어 화면에는 <code>트러스트온</code>으로 인사하고, API 조회 값은 <code>truston</code>으로 보낼 수 있습니다.
               </div>
             </div>
@@ -368,12 +370,14 @@
 const widget = window.createCrmChatWidget({
   apiBaseUrl: 'http://localhost:8080/api',
   role: 'user',
+  userId: 'user-1001',
+  username: '홍길동',
   title: '트러스트온 고객 Chat',
-  platformName: '트러스트온',
-  defaultPlatform: 'truston',
+  platformLabel: '트러스트온',
+  platform: 'truston',
   showPlatformSelector: false,
   buttonLabel: 'Chat',
-  accent: '#0f766e',
+  themeColor: '#0f766e',
   initiallyOpen: false
 })
 
@@ -381,7 +385,8 @@ const widget = window.createCrmChatWidget({
 widget.showWidget()  // 플로팅 버튼 다시 표시
 widget.hideWidget()  // 플로팅 버튼 숨기기 (채팅창도 닫힘)
 widget.openChat()    // 채팅창 바로 열기
-widget.closeChat()   // 채팅창 닫기</pre>
+widget.closeChat()   // 채팅창 닫기
+widget.setUserContext({ userId: 'user-2002', username: '김민수' }) // 로그인 사용자 변경 반영</pre>
           </div>
 
           <p style="margin-top:16px;margin-bottom:6px;font-weight:700;font-size:13px;color:#0f172a">위치 조절 체험 (슬라이더를 움직여 보세요)</p>
@@ -437,8 +442,8 @@ widget.closeChat()   // 채팅창 닫기</pre>
             <div class="step">
               <div class="step-num">4</div>
               <div class="step-body">
-                <b>플랫폼 표시는 <code>platformName</code>으로 따로 지정할 수 있습니다.</b><br>
-                노출 문구와 API 파라미터를 다르게 써야 할 때 <code>defaultPlatform</code>과 분리해서 설정하세요.
+                <b>플랫폼 표시는 <code>platformLabel</code>로 따로 지정할 수 있습니다.</b><br>
+                노출 문구와 API 파라미터를 다르게 써야 할 때 <code>platform</code>과 분리해서 설정하세요.
               </div>
             </div>
           </div>
@@ -453,12 +458,14 @@ widget.closeChat()   // 채팅창 닫기</pre>
 const myWidget = window.createCrmChatWidget({
   apiBaseUrl: 'http://localhost:8080/api',
   role: 'user',
+  userId: 'user-1001',
+  username: '홍길동',
   title: '트러스트온 고객 Chat',
-  platformName: '트러스트온',
-  defaultPlatform: 'truston',
+  platformLabel: '트러스트온',
+  platform: 'truston',
   showPlatformSelector: false,
   buttonLabel: 'Chat',
-  accent: '#0f766e',
+  themeColor: '#0f766e',
   hideButton: true,      // 플로팅 버튼 생성 안 함
   popupRight: '20px',    // 채팅창 위치 직접 지정
   popupBottom: '20px'
@@ -500,24 +507,28 @@ document.getElementById('closeBtn')
                 <div class="v"><b>user</b>: 공개 KB만 검색 (일반 고객용) / <b>admin</b>: 전체 KB 검색 (내부 관리자용)<span class="meta">'user' | 'admin' | 기본값: 'user'</span></div>
               </div>
               <div class="row">
+                <div class="k">userId / username</div>
+                <div class="v">외부 서비스의 사용자 식별값과 사용자명을 위젯에 전달. 요청 시 함께 전송되며, 현재 서버에서는 <b>username</b> 기준으로 채팅자 표시/기록에 활용<span class="meta">string | 선택값<br>예: 'user-1001', '홍길동'</span></div>
+              </div>
+              <div class="row">
                 <div class="k">title</div>
                 <div class="v">채팅창 헤더에 표시되는 제목<span class="meta">string | 기본값: 'AI 상담 어시스턴트'</span></div>
               </div>
               <div class="row">
-                <div class="k">defaultPlatform</div>
+                <div class="k">platform</div>
                 <div class="v">검색할 플랫폼. <b>GET /api/knowledgebase/platforms</b> 응답값을 그대로 입력. 비워두거나 '전체 플랫폼'이면 전체 KB 검색<span class="meta">string | 기본값: '전체 플랫폼'<br>예: '트러스트온', 'windows', 'mobile-app'</span></div>
               </div>
               <div class="row">
-                <div class="k">platformName</div>
-                <div class="v">인사말과 헤더 보조 문구에 표시할 플랫폼 이름. 지정하지 않으면 defaultPlatform 또는 일반 문구 사용<span class="meta">string | 선택값<br>예: '트러스트온', 'Windows 에이전트'<br>표시용 이름과 실제 조회값을 분리할 때 사용</span></div>
+                <div class="k">platformLabel</div>
+                <div class="v">인사말과 헤더 보조 문구에 표시할 플랫폼 이름. 지정하지 않으면 platform 또는 일반 문구 사용<span class="meta">string | 선택값<br>예: '트러스트온', 'Windows 에이전트'<br>표시용 이름과 실제 조회값을 분리할 때 사용</span></div>
               </div>
               <div class="row">
                 <div class="k">showPlatformSelector</div>
-                <div class="v"><b>false</b>: defaultPlatform 고정 / <b>true</b>: 헤더에 드롭다운 표시, 사용자가 직접 플랫폼 선택<span class="meta">boolean | 기본값: false</span></div>
+                <div class="v"><b>false</b>: platform 고정 / <b>true</b>: 헤더에 드롭다운 표시, 사용자가 직접 플랫폼 선택<span class="meta">boolean | 기본값: false</span></div>
               </div>
               <div class="row">
-                <div class="k">accent</div>
-                <div class="v">헤더·플로팅 버튼·사용자 말풍선에 적용되는 강조 색상<span class="meta">CSS hex string | 기본값: '#1f7a6d'</span></div>
+                <div class="k">themeColor</div>
+                <div class="v">헤더·플로팅 버튼·사용자 말풍선에 적용되는 테마 색상<span class="meta">CSS hex string | 기본값: '#1f7a6d'</span></div>
               </div>
             </div>
             <div>
@@ -556,12 +567,14 @@ document.getElementById('closeBtn')
       const userOptions = {
         apiBaseUrl: 'http://localhost:8080/api',
         role: 'user',
-        title: '트러스트온 고객 Chat',
-        platformName: '트러스트온',
-        defaultPlatform: 'truston',
+        userId: 'user-1001',
+        username: '홍길동',
+        title: '트러스트온 고객 챗봇',
+        platformLabel: '트러스트온',
+        platform: 'truston',
         showPlatformSelector: false,
         buttonLabel: 'Chat',
-        accent: '#0f766e',
+        themeColor: '#0f766e',
         initiallyOpen: false
       }
 

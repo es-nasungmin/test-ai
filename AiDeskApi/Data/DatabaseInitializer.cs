@@ -188,9 +188,11 @@ namespace AiDeskApi.Data
                 Id INTEGER NOT NULL CONSTRAINT PK_LowSimilarityQuestions PRIMARY KEY AUTOINCREMENT,
                 Question TEXT NOT NULL,
                 Role TEXT NOT NULL,
+                ActorName TEXT NOT NULL DEFAULT '알 수 없음',
                 Platform TEXT NOT NULL DEFAULT 'web',
                 TopSimilarity REAL NOT NULL,
                 TopMatchedQuestion TEXT NULL,
+                SessionId INTEGER NULL,
                 CreatedAt TEXT NOT NULL,
                 IsResolved INTEGER NOT NULL DEFAULT 0,
                 ResolvedAt TEXT NULL
@@ -198,6 +200,18 @@ namespace AiDeskApi.Data
 
             EnsureColumnExists(db, "LowSimilarityQuestions", "Platform",
                 "ALTER TABLE LowSimilarityQuestions ADD COLUMN Platform TEXT NOT NULL DEFAULT 'web';");
+
+            EnsureColumnExists(db, "LowSimilarityQuestions", "ActorName",
+                "ALTER TABLE LowSimilarityQuestions ADD COLUMN ActorName TEXT NOT NULL DEFAULT '알 수 없음';");
+
+            EnsureColumnExists(db, "LowSimilarityQuestions", "TopMatchedKbTitle",
+                "ALTER TABLE LowSimilarityQuestions ADD COLUMN TopMatchedKbTitle TEXT NULL;");
+
+            EnsureColumnExists(db, "LowSimilarityQuestions", "TopMatchedKbContent",
+                "ALTER TABLE LowSimilarityQuestions ADD COLUMN TopMatchedKbContent TEXT NULL;");
+
+            EnsureColumnExists(db, "LowSimilarityQuestions", "SessionId",
+                "ALTER TABLE LowSimilarityQuestions ADD COLUMN SessionId INTEGER NULL;");
 
             db.Database.ExecuteSqlRaw(@"
             CREATE INDEX IF NOT EXISTS IX_LowSimilarityQuestions_IsResolved_CreatedAt
@@ -263,6 +277,7 @@ namespace AiDeskApi.Data
                 Id INTEGER NOT NULL CONSTRAINT PK_ChatSessions PRIMARY KEY AUTOINCREMENT,
                 Title TEXT NULL,
                 UserRole TEXT NOT NULL DEFAULT 'user',
+                ActorName TEXT NOT NULL DEFAULT '알 수 없음',
                 Platform TEXT NOT NULL DEFAULT 'web',
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL,
@@ -271,6 +286,9 @@ namespace AiDeskApi.Data
 
             EnsureColumnExists(db, "ChatSessions", "Platform",
                 "ALTER TABLE ChatSessions ADD COLUMN Platform TEXT NOT NULL DEFAULT 'web';");
+
+            EnsureColumnExists(db, "ChatSessions", "ActorName",
+                "ALTER TABLE ChatSessions ADD COLUMN ActorName TEXT NOT NULL DEFAULT '알 수 없음';");
 
             // 11. ChatMessages 테이블 (session-based, not user-based)
             db.Database.ExecuteSqlRaw(@"

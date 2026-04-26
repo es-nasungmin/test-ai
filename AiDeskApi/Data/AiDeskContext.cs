@@ -110,6 +110,7 @@ namespace AiDeskApi.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Question).IsRequired().HasMaxLength(1000);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.ActorName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.TopMatchedQuestion).HasMaxLength(500);
                 entity.HasIndex(e => new { e.IsResolved, e.CreatedAt });
@@ -169,6 +170,7 @@ namespace AiDeskApi.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.UserRole).IsRequired().HasMaxLength(10);
+                entity.Property(e => e.ActorName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
             });
         }

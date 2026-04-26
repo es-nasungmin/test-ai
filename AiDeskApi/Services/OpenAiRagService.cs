@@ -103,7 +103,8 @@ namespace AiDeskApi.Services
                 }
 
                 // 1) 사용자 질문 임베딩
-                var questionEmbedding = await _embeddingService.EmbedTextAsync(question);
+                var normalizedQuestion = NormalizeQueryForEmbedding(question);
+                var questionEmbedding = await _embeddingService.EmbedTextAsync(normalizedQuestion);
                 var normalizedPlatform = NormalizePlatform(platform);
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
@@ -144,7 +145,7 @@ namespace AiDeskApi.Services
                     .ToList();
 
                 // 2) 질문 키워드 추출
-                var questionTokens = ExtractKeywordTokens(question);
+                var questionTokens = ExtractKeywordTokens(normalizedQuestion);
 
                 // 2-1) 제목/키워드 +2, 내용 +1 가중치로 top 10
                 var keywordTop = await BuildKeywordRankedKbCandidatesAsync(kbQuery, questionTokens, KeywordTopK);
@@ -302,6 +303,11 @@ namespace AiDeskApi.Services
                 var topDocScore = documentHits.Count > 0 ? documentHits[0].Score : 0f;
                 var topScore = Math.Max(topKbScore, topDocScore);
                 var topMatchedQuestion = topResults.Count > 0 ? topResults[0].Item3 : null;
+                var topKb = topResults.Count > 0 ? topResults[0].Item1 : null;
+                var topMatchedKbTitle = topKb != null
+                    ? (string.IsNullOrWhiteSpace(topKb.Title) ? topKb.Problem : topKb.Title)
+                    : null;
+                var topMatchedKbContent = topKb?.Solution;
 
                 var answer = await GenerateAnswerAsync(question, contextText, role, topScore, history, runtimeOptions);
                 var isLowSimilarity = topScore < similarityThreshold;
@@ -312,6 +318,8 @@ namespace AiDeskApi.Services
                     TopSimilarity = topScore,
                     IsLowSimilarity = isLowSimilarity,
                     TopMatchedQuestion = topMatchedQuestion,
+                    TopMatchedKbTitle = topMatchedKbTitle,
+                    TopMatchedKbContent = topMatchedKbContent,
                     ConflictDetected = voteResult.ConflictDetected,
                     DecisionRule = voteResult.DecisionRule,
                     RetrievalDiagnostics = retrievalDiagnostics,
@@ -634,6 +642,21 @@ namespace AiDeskApi.Services
 
             // 공백/기호를 제거해 유사한 표현을 같은 해법 후보로 본다.
             return Regex.Replace(solution, "[\\s\\p{P}\\p{S}]", "").Trim().ToLowerInvariant();
+        }
+
+        private static string NormalizeQueryForEmbedding(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+            var normalized = raw.Trim().ToLowerInvariant();
+            normalized = Regex.Replace(normalized, "[\\s]+", " ");
+
+            // 경계 케이스에서 의미가 같은 표현을 통일해 임베딩 분산을 줄인다.
+            normalized = Regex.Replace(normalized, "안\\s*됨|안\\s*돼요|안\\s*되요|안\\s*됩니다|안\\s*되는", "안돼");
+            normalized = Regex.Replace(normalized, "불가|조회\\s*불가|확인\\s*불가", "안돼");
+            normalized = Regex.Replace(normalized, "안\\s*보임|안\\s*보여요|안\\s*보입니다", "안보여");
+
+            return normalized;
         }
 
         private float CosineSimilarity(float[] vec1, float[] vec2)
@@ -988,6 +1011,8 @@ namespace AiDeskApi.Services
         public float TopSimilarity { get; set; }
         public bool IsLowSimilarity { get; set; }
         public string? TopMatchedQuestion { get; set; }
+        public string? TopMatchedKbTitle { get; set; }
+        public string? TopMatchedKbContent { get; set; }
         public bool ConflictDetected { get; set; }
         public string? DecisionRule { get; set; }
         public RetrievalDiagnostics? RetrievalDiagnostics { get; set; }

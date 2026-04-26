@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
@@ -20,13 +22,14 @@ namespace AiDeskApi.Controllers
         }
 
         /// <summary>
-        /// 세션 목록 조회 (role/platform/page/pageSize 필터 가능)
-        /// GET /api/chat/sessions?role=admin&platform=web&page=1&pageSize=10
+        /// 세션 목록 조회 (role/platform/keyword/page/pageSize 필터 가능)
+        /// GET /api/chat/sessions?role=admin&platform=web&keyword=kim&page=1&pageSize=10
         /// </summary>
         [HttpGet("sessions")]
         public async Task<IActionResult> GetSessions(
             [FromQuery] string? role,
             [FromQuery] string? platform,
+            [FromQuery] string? keyword,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
@@ -43,6 +46,19 @@ namespace AiDeskApi.Controllers
                     var normalizedPlatform = platform.Trim().ToLowerInvariant();
                     query = query.Where(s => s.Platform == normalizedPlatform);
                 }
+                if (!string.IsNullOrWhiteSpace(keyword))
+                {
+                    var normalizedKeyword = keyword.Trim().ToLowerInvariant();
+                    var likePattern = $"%{normalizedKeyword}%";
+                    query = query.Where(s =>
+                        (!string.IsNullOrEmpty(s.ActorName) && EF.Functions.Like(s.ActorName.ToLower(), likePattern)) ||
+                        (!string.IsNullOrEmpty(s.Title) && EF.Functions.Like(s.Title.ToLower(), likePattern)) ||
+                        _context.ChatMessages.Any(m =>
+                            m.SessionId == s.Id &&
+                            !string.IsNullOrEmpty(m.Content) &&
+                            EF.Functions.Like(m.Content.ToLower(), likePattern))
+                    );
+                }
 
                 var total = await query.CountAsync();
 
@@ -55,6 +71,7 @@ namespace AiDeskApi.Controllers
                         s.Id,
                         s.Title,
                         s.UserRole,
+                        s.ActorName,
                         s.Platform,
                         s.CreatedAt,
                         s.UpdatedAt,
@@ -83,6 +100,7 @@ namespace AiDeskApi.Controllers
                 {
                     Title = request.Title,
                     UserRole = string.IsNullOrWhiteSpace(request.Role) ? "user" : request.Role,
+                    ActorName = ResolveActorName(),
                     Platform = string.IsNullOrWhiteSpace(request.Platform) ? "web" : request.Platform.Trim().ToLowerInvariant(),
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -121,6 +139,7 @@ namespace AiDeskApi.Controllers
                     session.Id,
                     session.Title,
                     session.UserRole,
+                    session.ActorName,
                     session.Platform,
                     session.CreatedAt,
                     session.UpdatedAt,
@@ -249,6 +268,79 @@ namespace AiDeskApi.Controllers
                     .Take(12)
                     .ToList();
 
+                var botQuery = _context.ChatMessages
+                    .AsNoTracking()
+                    .Where(m => m.Role == "bot" && m.CreatedAt >= fromUtc)
+                    .Join(
+                        _context.ChatSessions.AsNoTracking(),
+                        m => m.SessionId,
+                        s => s.Id,
+                        (m, s) => new
+                        {
+                            m.RelatedKbMeta,
+                            m.RelatedKbIds,
+                            m.CreatedAt,
+                            SessionRole = s.UserRole,
+                            SessionPlatform = s.Platform
+                        });
+
+                if (!string.IsNullOrWhiteSpace(role))
+                {
+                    var normalizedRole = role.Trim().ToLowerInvariant();
+                    botQuery = botQuery.Where(x => x.SessionRole == normalizedRole);
+                }
+
+                if (!string.IsNullOrWhiteSpace(platform))
+                {
+                    var normalizedPlatform = platform.Trim().ToLowerInvariant();
+                    botQuery = botQuery.Where(x => x.SessionPlatform == normalizedPlatform);
+                }
+
+                var botRows = await botQuery.ToListAsync();
+
+                var kbRefMap = new Dictionary<int, (int Count, DateTime LastReferencedAt)>();
+                foreach (var row in botRows)
+                {
+                    var ids = ParseReferencedKbIds(row.RelatedKbMeta, row.RelatedKbIds);
+                    foreach (var kbId in ids)
+                    {
+                        if (kbRefMap.TryGetValue(kbId, out var existing))
+                        {
+                            kbRefMap[kbId] = (
+                                existing.Count + 1,
+                                existing.LastReferencedAt > row.CreatedAt ? existing.LastReferencedAt : row.CreatedAt
+                            );
+                        }
+                        else
+                        {
+                            kbRefMap[kbId] = (1, row.CreatedAt);
+                        }
+                    }
+                }
+
+                var rankedKbRefs = kbRefMap
+                    .OrderByDescending(x => x.Value.Count)
+                    .ThenByDescending(x => x.Value.LastReferencedAt)
+                    .Take(clampedTop)
+                    .ToList();
+
+                var rankedKbIds = rankedKbRefs.Select(x => x.Key).ToList();
+                var kbTitleMap = await _context.KnowledgeBases
+                    .AsNoTracking()
+                    .Where(k => rankedKbIds.Contains(k.Id))
+                    .Select(k => new { k.Id, k.Title })
+                    .ToDictionaryAsync(k => k.Id, k => k.Title ?? $"KB #{k.Id}");
+
+                var topReferencedKbs = rankedKbRefs
+                    .Select(x => new
+                    {
+                        KbId = x.Key,
+                        Title = kbTitleMap.TryGetValue(x.Key, out var title) ? title : $"KB #{x.Key}",
+                        Count = x.Value.Count,
+                        LastReferencedAt = x.Value.LastReferencedAt
+                    })
+                    .ToList();
+
                 var dailyCounts = normalized
                     .GroupBy(x => x.CreatedAt.Date)
                     .Select(g => new
@@ -266,6 +358,9 @@ namespace AiDeskApi.Controllers
                     to = DateTime.UtcNow,
                     totalQuestions = normalized.Count,
                     uniqueQuestions = normalized.Select(x => x.Normalized).Distinct().Count(),
+                    uniqueReferencedKbs = kbRefMap.Count,
+                    rankingBasis = "kb-reference",
+                    topReferencedKbs,
                     topQuestions,
                     topKeywords,
                     dailyCounts
@@ -287,6 +382,78 @@ namespace AiDeskApi.Controllers
             value = value.Trim();
 
             return value.Length > 160 ? value[..160] : value;
+        }
+
+        private static IReadOnlyCollection<int> ParseReferencedKbIds(string? relatedKbMeta, string? relatedKbIds)
+        {
+            var result = new HashSet<int>();
+
+            if (!string.IsNullOrWhiteSpace(relatedKbMeta))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(relatedKbMeta);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in doc.RootElement.EnumerateArray())
+                        {
+                            if (item.ValueKind != JsonValueKind.Object) continue;
+                            if (item.TryGetProperty("isSelected", out var selectedProp)
+                                && selectedProp.ValueKind == JsonValueKind.False)
+                            {
+                                continue;
+                            }
+                            if (item.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var id) && id > 0)
+                            {
+                                result.Add(id);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // ignore malformed json
+                }
+            }
+
+            if (result.Count == 0 && !string.IsNullOrWhiteSpace(relatedKbIds))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(relatedKbIds);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in doc.RootElement.EnumerateArray())
+                        {
+                            if (item.TryGetInt32(out var id) && id > 0)
+                            {
+                                result.Add(id);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // ignore malformed json
+                }
+            }
+
+            return result;
+        }
+
+        private string ResolveActorName()
+        {
+            var actor = User?.Identity?.Name
+                ?? User?.FindFirstValue(ClaimTypes.Name)
+                ?? User?.FindFirstValue("name")
+                ?? User?.FindFirstValue("unique_name");
+
+            if (string.IsNullOrWhiteSpace(actor) && Request.Headers.TryGetValue("X-Actor-Name", out var headerActor))
+            {
+                actor = headerActor.ToString();
+            }
+
+            return string.IsNullOrWhiteSpace(actor) ? "알 수 없음" : actor.Trim();
         }
 
         private static IEnumerable<string> ExtractKeywords(string? raw)

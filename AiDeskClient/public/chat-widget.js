@@ -51,8 +51,9 @@
   }
 
   function resolveGreetingPlatform(opts, selectedPlatform) {
-    var configuredPlatformName = typeof opts.platformName === 'string' ? opts.platformName.trim() : '';
-    return platformLabel(configuredPlatformName || selectedPlatform || opts.defaultPlatform);
+    var configuredPlatformLabel = typeof opts.platformLabel === 'string' ? opts.platformLabel.trim() : '';
+    var legacyPlatformName = typeof opts.platformName === 'string' ? opts.platformName.trim() : '';
+    return platformLabel(configuredPlatformLabel || legacyPlatformName || selectedPlatform || opts.platform || opts.defaultPlatform);
   }
 
   function defaultWelcome(isAdmin, platform) {
@@ -120,12 +121,14 @@
     var opts = Object.assign({
       apiBaseUrl: 'http://localhost:8080/api',
       role: 'user',
+      userId: '',
+      username: '',
       title: 'AI 상담 어시스턴트',
-      defaultPlatform: '전체 플랫폼',
+      platform: '전체 플랫폼',
       showPlatformSelector: false,
       buttonLabel: 'CHAT',
       hideButton: false,
-      accent: '#1f7a6d',
+      themeColor: '#1f7a6d',
       initiallyOpen: false,
       buttonRight: '20px',
       buttonBottom: '20px',
@@ -135,17 +138,35 @@
     }, options || {});
 
     var isAdmin = opts.role === 'admin';
+    if (typeof opts.defaultPlatform === 'string' && !opts.platform) {
+      opts.platform = opts.defaultPlatform;
+    }
+    if (typeof opts.accent === 'string' && !opts.themeColor) {
+      opts.themeColor = opts.accent;
+    }
+
     var state = {
       widgetVisible: true,
       isOpen: !!opts.initiallyOpen,
       loading: false,
       sessionId: null,
-      selectedPlatform: opts.defaultPlatform || '전체 플랫폼',
+      selectedPlatform: opts.platform || opts.defaultPlatform || '전체 플랫폼',
       platformOptions: ['전체 플랫폼'],
       messages: [
-        { role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, opts.defaultPlatform)), time: now() }
+        { role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, opts.platform || opts.defaultPlatform)), time: now() }
       ]
     };
+
+    function getUserContext() {
+      return {
+        userId: typeof opts.userId === 'string' || typeof opts.userId === 'number'
+          ? String(opts.userId).trim()
+          : '',
+        username: typeof opts.username === 'string'
+          ? opts.username.trim()
+          : ''
+      };
+    }
 
     var mountRoot = typeof opts.mountTo === 'string'
       ? document.querySelector(opts.mountTo)
@@ -160,7 +181,7 @@
     fab.style.bottom = opts.buttonBottom || opts.fabBottom || '20px';
     fab.style.background = isAdmin
       ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
-      : opts.accent;
+      : opts.themeColor;
 
     var popup = createEl('div', 'crm-chat-popup');
     popup.style.right = opts.popupRight;
@@ -233,7 +254,7 @@
         platformSelect.appendChild(option);
       });
       if (!opts.showPlatformSelector) {
-        state.selectedPlatform = opts.defaultPlatform || '전체 플랫폼';
+        state.selectedPlatform = opts.platform || opts.defaultPlatform || '전체 플랫폼';
       }
       if (!state.platformOptions.includes(state.selectedPlatform)) {
         state.selectedPlatform = '전체 플랫폼';
@@ -317,17 +338,28 @@
       renderMessages();
 
       try {
+        var userContext = getUserContext();
         var requestBody = {
           question: q,
           role: opts.role,
-          platform: opts.showPlatformSelector ? state.selectedPlatform : (opts.defaultPlatform || '전체 플랫폼'),
+          platform: opts.showPlatformSelector ? state.selectedPlatform : (opts.platform || opts.defaultPlatform || '전체 플랫폼'),
           sessionId: state.sessionId,
-          createSession: state.sessionId === null
+          createSession: state.sessionId === null,
+          userId: userContext.userId || null,
+          username: userContext.username || null
         };
+
+        var headers = { 'Content-Type': 'application/json' };
+        if (userContext.username) {
+          headers['X-Actor-Name'] = userContext.username;
+        }
+        if (userContext.userId) {
+          headers['X-Actor-Id'] = userContext.userId;
+        }
 
         var res = await fetch(opts.apiBaseUrl + '/knowledgebase/ask', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify(requestBody)
         });
 
@@ -425,6 +457,15 @@
       },
       setPopupBottom: function (val) {
         popup.style.bottom = val;
+      },
+      setUserContext: function (context) {
+        var next = context || {};
+        if (Object.prototype.hasOwnProperty.call(next, 'userId')) {
+          opts.userId = next.userId == null ? '' : String(next.userId);
+        }
+        if (Object.prototype.hasOwnProperty.call(next, 'username')) {
+          opts.username = next.username == null ? '' : String(next.username);
+        }
       },
       destroy: function () {
         fab.remove();

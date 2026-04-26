@@ -9,6 +9,7 @@ import KBManagement from '../components/Management/KBManagement.vue'
 import ChatLogManagement from '../components/Management/ChatLogManagement.vue'
 import PromptTestPanel from '../components/Management/PromptTestPanel.vue'
 import UserApproval from '../components/Management/UserApproval.vue'
+import LowSimilarityManagement from '../components/Management/LowSimilarityManagement.vue'
 import { API_BASE_URL } from '../config'
 
 const API_URL = API_BASE_URL
@@ -548,6 +549,7 @@ const saveChatbotPromptTemplate = async () => {
 
 // ---- 페이지 탭 ----
 const activePage = ref('kb')  // 'kb' | 'logs' | 'question-analysis' | 'prompt-test' | 'crm' | 'user-management'
+const activeAnalysisTab = ref('report')  // 'report' | 'low-similarity'
 
 // 채팅 필터 및 기간별 질문 분석 관련 상태
 const roleFilter = ref('all')
@@ -643,7 +645,21 @@ onMounted(() => {
 
 
     <div v-if="activePage === 'question-analysis'" class="kb-page">
-      <div class="summary-panel-wrapper">
+      <!-- 내부 탭 바 -->
+      <div class="analysis-tab-bar">
+        <button
+          class="analysis-tab-btn"
+          :class="{ active: activeAnalysisTab === 'report' }"
+          @click="activeAnalysisTab = 'report'"
+        >질문분석 리포트</button>
+        <button
+          class="analysis-tab-btn"
+          :class="{ active: activeAnalysisTab === 'low-similarity' }"
+          @click="activeAnalysisTab = 'low-similarity'"
+        >저유사도 문의 관리</button>
+      </div>
+
+      <div v-if="activeAnalysisTab === 'report'" class="summary-panel-wrapper">
         <div class="summary-controls">
           <div class="control-group">
             <label>조회 기간:</label>
@@ -703,12 +719,12 @@ onMounted(() => {
               <div class="kpi-value">{{ questionSummary.totalQuestions || 0 }}</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">고유 질문 수</div>
-              <div class="kpi-value">{{ questionSummary.uniqueQuestions || 0 }}</div>
+              <div class="kpi-label">참조 KB 수</div>
+              <div class="kpi-value">{{ questionSummary.uniqueReferencedKbs || 0 }}</div>
             </div>
             <div class="kpi-card">
               <div class="kpi-label">요청 상위 기준</div>
-              <div class="kpi-value">TOP {{ summaryTop }}</div>
+              <div class="kpi-value">KB 참조 TOP {{ summaryTop }}</div>
             </div>
             <div class="kpi-card">
               <div class="kpi-label">집계 일수</div>
@@ -716,17 +732,18 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 상위 질문 섹션 -->
+          <!-- 상위 참조 KB 섹션 -->
           <div class="top-questions-section">
-            <h3>상위 {{ summaryTop }} 질문</h3>
-            <div v-if="questionSummary.topQuestions && questionSummary.topQuestions.length > 0" class="questions-list">
-              <div v-for="(q, idx) in questionSummary.topQuestions" :key="idx" class="question-item">
+            <h3>상위 {{ summaryTop }} 참조 KB</h3>
+            <div v-if="questionSummary.topReferencedKbs && questionSummary.topReferencedKbs.length > 0" class="questions-list">
+              <div v-for="(kb, idx) in questionSummary.topReferencedKbs" :key="`kb-${kb.kbId || kb.KbId || idx}`" class="question-item">
                 <div class="question-rank">{{ idx + 1 }}</div>
                 <div class="question-info">
-                  <div class="question-text">{{ q.question || q.Query || '-' }}</div>
+                  <div class="question-text">{{ kb.title || kb.Title || '제목 없음' }}</div>
                   <div class="question-meta">
-                    <span class="meta-item">질문 수: {{ q.count || q.Count || 0 }}</span>
-                    <span class="meta-item">최근: {{ formatDateTime(q.lastAskedAt || q.LastAskedAt) }}</span>
+                    <span class="meta-item">KB ID: #{{ kb.kbId || kb.KbId || '-' }}</span>
+                    <span class="meta-item">참조 수: {{ kb.count || kb.Count || 0 }}</span>
+                    <span class="meta-item">최근 참조: {{ formatDateTime(kb.lastReferencedAt || kb.LastReferencedAt) }}</span>
                   </div>
                 </div>
               </div>
@@ -762,6 +779,10 @@ onMounted(() => {
         <div v-else class="empty-state">
           분석할 데이터가 없습니다.
         </div>
+      </div>
+
+      <div v-if="activeAnalysisTab === 'low-similarity'">
+        <LowSimilarityManagement />
       </div>
     </div>
     <div v-if="activePage === 'prompt-test'" class="kb-page">
@@ -1153,6 +1174,34 @@ onMounted(() => {
   padding: 24px;
   border: 1px solid #dee2e6;
   box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
+}
+
+.analysis-tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #dee2e6;
+  margin-bottom: 18px;
+}
+
+.analysis-tab-btn {
+  padding: 7px 20px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #f8f9fa;
+  color: #6c757d;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.analysis-tab-btn.active {
+  background: #ffffff;
+  color: #1f7a6d;
+  border-color: #dee2e6;
+  border-bottom-color: #ffffff;
+  margin-bottom: -2px;
 }
 
 .summary-panel-wrapper {

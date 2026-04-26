@@ -103,39 +103,53 @@ function setupLoginListener() {
   })
 }
 
+function getWidgetUserContext() {
+  const user = currentUser.value || {}
+  return {
+    userId: user.id != null ? String(user.id) : '',
+    username: typeof user.username === 'string' ? user.username : ''
+  }
+}
+
 async function loadChatWidgets() {
   const createWidget = await loadChatWidgetScript()
   if (isDisposed || typeof createWidget !== 'function') return
 
   destroyWidgets()
 
+  const userContext = getWidgetUserContext()
+
   adminWidget = createWidget({
     apiBaseUrl: API_BASE_URL,
     role: 'admin',
+    userId: userContext.userId,
+    username: userContext.username,
     title: '관리자 위젯',
-    platformName: '테스트',
+    platformLabel: '테스트',
     buttonLabel: 'ADMIN',
     buttonRight: '20px',
     buttonBottom: '110px',
     popupRight: '20px',
     popupBottom: '224px',
     showPlatformSelector: true,
-    defaultPlatform: '전체 플랫폼',
+    platform: '전체 플랫폼',
     initiallyOpen: false
   })
 
   userWidget = createWidget({
     apiBaseUrl: API_BASE_URL,
     role: 'user',
+    userId: userContext.userId,
+    username: userContext.username,
     title: '사용자 위젯',
-    platformName: '테스트',
+    platformLabel: '테스트',
     buttonLabel: 'USER',
     buttonRight: '20px',
     buttonBottom: '40px',
     popupRight: '20px',
     popupBottom: '156px',
     showPlatformSelector: true,
-    defaultPlatform: '전체 플랫폼',
+    platform: '전체 플랫폼',
     initiallyOpen: false
   })
 }
