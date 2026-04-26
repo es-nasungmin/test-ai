@@ -231,6 +231,9 @@ namespace AiDeskApi.Services
                     return new RagResponse
                     {
                         Answer = "유사한 상담내역이 없습니다. 담당자에게 문의해주세요.",
+                        TopSimilarity = 0f,
+                        IsLowSimilarity = true,
+                        DecisionRule = "후보 없음",
                         RelatedKBs = new List<KBSummary>(),
                         RelatedDocuments = new List<DocumentReferenceSummary>()
                     };
