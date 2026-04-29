@@ -8,10 +8,13 @@
 ## 목차
 
 - [아키텍처 개요](#아키텍처-개요)
+- [빠른 시작](#빠른-시작)
+- [기술 스택 요약](#기술-스택-요약)
 - [권한 구조](#권한-구조)
 - [프로젝트 구조](#프로젝트-구조)
 - [핵심 기능](#핵심-기능)
 - [실행 방법](#실행-방법)
+- [서버 배포](#서버-배포)
 - [주요 API](#주요-api)
 - [운영 메모](#운영-메모)
 - [관련 문서](#관련-문서)
@@ -42,6 +45,38 @@
               └─▶ 키워드 리랭킹 + 문서 청크 병합
                     └─▶ GPT 답변 생성 (RAG)
 ```
+
+---
+
+## 빠른 시작
+
+```bash
+# 1) 저장소 루트에서 실행
+./scripts/run-all.sh
+
+# 2) 브라우저 접속
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:8080
+
+# 3) 종료
+./scripts/stop-all.sh
+```
+
+필수 선행 설정은 [docs/setup.md](docs/setup.md)를 참고하세요.
+
+---
+
+## 기술 스택 요약
+
+| 영역 | 스택 |
+|------|------|
+| Frontend | Vue 3, Vite, Axios |
+| Backend | ASP.NET Core (.NET 10), EF Core, JWT |
+| Database | SQLite(기본), MSSQL(전환 가능) |
+| AI | OpenAI Embedding(text-embedding-3-small), OpenAI Chat(gpt-4o-mini), Gemini(보조) |
+| Vector DB | Qdrant (Cosine) |
+
+상세 버전/설명은 [docs/tech-stack.md](docs/tech-stack.md)를 참고하세요.
 
 ---
 
@@ -108,8 +143,10 @@ AIDeskPJ/
 │       └── chat-widget-example.html    # 위젯 사용 예시
 │
 ├── docs/
+│   ├── deploy.md                       # 서버 배포 가이드
 │   ├── erd.md                          # DB ERD (Mermaid)
 │   ├── rag-kb-process.md               # RAG / KB 처리 흐름 명세
+│   ├── tech-stack.md                   # 기술 스택 요약
 │   ├── api-spec.md                     # API 전체 명세
 │   └── setup.md                        # 환경 설정 가이드
 │
@@ -197,6 +234,14 @@ cd AiDeskClient && npm install && npm run dev
 
 ---
 
+## 서버 배포
+
+개발/운영 배포 절차는 [docs/deploy.md](docs/deploy.md)에 정리되어 있습니다.
+- 개발 서버 빠른 배포 (스크립트 기반)
+- 운영형 배포 (dotnet publish + systemd + nginx + HTTPS)
+
+---
+
 ## 주요 API
 
 > 전체 상세 명세는 [docs/api-spec.md](docs/api-spec.md)를 참고하세요.
@@ -278,6 +323,7 @@ cd AiDeskClient && npm install && npm run dev
 ## 운영 메모
 
 - **API 키**: `appsettings.Development.json`에 실제 키를 입력하세요. `appsettings.json`은 플레이스홀더입니다.
+- **보안 권장**: 실제 API 키/DB 비밀번호는 커밋하지 말고 환경 변수 또는 Secret Manager로 분리하세요.
 - **CORS**: 운영/스테이징 환경에서는 `appsettings.Production.json`의 `Cors:AllowedOrigins`를 실제 도메인으로 교체하세요.
 - **DB 초기화**: 앱 시작 시 자동 생성됩니다. `aidesk.db` 삭제 후 재시작하면 관리자 계정만 재생성됩니다.
 - **Qdrant**: `aidesk_kb` 컬렉션을 삭제하면 모든 벡터 인덱스가 초기화됩니다. KB 재인덱싱이 필요합니다.
@@ -292,5 +338,6 @@ cd AiDeskClient && npm install && npm run dev
 | [docs/deploy.md](docs/deploy.md) | 개발/운영 서버 배포 가이드 |
 | [docs/erd.md](docs/erd.md) | DB 전체 ERD (Mermaid) |
 | [docs/rag-kb-process.md](docs/rag-kb-process.md) | RAG / KB 처리 흐름 상세 명세 |
+| [docs/tech-stack.md](docs/tech-stack.md) | 기술 스택/모델/인프라 요약 |
 | [docs/api-spec.md](docs/api-spec.md) | API 요청/응답 상세 명세 |
 | [docs/setup.md](docs/setup.md) | 환경 설정 및 외부 서비스 연동 가이드 |
