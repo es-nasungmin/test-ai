@@ -550,6 +550,8 @@ const saveChatbotPromptTemplate = async () => {
 // ---- 페이지 탭 ----
 const activePage = ref('kb')  // 'kb' | 'logs' | 'question-analysis' | 'prompt-test' | 'crm' | 'user-management'
 const activeAnalysisTab = ref('report')  // 'report' | 'low-similarity'
+const showCrmTestPage = false
+const showPromptAndUserManagement = false
 
 // 채팅 필터 및 기간별 질문 분석 관련 상태
 const roleFilter = ref('all')
@@ -582,10 +584,10 @@ onMounted(() => {
     <header class="crm-header">
       <div class="crm-header-shell">
         <div class="crm-header-topline">
-          <span class="crm-header-badge">AI 운영 콘솔</span>
+          <span class="crm-header-badge">AI 챗봇 테스트</span>
         </div>
-        <h1>ESN AI 운영센터</h1>
-        <p>KB, 채팅 로그, 프롬프트 테스트를 한 곳에서 관리합니다.</p>
+        <h1>AI 챗봇테스트</h1>
+        <p>KB, 채팅 로그, 질문 분석을 한 곳에서 테스트합니다.</p>
         <!-- 페이지 탭 -->
         <div class="page-tabs">
           <button
@@ -604,16 +606,19 @@ onMounted(() => {
             @click="activePage = 'question-analysis'"
           >질문분석</button>
           <button
+            v-if="showCrmTestPage"
             class="page-tab"
             :class="{ active: activePage === 'crm' }"
             @click="activePage = 'crm'"
           >CRM 상담관리(테스트)</button>
           <button
+            v-if="showPromptAndUserManagement"
             class="page-tab"
             :class="{ active: activePage === 'prompt-test' }"
             @click="activePage = 'prompt-test'"
           >프롬프트 테스트</button>
           <button
+            v-if="showPromptAndUserManagement"
             class="page-tab"
             :class="{ active: activePage === 'user-management' }"
             @click="activePage = 'user-management'"
@@ -785,15 +790,15 @@ onMounted(() => {
         <LowSimilarityManagement />
       </div>
     </div>
-    <div v-if="activePage === 'prompt-test'" class="kb-page">
+    <div v-if="showPromptAndUserManagement && activePage === 'prompt-test'" class="kb-page">
       <PromptTestPanel />
     </div>
 
-    <div v-if="activePage === 'user-management'" class="kb-page">
+    <div v-if="showPromptAndUserManagement && activePage === 'user-management'" class="kb-page">
       <UserApproval />
     </div>
 
-    <div v-show="activePage === 'crm'" class="crm-content">
+    <div v-show="showCrmTestPage && activePage === 'crm'" class="crm-content">
       <section class="left-section">
         <div class="section-header-right">
           <h2>업체 목록</h2>

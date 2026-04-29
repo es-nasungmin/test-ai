@@ -289,6 +289,7 @@ cd AiDeskClient && npm install && npm run dev
 
 | 문서 | 설명 |
 |------|------|
+| [docs/deploy.md](docs/deploy.md) | 개발/운영 서버 배포 가이드 |
 | [docs/erd.md](docs/erd.md) | DB 전체 ERD (Mermaid) |
 | [docs/rag-kb-process.md](docs/rag-kb-process.md) | RAG / KB 처리 흐름 상세 명세 |
 | [docs/api-spec.md](docs/api-spec.md) | API 요청/응답 상세 명세 |
