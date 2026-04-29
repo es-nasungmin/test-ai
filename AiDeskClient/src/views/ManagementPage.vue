@@ -584,10 +584,10 @@ onMounted(() => {
     <header class="crm-header">
       <div class="crm-header-shell">
         <div class="crm-header-topline">
-          <span class="crm-header-badge">AI 챗봇 테스트</span>
+          <span class="crm-header-badge">AI 챗봇 운영</span>
         </div>
-        <h1>AI 챗봇테스트</h1>
-        <p>KB, 채팅 로그, 질문 분석을 한 곳에서 테스트합니다.</p>
+        <h1>챗봇 운영 센터</h1>
+        <p>지식베이스 관리, 대화 이력 모니터링, 질문 패턴 분석을 한 화면에서 운영합니다.</p>
         <!-- 페이지 탭 -->
         <div class="page-tabs">
           <button

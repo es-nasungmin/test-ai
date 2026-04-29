@@ -113,10 +113,12 @@ const refinedSolutionPreview = ref('')
 const showWriterPromptEditor = ref(false)
 const savingWriterPromptTemplate = ref(false)
 const writerPromptTemplateForm = ref({
+  answerRefineSystemPrompt: '',
+  answerRefineRulesPrompt: '',
   keywordSystemPrompt: '',
   keywordRulesPrompt: '',
-  answerRefineSystemPrompt: '',
-  answerRefineRulesPrompt: ''
+  similarQuestionSystemPrompt: '',
+  similarQuestionRulesPrompt: ''
 })
 const MAX_EXPECTED_QUESTIONS = 10
 
@@ -557,10 +559,12 @@ function normalizeLineBreaks(value) {
 async function fetchWriterPromptTemplate() {
   const response = await axios.get(`${API_URL}/knowledgebase/writer-prompt-template`)
   writerPromptTemplateForm.value = {
+    answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
+    answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt),
     keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
     keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
-    answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
-    answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt)
+    similarQuestionSystemPrompt: normalizeLineBreaks(response.data.similarQuestionSystemPrompt),
+    similarQuestionRulesPrompt: normalizeLineBreaks(response.data.similarQuestionRulesPrompt)
   }
 }
 
@@ -576,10 +580,12 @@ async function openWriterPromptEditor() {
 async function saveWriterPromptTemplate() {
   const formData = writerPromptTemplateForm.value
   if (
+    !formData.answerRefineSystemPrompt.trim() ||
+    !formData.answerRefineRulesPrompt.trim() ||
     !formData.keywordSystemPrompt.trim() ||
     !formData.keywordRulesPrompt.trim() ||
-    !formData.answerRefineSystemPrompt.trim() ||
-    !formData.answerRefineRulesPrompt.trim()
+    !formData.similarQuestionSystemPrompt.trim() ||
+    !formData.similarQuestionRulesPrompt.trim()
   ) {
     alert('KB 작성 프롬프트 항목을 모두 입력해주세요.')
     return
@@ -588,17 +594,21 @@ async function saveWriterPromptTemplate() {
   savingWriterPromptTemplate.value = true
   try {
     const response = await axios.put(`${API_URL}/knowledgebase/writer-prompt-template`, {
+      answerRefineSystemPrompt: formData.answerRefineSystemPrompt,
+      answerRefineRulesPrompt: formData.answerRefineRulesPrompt,
       keywordSystemPrompt: formData.keywordSystemPrompt,
       keywordRulesPrompt: formData.keywordRulesPrompt,
-      answerRefineSystemPrompt: formData.answerRefineSystemPrompt,
-      answerRefineRulesPrompt: formData.answerRefineRulesPrompt
+      similarQuestionSystemPrompt: formData.similarQuestionSystemPrompt,
+      similarQuestionRulesPrompt: formData.similarQuestionRulesPrompt
     })
 
     writerPromptTemplateForm.value = {
+      answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
+      answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt),
       keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
       keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
-      answerRefineSystemPrompt: normalizeLineBreaks(response.data.answerRefineSystemPrompt),
-      answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt)
+      similarQuestionSystemPrompt: normalizeLineBreaks(response.data.similarQuestionSystemPrompt),
+      similarQuestionRulesPrompt: normalizeLineBreaks(response.data.similarQuestionRulesPrompt)
     }
 
     alert('KB 작성 프롬프트가 저장되었습니다. 다음 생성부터 반영됩니다.')
@@ -1260,10 +1270,11 @@ function formatDate(val) {
           <div class="guide-card">
             <strong>1) 점수는 이렇게 계산됩니다</strong>
             <p>
-              질문 임베딩과 가이드 KB(제목+내용+예상질문 합본 임베딩) 유사도를 계산합니다.
+              질문 임베딩으로 본문(document) 벡터와 예상질문(expected) 벡터를 함께 검색한 뒤,
+              KB 단위로 병합 점수를 계산합니다.
             </p>
-            <p>유사도 점수는 벡터 유사도만 사용하고, 키워드는 후보 리콜(top10) 용도로만 사용합니다.</p>
-            <p class="guide-formula">최종 후보 = 벡터 top15(임계치 필터) + 키워드 top10 → AI rerank top5</p>
+            <p>키워드는 강제 통과가 아니라 약한 보정치로만 반영되며, 최종 후보는 AI 재정렬을 거칩니다.</p>
+            <p class="guide-formula">최종 후보 = document/expected 벡터 검색 → KB 병합 + 키워드 약보정 → AI rerank top5</p>
           </div>
 
           <div class="guide-card">
@@ -1280,7 +1291,7 @@ function formatDate(val) {
               같은 의미를 다른 표현으로 최대 10개 등록하세요.
               예: "로그인 실패", "인증서 고른 뒤 접속 불가", "서명 후 메인 화면 안 넘어감"
             </p>
-            <p>오탈자/축약어(예: 공인인증서, 인증서, cert)도 자주 들어오면 함께 넣어두세요.</p>
+            <p>증상/상황/실패지점이 드러나도록 쓰고, 오탈자/축약어(예: 공인인증서, 인증서, cert)도 함께 넣어주세요.</p>
           </div>
 
           <div class="guide-card">
@@ -1288,7 +1299,7 @@ function formatDate(val) {
             <ul>
               <li>권장: 원인/기능/대상 기준 키워드 (예: 인증서, 결제실패, 환불지연, 관리자승인)</li>
               <li>비권장: 너무 포괄적인 단어만 입력 (예: 오류, 문제, 문의)</li>
-              <li>키워드와 제목/내용 용어를 맞추면 상위 노출 가능성이 높아집니다.</li>
+              <li>키워드는 보조 신호이므로, 제목/내용/예상질문의 표현 정합성이 더 중요합니다.</li>
             </ul>
           </div>
 
@@ -1313,6 +1324,14 @@ function formatDate(val) {
 
         <div class="form-grid">
           <label>
+            내용정리 시스템 프롬프트
+            <textarea v-model="writerPromptTemplateForm.answerRefineSystemPrompt" rows="3" />
+          </label>
+          <label>
+            내용정리 규칙 프롬프트
+            <textarea v-model="writerPromptTemplateForm.answerRefineRulesPrompt" rows="4" />
+          </label>
+          <label>
             키워드 생성 시스템 프롬프트
             <textarea v-model="writerPromptTemplateForm.keywordSystemPrompt" rows="3" />
           </label>
@@ -1321,12 +1340,12 @@ function formatDate(val) {
             <textarea v-model="writerPromptTemplateForm.keywordRulesPrompt" rows="4" />
           </label>
           <label>
-            답변 정리 시스템 프롬프트
-            <textarea v-model="writerPromptTemplateForm.answerRefineSystemPrompt" rows="3" />
+            예상질문 생성 시스템 프롬프트
+            <textarea v-model="writerPromptTemplateForm.similarQuestionSystemPrompt" rows="3" />
           </label>
           <label>
-            답변 정리 규칙 프롬프트
-            <textarea v-model="writerPromptTemplateForm.answerRefineRulesPrompt" rows="4" />
+            예상질문 생성 규칙 프롬프트
+            <textarea v-model="writerPromptTemplateForm.similarQuestionRulesPrompt" rows="4" />
           </label>
         </div>
 

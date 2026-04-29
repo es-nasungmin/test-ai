@@ -263,13 +263,6 @@ namespace AiDeskApi.Services
             var repEmbedding = ParseEmbedding(kb.ProblemEmbedding);
             if (repEmbedding != null)
             {
-                var expectedQuestions = (kb.SimilarQuestions ?? new List<KnowledgeBaseSimilarQuestion>())
-                    .Where(x => !string.IsNullOrWhiteSpace(x.Question))
-                    .Select(x => x.Question.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(5)
-                    .ToArray();
-
                 yield return new QdrantPoint
                 {
                     id = CreatePointId($"kb-{kb.Id}-doc"),
@@ -280,7 +273,36 @@ namespace AiDeskApi.Services
                         type = "document",
                         question = kb.Title ?? kb.Problem ?? string.Empty,
                         content = kb.Solution,
-                        expectedQuestions,
+                        visibility = kb.Visibility,
+                        platforms,
+                        keywords,
+                        updatedAt = kb.UpdatedAt
+                    }
+                };
+            }
+
+            var expectedQuestions = (kb.SimilarQuestions ?? new List<KnowledgeBaseSimilarQuestion>())
+                .Where(x => !string.IsNullOrWhiteSpace(x.Question))
+                .Select(x => new
+                {
+                    Question = x.Question.Trim(),
+                    Embedding = ParseEmbedding(x.QuestionEmbedding)
+                })
+                .Where(x => x.Embedding != null && x.Embedding.Length > 0)
+                .DistinctBy(x => x.Question, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var item in expectedQuestions)
+            {
+                yield return new QdrantPoint
+                {
+                    id = CreatePointId($"kb-{kb.Id}-expected-{item.Question}"),
+                    vector = item.Embedding!,
+                    payload = new
+                    {
+                        kbId = kb.Id,
+                        type = "expected",
+                        question = item.Question,
                         visibility = kb.Visibility,
                         platforms,
                         keywords,

@@ -17,6 +17,11 @@ Base URL: `http://localhost:8080`
 ### 1.1 POST `/api/knowledgebase/ask`
 RAG 챗봇 질의.
 
+검색 동작 요약
+- 본문(document) 벡터와 예상질문(expected) 벡터를 분리 조회 후 KB 단위로 병합
+- 키워드는 강제 통과가 아닌 약한 보정 신호로만 반영
+- 병합 후보를 LLM으로 재정렬하여 최종 답변 후보를 결정
+
 Request
 ```json
 {

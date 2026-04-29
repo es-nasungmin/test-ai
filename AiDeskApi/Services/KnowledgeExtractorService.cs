@@ -7,7 +7,7 @@ namespace AiDeskApi.Services
     public interface IKnowledgeExtractorService
     {
         Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction);
-        Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count = 5);
+        Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
         Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt);
     }
@@ -102,10 +102,14 @@ namespace AiDeskApi.Services
             }
         }
 
-        public async Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count = 5)
+        public async Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt)
         {
             if (string.IsNullOrWhiteSpace(content))
                 throw new ArgumentException("내용이 필요합니다.");
+            if (string.IsNullOrWhiteSpace(systemPrompt))
+                throw new ArgumentException("예상질문 시스템 프롬프트가 필요합니다.");
+            if (string.IsNullOrWhiteSpace(rulesPrompt))
+                throw new ArgumentException("예상질문 규칙 프롬프트가 필요합니다.");
 
             try
             {
@@ -139,7 +143,7 @@ namespace AiDeskApi.Services
                         new
                         {
                             role = "system",
-                            content = "당신은 고객 문의 패턴을 분석해 유사 질문을 만들어주는 도우미입니다. 항상 JSON 문자열 배열만 응답하고, 질문 표현이 서로 겹치지 않게 다양하게 만드세요."
+                            content = $"{systemPrompt}\n\n{rulesPrompt}"
                         },
                         new { role = "user", content = prompt }
                     },

@@ -239,7 +239,7 @@ namespace AiDeskApi.Controllers
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, request.Keywords ?? request.Tags, expectedQuestions);
+                var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, content);
                 var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 var now = DateTime.Now;
                 var actor = await ResolveActorNameAsync();
@@ -263,12 +263,7 @@ namespace AiDeskApi.Controllers
 
                 foreach (var q in expectedQuestions)
                 {
-                    kb.SimilarQuestions.Add(new KnowledgeBaseSimilarQuestion
-                    {
-                        Question = q,
-                        QuestionEmbedding = null,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                    kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
                 }
 
                 _context.KnowledgeBases.Add(kb);
@@ -309,7 +304,7 @@ namespace AiDeskApi.Controllers
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbEmbeddingSource(request.Title, content, request.Keywords ?? request.Tags, expectedQuestions);
+                var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, content);
                 var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 kb.ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding);
 
@@ -344,15 +339,14 @@ namespace AiDeskApi.Controllers
                     {
                         // 표현(대소문자/공백)만 바뀐 경우 표시 문자열만 최신값으로 동기화
                         existing.Question = q;
+                        if (string.IsNullOrWhiteSpace(existing.QuestionEmbedding))
+                        {
+                            existing.QuestionEmbedding = JsonSerializer.Serialize(await _embeddingService.EmbedTextAsync(q));
+                        }
                         continue;
                     }
 
-                    kb.SimilarQuestions.Add(new KnowledgeBaseSimilarQuestion
-                    {
-                        Question = q,
-                        QuestionEmbedding = null,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                    kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
                 }
 
                 var toRemove = kb.SimilarQuestions
@@ -649,10 +643,14 @@ namespace AiDeskApi.Controllers
                 if (string.IsNullOrWhiteSpace(request.Content))
                     return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
+                var prompts = await _kbWriterPromptTemplates.GetAsync();
+
                 var generated = await _knowledgeExtractorService.GenerateSimilarQuestionsAsync(
                     request.Title?.Trim() ?? string.Empty,
                     request.Content.Trim(),
-                    Math.Clamp(request.Count ?? 5, 1, 5));
+                    Math.Clamp(request.Count ?? 5, 1, 5),
+                    prompts.SimilarQuestionSystemPrompt,
+                    prompts.SimilarQuestionRulesPrompt);
 
                 return Ok(new { items = generated });
             }
@@ -669,7 +667,7 @@ namespace AiDeskApi.Controllers
             try
             {
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
-                var source = BuildKbEmbeddingSource(request.Title, request.Content, null, request.ExpectedQuestions);
+                var source = BuildKeywordGenerationSource(request.Title, request.Content, request.ExpectedQuestions);
 
                 if (string.IsNullOrWhiteSpace(source))
                 {
@@ -838,6 +836,8 @@ namespace AiDeskApi.Controllers
             {
                 KeywordSystemPrompt = template.KeywordSystemPrompt,
                 KeywordRulesPrompt = template.KeywordRulesPrompt,
+                SimilarQuestionSystemPrompt = template.SimilarQuestionSystemPrompt,
+                SimilarQuestionRulesPrompt = template.SimilarQuestionRulesPrompt,
                 TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
                 TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
                 AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
@@ -850,11 +850,20 @@ namespace AiDeskApi.Controllers
         {
             try
             {
+                var topicSystemPrompt = string.IsNullOrWhiteSpace(request.TopicKeywordSystemPrompt)
+                    ? request.KeywordSystemPrompt
+                    : request.TopicKeywordSystemPrompt;
+                var topicRulesPrompt = string.IsNullOrWhiteSpace(request.TopicKeywordRulesPrompt)
+                    ? request.KeywordRulesPrompt
+                    : request.TopicKeywordRulesPrompt;
+
                 var template = await _kbWriterPromptTemplates.UpdateAsync(
                     request.KeywordSystemPrompt,
                     request.KeywordRulesPrompt,
-                    request.TopicKeywordSystemPrompt,
-                    request.TopicKeywordRulesPrompt,
+                    request.SimilarQuestionSystemPrompt,
+                    request.SimilarQuestionRulesPrompt,
+                    topicSystemPrompt,
+                    topicRulesPrompt,
                     request.AnswerRefineSystemPrompt,
                     request.AnswerRefineRulesPrompt);
 
@@ -862,6 +871,8 @@ namespace AiDeskApi.Controllers
                 {
                     KeywordSystemPrompt = template.KeywordSystemPrompt,
                     KeywordRulesPrompt = template.KeywordRulesPrompt,
+                    SimilarQuestionSystemPrompt = template.SimilarQuestionSystemPrompt,
+                    SimilarQuestionRulesPrompt = template.SimilarQuestionRulesPrompt,
                     TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
                     TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
                     AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
@@ -1204,7 +1215,7 @@ namespace AiDeskApi.Controllers
                 .ToList();
         }
 
-        private static string BuildKbEmbeddingSource(string? title, string? content, string? keywords, IEnumerable<string>? expectedQuestions)
+        private static string BuildKbBodyEmbeddingSource(string? title, string? content)
         {
             var parts = new List<string>();
 
@@ -1218,19 +1229,12 @@ namespace AiDeskApi.Controllers
                 parts.Add($"내용: {content.Trim()}");
             }
 
-            var keywordList = (keywords ?? string.Empty)
-                .Split(new[] { ',', ';', '|', '/', '#' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(20)
-                .ToList();
+            return string.Join("\n", parts);
+        }
 
-            if (keywordList.Count > 0)
-            {
-                parts.Add("키워드: " + string.Join(" | ", keywordList));
-            }
-
+        private static string BuildKeywordGenerationSource(string? title, string? content, IEnumerable<string>? expectedQuestions)
+        {
+            var bodySource = BuildKbBodyEmbeddingSource(title, content);
             var expected = (expectedQuestions ?? Enumerable.Empty<string>())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
@@ -1238,12 +1242,30 @@ namespace AiDeskApi.Controllers
                 .Take(10)
                 .ToList();
 
-            if (expected.Count > 0)
+            if (expected.Count == 0)
             {
-                parts.Add("예상질문: " + string.Join(" | ", expected));
+                return bodySource;
             }
 
-            return string.Join("\n", parts);
+            if (string.IsNullOrWhiteSpace(bodySource))
+            {
+                return "예상질문: " + string.Join(" | ", expected);
+            }
+
+            return $"{bodySource}\n예상질문: {string.Join(" | ", expected)}";
+        }
+
+        private async Task<KnowledgeBaseSimilarQuestion> BuildSimilarQuestionAsync(string question)
+        {
+            var trimmed = question.Trim();
+            var embedding = await _embeddingService.EmbedTextAsync(trimmed);
+
+            return new KnowledgeBaseSimilarQuestion
+            {
+                Question = trimmed,
+                QuestionEmbedding = JsonSerializer.Serialize(embedding),
+                CreatedAt = DateTime.UtcNow
+            };
         }
 
         private async Task<string> ResolveActorNameAsync()
@@ -1502,6 +1524,8 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
+            public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
+            public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
@@ -1512,6 +1536,8 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
+            public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
+            public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;

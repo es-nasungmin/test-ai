@@ -5,6 +5,8 @@ namespace AiDeskApi.Models
         public int Id { get; set; }
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
