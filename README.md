@@ -1,60 +1,49 @@
 # AiDesk
 
-> ASP.NET Core 10 + Vue 3 기반 AI 고객 상담 지원 시스템
-> JWT 인증, RAG 챗봇, 지식베이스(KB) 관리, 문서 벡터 검색을 제공합니다.
+> ASP.NET Core 10 + Vue 3 기반 KB/RAG 챗봇 시스템
+> 지식베이스 관리, 문서 벡터 검색, 채팅 로그/질문 분석 기능을 제공합니다.
 
 ---
 
 ## 목차
 
-- [아키텍처 개요](#아키텍처-개요)
+- [프로젝트 개요](#프로젝트-개요)
 - [빠른 시작](#빠른-시작)
-- [기술 스택 요약](#기술-스택-요약)
-- [권한 구조](#권한-구조)
+- [기술 스택](#기술-스택)
+- [아키텍처](#아키텍처)
 - [프로젝트 구조](#프로젝트-구조)
 - [핵심 기능](#핵심-기능)
-- [실행 방법](#실행-방법)
-- [서버 배포](#서버-배포)
 - [주요 API](#주요-api)
 - [운영 메모](#운영-메모)
 - [관련 문서](#관련-문서)
 
 ---
 
-## 아키텍처 개요
+## 프로젝트 개요
 
-```
-[Vue 3 클라이언트]  ←→  [ASP.NET Core API]  ←→  [SQLite / MSSQL]
-                                ↕
-                        [OpenAI Embedding]
-                        [GPT-4o-mini / Gemini]
-                        [Qdrant 벡터 DB]
-```
+이 저장소는 KB 중심 RAG 챗봇 운영을 위한 웹 애플리케이션입니다.
 
-**데이터 흐름 (KB 자동 생성)**
+주요 범위:
+- KB 생성/수정/삭제 및 공개 범위 관리
+- 예상질문/키워드 기반 임베딩 및 벡터 인덱싱
+- 사용자 질문에 대한 하이브리드 검색(벡터 + 키워드 + rerank)
+- 채팅 세션/메시지 관리 및 질문 분석 리포트
+- 문서(PDF/텍스트) 기반 보조 근거 검색
 
-```
-상담 저장
-  └─▶ AI가 문제/해결 자동 추출 (KnowledgeExtractorService)
-        └─▶ KB 저장 + 임베딩 생성
-              └─▶ Qdrant 벡터 인덱싱
-
-챗봇 질문
-  └─▶ 질문 임베딩
-        └─▶ Qdrant 벡터 검색 (Top-K)
-              └─▶ 키워드 리랭킹 + 문서 청크 병합
-                    └─▶ GPT 답변 생성 (RAG)
-```
+주의:
+- 이 README는 제출용으로 KB/채팅 범위만 설명합니다.
 
 ---
 
 ## 빠른 시작
 
+사전 설정은 [docs/setup.md](docs/setup.md)를 참고하세요.
+
 ```bash
-# 1) 저장소 루트에서 실행
+# 1) 프로젝트 루트에서 실행
 ./scripts/run-all.sh
 
-# 2) 브라우저 접속
+# 2) 접속
 # Frontend: http://localhost:5173
 # Backend:  http://localhost:8080
 
@@ -62,42 +51,54 @@
 ./scripts/stop-all.sh
 ```
 
-필수 선행 설정은 [docs/setup.md](docs/setup.md)를 참고하세요.
+로그:
+- /tmp/aideskapi.log
+- /tmp/aideskclient.log
 
 ---
 
-## 기술 스택 요약
+## 기술 스택
 
 | 영역 | 스택 |
 |------|------|
 | Frontend | Vue 3, Vite, Axios |
 | Backend | ASP.NET Core (.NET 10), EF Core, JWT |
-| Database | SQLite(기본), MSSQL(전환 가능) |
+| Database | SQLite(기본), MSSQL(설정 전환) |
 | AI | OpenAI Embedding(text-embedding-3-small), OpenAI Chat(gpt-4o-mini), Gemini(보조) |
 | Vector DB | Qdrant (Cosine) |
 
-상세 버전/설명은 [docs/tech-stack.md](docs/tech-stack.md)를 참고하세요.
+상세는 [docs/tech-stack.md](docs/tech-stack.md)를 참고하세요.
 
 ---
 
-## 권한 구조
+## 아키텍처
 
-| 구분 | 관리자 (`admin`) | 일반 사용자 (`user`) |
-|------|:-:|:-:|
-| 로그인 | JWT (관리자 승인 필요) | JWT (관리자 승인 필요) |
-| KB 열람 | 전체 (`admin` + `user` visibility) | 공개 KB만 (`user` visibility) |
-| KB 작성 / 수정 / 삭제 | ✅ | ❌ |
-| 문서 KB 업로드 | ✅ | ❌ |
-| 고객 / 상담 관리 | ✅ | ❌ |
-| 챗봇 이용 | ✅ (전체 KB 참고) | ✅ (공개 KB만 참고) |
-| 채팅 이력 열람 | ✅ | 본인 세션만 |
+```text
+[Vue 3 Client]
+      <->
+[ASP.NET Core API]
+      <->
+[SQLite / MSSQL]
+      <->
+[Qdrant]
+      <->
+[OpenAI Embedding + Chat]
+```
 
-**KB `visibility` 값**
+RAG 처리 흐름:
 
-| 값 | 의미 |
-|----|------|
-| `admin` | 관리자 챗봇만 참고 (기본값) |
-| `user` | 관리자 + 일반 사용자 모두 참고 가능 |
+```text
+질문 입력
+  -> 질문 정규화
+  -> 임베딩 생성
+  -> Qdrant 벡터 검색(top-k)
+  -> 키워드 후보 확장
+  -> GPT rerank
+  -> 임계치 판정
+  -> 답변 생성(또는 저유사도 안내)
+```
+
+상세 동작은 [docs/rag-kb-process.md](docs/rag-kb-process.md)를 참고하세요.
 
 ---
 
@@ -105,53 +106,37 @@
 
 ```text
 AIDeskPJ/
-├── AiDeskApi/                          # ASP.NET Core 10 백엔드
+├── AiDeskApi/
 │   ├── Controllers/
-│   │   ├── AuthController.cs           # 로그인 · 회원가입 · 사용자 승인
-│   │   ├── CustomerController.cs       # 고객 CRUD
-│   │   ├── InteractionController.cs    # 상담 CRUD + AI 요약
-│   │   ├── KnowledgeBaseController.cs  # KB CRUD + RAG + 문서 KB
-│   │   └── ChatController.cs           # 채팅 세션 관리
-│   ├── Data/
-│   │   ├── AiDeskContext.cs            # EF Core DbContext
-│   │   └── DatabaseInitializer.cs      # DB 자동 초기화 (관리자 계정 포함)
-│   ├── Models/                         # 도메인 모델 12개
+│   │   ├── KnowledgeBaseController.cs  # KB CRUD + ask + 문서 업로드
+│   │   └── ChatController.cs           # 세션/메시지/질문분석
 │   ├── Services/
-│   │   ├── OpenAiRagService.cs         # RAG 파이프라인 (벡터 + 키워드)
-│   │   ├── OpenAiEmbeddingService.cs   # text-embedding-3-small
-│   │   ├── QdrantVectorSearchService.cs# Qdrant HTTP 클라이언트
-│   │   ├── KnowledgeExtractorService.cs# 상담 → KB 자동 추출
-│   │   ├── DocumentKnowledgeService.cs # PDF/텍스트 문서 파싱 + 청킹
-│   │   ├── GptService.cs               # OpenAI Chat
-│   │   └── GeminiService.cs            # Google Gemini Chat
-│   ├── appsettings.json                # 공통 설정 (플레이스홀더)
-│   ├── appsettings.Development.json    # 개발용 실제 키 입력
-│   └── Program.cs                      # DI 등록 + 미들웨어
+│   │   ├── OpenAiRagService.cs         # RAG 파이프라인
+│   │   ├── OpenAiEmbeddingService.cs   # 임베딩 생성
+│   │   ├── QdrantVectorSearchService.cs# 벡터 검색/동기화
+│   │   └── DocumentKnowledgeService.cs # 문서 파싱/청킹
+│   ├── Data/
+│   │   ├── AiDeskContext.cs
+│   │   └── DatabaseInitializer.cs
+│   └── Program.cs
 │
-├── AiDeskClient/                       # Vue 3 + Vite 프론트엔드
+├── AiDeskClient/
 │   ├── src/
-│   │   ├── views/
-│   │   │   ├── LoginPage.vue           # JWT 로그인
-│   │   │   └── ManagementPage.vue      # 운영 관리 메인
-│   │   ├── components/
-│   │   │   ├── FloatingChatbot.vue     # 챗봇 UI (admin/user 분기)
-│   │   │   └── Management/             # 고객 · 상담 · KB 관리 컴포넌트
-│   │   ├── api.js                      # Axios 기반 API 클라이언트
-│   │   └── config.js                   # VITE_API_BASE_URL 설정
-│   └── public/
-│       ├── chat-widget.js              # 외부 사이트 임베드용 챗봇 위젯
-│       └── chat-widget-example.html    # 위젯 사용 예시
+│   │   ├── components/Management/
+│   │   │   ├── KBManagement.vue
+│   │   │   └── ChatLogManagement.vue
+│   │   └── views/ManagementPage.vue
+│   └── public/chat-widget.js
 │
 ├── docs/
-│   ├── deploy.md                       # 서버 배포 가이드
-│   ├── erd.md                          # DB ERD (Mermaid)
-│   ├── rag-kb-process.md               # RAG / KB 처리 흐름 명세
-│   ├── tech-stack.md                   # 기술 스택 요약
-│   ├── api-spec.md                     # API 전체 명세
-│   └── setup.md                        # 환경 설정 가이드
+│   ├── deploy.md
+│   ├── rag-kb-process.md
+│   ├── tech-stack.md
+│   ├── api-spec.md
+│   └── setup.md
 │
 └── scripts/
-    ├── run-all.sh                      # 백엔드 + 프론트 한 번에 실행
+    ├── run-all.sh
     ├── run-backend.sh
     ├── run-frontend.sh
     └── stop-all.sh
@@ -161,173 +146,83 @@ AIDeskPJ/
 
 ## 핵심 기능
 
-### 고객 · 상담 관리
-- 고객 등록 / 수정 / 삭제
-- 상담 이력 등록 · 완료 처리 · AI 요약
+### 1) KB 관리
+- KB 생성/수정/삭제
+- Visibility(user/admin) 기반 공개 범위
+- 플랫폼(공통/특정) 기반 필터
+- 예상질문 최대 10개 관리
 
-### 지식베이스 (KB)
-- 상담 저장 후 AI가 문제/해결 자동 추출 → KB 생성
-- 관리자가 KB 직접 작성 / 수정 / 삭제
-- `visibility` 토글로 공개 범위 조정
-- 유사 질문 자동 생성 및 벡터 인덱싱
+### 2) RAG 챗봇
+- 질문 정규화 후 임베딩
+- 벡터 검색 + 키워드 후보 확장 + GPT rerank
+- 임계치 기반 저유사도 차단
+- 문서형 KB 보조 검색
 
-### 문서 KB
-- PDF · 텍스트 파일 업로드 → OCR → 청크 분할 → 벡터 인덱싱
-- RAG 답변 시 문서 청크를 KB와 함께 참고
+### 3) 채팅 로그/분석
+- 채팅 세션 목록/상세/삭제
+- 키워드/역할/플랫폼 필터
+- 질문 분석 리포트(top referenced KB, 키워드, 일별 집계)
 
-### RAG 챗봇
-- 벡터 검색(Qdrant) + 키워드 리랭킹 혼합 전략
-- 세션별 대화 이력 유지
-- 유사도 미달 질문 자동 기록 (LowSimilarityQuestions)
-- 외부 사이트에 JS 위젯으로 임베드 가능
-
-### 인증
-- JWT 기반 로그인 / 회원가입
-- 관리자 승인 후 계정 활성화
-
----
-
-## 실행 방법
-
-### 사전 요구사항
-
-| 항목 | 버전 |
-|------|------|
-| .NET SDK | 10.0 이상 |
-| Node.js | 18 이상 |
-| Qdrant | 로컬 실행 또는 클라우드 |
-
-> 환경 변수 및 API 키 설정은 [docs/setup.md](docs/setup.md)를 참고하세요.
-
-### 스크립트로 한 번에 실행 (권장)
-
-```bash
-# 백엔드(8080) + 프론트(5173) 동시 실행
-./scripts/run-all.sh
-
-# 전체 중지
-./scripts/stop-all.sh
-```
-
-- 포트가 이미 사용 중이면 기존 프로세스를 종료 후 재실행합니다.
-- 로그: `/tmp/aideskapi.log`, `/tmp/aideskclient.log`
-
-### 개별 실행
-
-```bash
-# 백엔드
-./scripts/run-backend.sh
-# 또는
-cd AiDeskApi && dotnet run
-
-# 프론트
-./scripts/run-frontend.sh
-# 또는
-cd AiDeskClient && npm install && npm run dev
-```
-
-| 서비스 | 주소 |
-|--------|------|
-| 백엔드 API | http://localhost:8080 |
-| 프론트엔드 | http://localhost:5173 |
-| Qdrant | http://localhost:6333 |
-
----
-
-## 서버 배포
-
-개발/운영 배포 절차는 [docs/deploy.md](docs/deploy.md)에 정리되어 있습니다.
-- 개발 서버 빠른 배포 (스크립트 기반)
-- 운영형 배포 (dotnet publish + systemd + nginx + HTTPS)
+### 4) 문서형 KB
+- 문서 업로드
+- OCR/텍스트 추출
+- 청크 임베딩 및 벡터 인덱싱
 
 ---
 
 ## 주요 API
 
-> 전체 상세 명세는 [docs/api-spec.md](docs/api-spec.md)를 참고하세요.
-
-### Auth
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | `/api/auth/login` | 로그인 (JWT 발급) |
-| POST | `/api/auth/register` | 회원가입 |
-| POST | `/api/auth/validate` | 토큰 유효성 확인 |
-| GET  | `/api/auth/users` | 전체 사용자 목록 (관리자) |
-| GET  | `/api/auth/pending-users` | 승인 대기 사용자 |
-| POST | `/api/auth/approve-user/{userId}` | 사용자 승인 |
-| POST | `/api/auth/reject-user/{userId}` | 사용자 거부 |
-
-### Customer
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET    | `/api/customer` | 목록 조회 |
-| GET    | `/api/customer/{id}` | 단건 조회 |
-| POST   | `/api/customer` | 등록 |
-| PUT    | `/api/customer/{id}` | 수정 |
-| DELETE | `/api/customer/{id}` | 삭제 |
-
-### Interaction (상담)
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| GET    | `/api/interaction` | 목록 조회 |
-| GET    | `/api/interaction/{id}` | 단건 조회 |
-| POST   | `/api/interaction` | 등록 |
-| PUT    | `/api/interaction/{id}` | 수정 |
-| DELETE | `/api/interaction/{id}` | 삭제 |
-| PATCH  | `/api/interaction/{id}/complete` | 완료 처리 |
-| POST   | `/api/interaction/summarize` | AI 요약 |
-| POST   | `/api/interaction/{id}/summarize` | 특정 상담 AI 요약 |
-| POST   | `/api/interaction/customer/{customerId}/summarize-all` | 고객 전체 요약 |
-| GET    | `/api/interaction/prompt-template` | 요약 프롬프트 조회 |
-| PUT    | `/api/interaction/prompt-template` | 요약 프롬프트 수정 |
+상세 요청/응답은 [docs/api-spec.md](docs/api-spec.md)를 참고하세요.
 
 ### KnowledgeBase
+
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST   | `/api/knowledgebase/ask` | RAG 챗봇 질문 |
-| POST   | `/api/knowledgebase` | KB 생성 |
-| PUT    | `/api/knowledgebase/{id}` | KB 수정 |
-| GET    | `/api/knowledgebase/{id}` | KB 단건 조회 |
-| DELETE | `/api/knowledgebase/{id}` | KB 삭제 |
-| GET    | `/api/knowledgebase/list` | KB 목록 조회 |
-| GET    | `/api/knowledgebase/stats` | KB 통계 |
-| POST   | `/api/knowledgebase/generate-similar-questions` | 유사 질문 생성 |
-| POST   | `/api/knowledgebase/generate-keywords` | 키워드 생성 |
-| POST   | `/api/knowledgebase/refine-solution` | 답변 다듬기 |
-| GET    | `/api/knowledgebase/chatbot-prompt-template` | 챗봇 프롬프트 조회 |
-| PUT    | `/api/knowledgebase/chatbot-prompt-template` | 챗봇 프롬프트 수정 |
-| GET    | `/api/knowledgebase/writer-prompt-template` | 작성 프롬프트 조회 |
-| PUT    | `/api/knowledgebase/writer-prompt-template` | 작성 프롬프트 수정 |
+| POST | /api/knowledgebase/ask | RAG 챗봇 질문 |
+| POST | /api/knowledgebase | KB 생성 |
+| PUT | /api/knowledgebase/{id} | KB 수정 |
+| GET | /api/knowledgebase/{id} | KB 단건 조회 |
+| DELETE | /api/knowledgebase/{id} | KB 삭제 |
+| GET | /api/knowledgebase/list | KB 목록 조회 |
+| GET | /api/knowledgebase/stats | KB 통계 |
+| POST | /api/knowledgebase/generate-similar-questions | 유사 질문 생성 |
+| POST | /api/knowledgebase/generate-keywords | 키워드 생성 |
+| POST | /api/knowledgebase/refine-solution | 답변 다듬기 |
+| GET | /api/knowledgebase/chatbot-prompt-template | 챗봇 프롬프트 조회 |
+| PUT | /api/knowledgebase/chatbot-prompt-template | 챗봇 프롬프트 수정 |
+| GET | /api/knowledgebase/writer-prompt-template | 작성 프롬프트 조회 |
+| PUT | /api/knowledgebase/writer-prompt-template | 작성 프롬프트 수정 |
 
 ### Document KB
+
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| POST   | `/api/knowledgebase/documents/upload` | 문서 업로드 |
-| GET    | `/api/knowledgebase/documents` | 문서 목록 |
-| PUT    | `/api/knowledgebase/documents/{id}` | 문서 정보 수정 |
-| DELETE | `/api/knowledgebase/documents/{id}` | 문서 삭제 |
-| POST   | `/api/knowledgebase/documents/{id}/reindex` | 문서 재인덱싱 |
-| GET    | `/api/knowledgebase/documents/{id}/download` | 문서 다운로드 |
+| POST | /api/knowledgebase/documents/upload | 문서 업로드 |
+| GET | /api/knowledgebase/documents | 문서 목록 |
+| PUT | /api/knowledgebase/documents/{id} | 문서 정보 수정 |
+| DELETE | /api/knowledgebase/documents/{id} | 문서 삭제 |
+| POST | /api/knowledgebase/documents/{id}/reindex | 문서 재인덱싱 |
+| GET | /api/knowledgebase/documents/{id}/download | 문서 다운로드 |
 
 ### Chat
+
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| GET    | `/api/chat/sessions` | 세션 목록 (role/platform 필터) |
-| POST   | `/api/chat/sessions` | 세션 생성 |
-| GET    | `/api/chat/sessions/{id}` | 세션 + 메시지 조회 |
-| DELETE | `/api/chat/sessions/{id}` | 세션 삭제 |
-| GET    | `/api/chat/questions-summary` | 질문 요약 통계 |
+| GET | /api/chat/sessions | 세션 목록 |
+| POST | /api/chat/sessions | 세션 생성 |
+| GET | /api/chat/sessions/{id} | 세션 + 메시지 조회 |
+| DELETE | /api/chat/sessions/{id} | 세션 삭제 |
+| GET | /api/chat/questions-summary | 질문 요약 통계 |
 
 ---
 
 ## 운영 메모
 
-- **API 키**: `appsettings.Development.json`에 실제 키를 입력하세요. `appsettings.json`은 플레이스홀더입니다.
-- **보안 권장**: 실제 API 키/DB 비밀번호는 커밋하지 말고 환경 변수 또는 Secret Manager로 분리하세요.
-- **CORS**: 운영/스테이징 환경에서는 `appsettings.Production.json`의 `Cors:AllowedOrigins`를 실제 도메인으로 교체하세요.
-- **DB 초기화**: 앱 시작 시 자동 생성됩니다. `aidesk.db` 삭제 후 재시작하면 관리자 계정만 재생성됩니다.
-- **Qdrant**: `aidesk_kb` 컬렉션을 삭제하면 모든 벡터 인덱스가 초기화됩니다. KB 재인덱싱이 필요합니다.
-- **프론트 API 주소**: `AiDeskClient/.env`의 `VITE_API_BASE_URL`로 설정합니다. (기본값: `/api`)
+- API 키/DB 비밀번호는 커밋하지 말고 환경 변수/Secret Manager 사용을 권장합니다.
+- Production에서는 CORS 허용 도메인을 명시해야 합니다.
+- 앱 시작 시 DB 초기화/벡터 동기화가 수행됩니다.
+- Qdrant 컬렉션(aidesk_kb) 삭제 시 벡터 인덱스를 재구성해야 합니다.
+- 프론트 API 주소는 AiDeskClient/.env 의 VITE_API_BASE_URL 로 설정합니다.
 
 ---
 
@@ -336,8 +231,8 @@ cd AiDeskClient && npm install && npm run dev
 | 문서 | 설명 |
 |------|------|
 | [docs/deploy.md](docs/deploy.md) | 개발/운영 서버 배포 가이드 |
-| [docs/erd.md](docs/erd.md) | DB 전체 ERD (Mermaid) |
-| [docs/rag-kb-process.md](docs/rag-kb-process.md) | RAG / KB 처리 흐름 상세 명세 |
+| [docs/rag-kb-process.md](docs/rag-kb-process.md) | KB 생성부터 답변까지 RAG 상세 흐름 |
 | [docs/tech-stack.md](docs/tech-stack.md) | 기술 스택/모델/인프라 요약 |
 | [docs/api-spec.md](docs/api-spec.md) | API 요청/응답 상세 명세 |
-| [docs/setup.md](docs/setup.md) | 환경 설정 및 외부 서비스 연동 가이드 |
+| [docs/setup.md](docs/setup.md) | 로컬/개발 환경 설정 가이드 |
+| [docs/erd.md](docs/erd.md) | DB ERD |
