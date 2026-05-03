@@ -28,6 +28,12 @@ AiDeskApi/*.db-*
 AiDeskClient/node_modules/
 AiDeskClient/dist/
 AiDeskClient/dist-ssr/
+
+# Benchmark reports (타임스탐프 파일만 제외, latest만 추적)
+reports/benchmark-100-*.md
+reports/benchmark-100-*.json
+!reports/benchmark-100-latest.md
+!reports/benchmark-100-latest.json
 AiDeskClient/*.local
 
 # Environment files
