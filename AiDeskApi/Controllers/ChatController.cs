@@ -298,6 +298,46 @@ namespace AiDeskApi.Controllers
 
                 var botRows = await botQuery.ToListAsync();
 
+                // 답변 품질 지표 집계 (TopSimilarity / IsLowSimilarity 기반)
+                var qualityQuery = _context.ChatMessages
+                    .AsNoTracking()
+                    .Where(m => m.Role == "bot" && m.CreatedAt >= fromUtc && m.TopSimilarity != null)
+                    .Join(
+                        _context.ChatSessions.AsNoTracking(),
+                        m => m.SessionId,
+                        s => s.Id,
+                        (m, s) => new
+                        {
+                            m.TopSimilarity,
+                            m.IsLowSimilarity,
+                            SessionRole = s.UserRole,
+                            SessionPlatform = s.Platform
+                        });
+
+                if (!string.IsNullOrWhiteSpace(role))
+                    qualityQuery = qualityQuery.Where(x => x.SessionRole == role.Trim().ToLowerInvariant());
+                if (!string.IsNullOrWhiteSpace(platform))
+                    qualityQuery = qualityQuery.Where(x => x.SessionPlatform == platform.Trim().ToLowerInvariant());
+
+                var qualityRows = await qualityQuery.ToListAsync();
+
+                var totalAnswers = qualityRows.Count;
+                var avgSimilarity = totalAnswers > 0 ? qualityRows.Average(x => (double)x.TopSimilarity!) : 0.0;
+                var lowSimilarityCount = qualityRows.Count(x => x.IsLowSimilarity);
+                var lowSimilarityRate = totalAnswers > 0 ? (double)lowSimilarityCount / totalAnswers : 0.0;
+                var highConfidenceCount = qualityRows.Count(x => x.TopSimilarity >= 0.82f);
+                var highConfidenceRate = totalAnswers > 0 ? (double)highConfidenceCount / totalAnswers : 0.0;
+
+                // 유사도 구간별 분포
+                var similarityDistribution = new[]
+                {
+                    new { Range = "0.9+",   Count = qualityRows.Count(x => x.TopSimilarity >= 0.9f) },
+                    new { Range = "0.8~0.9", Count = qualityRows.Count(x => x.TopSimilarity >= 0.8f && x.TopSimilarity < 0.9f) },
+                    new { Range = "0.7~0.8", Count = qualityRows.Count(x => x.TopSimilarity >= 0.7f && x.TopSimilarity < 0.8f) },
+                    new { Range = "0.5~0.7", Count = qualityRows.Count(x => x.TopSimilarity >= 0.5f && x.TopSimilarity < 0.7f) },
+                    new { Range = "~0.5",    Count = qualityRows.Count(x => x.TopSimilarity < 0.5f) },
+                };
+
                 var kbRefMap = new Dictionary<int, (int Count, DateTime LastReferencedAt)>();
                 foreach (var row in botRows)
                 {
@@ -360,6 +400,14 @@ namespace AiDeskApi.Controllers
                     uniqueQuestions = normalized.Select(x => x.Normalized).Distinct().Count(),
                     uniqueReferencedKbs = kbRefMap.Count,
                     rankingBasis = "kb-reference",
+                    // 답변 품질 지표
+                    totalAnswers,
+                    avgSimilarity = Math.Round(avgSimilarity, 3),
+                    lowSimilarityCount,
+                    lowSimilarityRate = Math.Round(lowSimilarityRate, 4),
+                    highConfidenceCount,
+                    highConfidenceRate = Math.Round(highConfidenceRate, 4),
+                    similarityDistribution,
                     topReferencedKbs,
                     topQuestions,
                     topKeywords,

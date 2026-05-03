@@ -345,6 +345,53 @@ onMounted(() => {
             <p>조회기간 {{ summaryDays }}일 기준 집계</p>
           </div>
 
+          <!-- 답변 품질 대시보드 -->
+          <div class="quality-dashboard">
+            <h4 class="quality-title">답변 품질 대시보드</h4>
+            <div class="quality-kpi-row">
+              <div class="quality-kpi-card">
+                <div class="quality-kpi-label">총 답변 수</div>
+                <div class="quality-kpi-value">{{ questionSummary.totalAnswers ?? 0 }}</div>
+              </div>
+              <div class="quality-kpi-card" :class="{ 'kpi-warn': (questionSummary.lowSimilarityRate ?? 0) > 0.15 }">
+                <div class="quality-kpi-label">미매칭 비율</div>
+                <div class="quality-kpi-value">{{ ((questionSummary.lowSimilarityRate ?? 0) * 100).toFixed(1) }}%</div>
+                <div class="quality-kpi-sub">{{ questionSummary.lowSimilarityCount ?? 0 }}건</div>
+              </div>
+              <div class="quality-kpi-card">
+                <div class="quality-kpi-label">평균 유사도</div>
+                <div class="quality-kpi-value">{{ (questionSummary.avgSimilarity ?? 0).toFixed(3) }}</div>
+              </div>
+              <div class="quality-kpi-card" :class="{ 'kpi-good': (questionSummary.highConfidenceRate ?? 0) >= 0.6 }">
+                <div class="quality-kpi-label">고신뢰 비율</div>
+                <div class="quality-kpi-value">{{ ((questionSummary.highConfidenceRate ?? 0) * 100).toFixed(1) }}%</div>
+                <div class="quality-kpi-sub">score ≥ 0.82</div>
+              </div>
+            </div>
+
+            <!-- 유사도 분포 히스토그램 -->
+            <div v-if="questionSummary.similarityDistribution && questionSummary.totalAnswers > 0" class="similarity-dist">
+              <div class="dist-title">유사도 분포</div>
+              <div class="dist-bars">
+                <div
+                  v-for="item in questionSummary.similarityDistribution"
+                  :key="item.range"
+                  class="dist-row"
+                >
+                  <div class="dist-label">{{ item.range }}</div>
+                  <div class="dist-bar-wrap">
+                    <div
+                      class="dist-bar"
+                      :style="{ width: questionSummary.totalAnswers > 0 ? (item.count / questionSummary.totalAnswers * 100) + '%' : '0%' }"
+                      :class="item.range === '~0.5' ? 'bar-danger' : item.range.startsWith('0.9') ? 'bar-success' : 'bar-normal'"
+                    ></div>
+                  </div>
+                  <div class="dist-count">{{ item.count }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="kpi-cards">
             <div class="kpi-card">
               <div class="kpi-label">총 질문 수</div>
@@ -789,6 +836,121 @@ onMounted(() => {
   margin: 0;
   font-size: 13px;
   color: #64748b;
+}
+
+/* =====================================================
+   답변 품질 대시보드
+   ===================================================== */
+.quality-dashboard {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.quality-title {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.quality-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.quality-kpi-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.quality-kpi-card.kpi-warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.quality-kpi-card.kpi-good {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.quality-kpi-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.quality-kpi-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.quality-kpi-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 3px;
+}
+
+.similarity-dist {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 14px;
+}
+
+.dist-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.dist-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.dist-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 40px;
+  align-items: center;
+  gap: 10px;
+}
+
+.dist-label {
+  font-size: 12px;
+  color: #64748b;
+  text-align: right;
+}
+
+.dist-bar-wrap {
+  background: #f1f5f9;
+  border-radius: 4px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.dist-bar {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+
+.dist-bar.bar-success { background: #22c55e; }
+.dist-bar.bar-normal  { background: #60a5fa; }
+.dist-bar.bar-danger  { background: #f87171; }
+
+.dist-count {
+  font-size: 12px;
+  color: #475569;
+  text-align: right;
 }
 
 .kpi-cards {
