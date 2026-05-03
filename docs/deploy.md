@@ -662,11 +662,59 @@ IIS 관리자에서:
 
 ## 8. Qdrant (Vector DB) 설치
 
-**Qdrant가 뭔가요?** 벡터 데이터베이스입니다. 임베딩된 문서들을 저장하고, 유사한 문서를 빠르게 검색할 때 사용됩니다.
+**Qdrant가 뭔가요?** 벡터 데이터베이스입니다. 임베딩된 문서들을 저장하고, 유사한 문서를 빠르게 검색할 때 사용됩니다.  
+**Qdrant는 오픈소스(Apache 2.0)로 완전 무료입니다.** Cloud 버전만 유료입니다.
 
-### 옵션 A: Docker로 실행 (개발/소규모, 추천)
+### 옵션 A: 바이너리 직접 실행 (권장 ✅)
 
-**Docker란?** 어플리케이션을 컨테이너라는 격리된 환경에서 실행하는 방식입니다.
+Docker 없이 Qdrant 실행 파일을 바로 실행하는 방식입니다. 설치가 간단하고 Docker 오버헤드 없이 동작합니다.
+
+**설치:**
+
+1. https://github.com/qdrant/qdrant/releases 에서 최신 릴리즈 페이지로 이동
+2. `qdrant-x86_64-pc-windows-msvc.zip` 다운로드
+3. `C:\deploy\qdrant\` 에 압축 해제
+
+**폴더 준비:**
+
+```powershell
+mkdir C:\deploy\qdrant\storage
+```
+
+**실행:**
+
+```powershell
+# 관리자 PowerShell에서
+cd C:\deploy\qdrant
+.\qdrant.exe
+```
+
+**Windows 서비스로 등록 (부팅 시 자동 시작):**
+
+```powershell
+# NSSM(Non-Sucking Service Manager) 사용
+# https://nssm.cc/download 에서 다운로드 후 PATH에 추가
+
+nssm install qdrant "C:\deploy\qdrant\qdrant.exe"
+nssm set qdrant AppDirectory "C:\deploy\qdrant"
+nssm set qdrant Description "Qdrant Vector DB"
+nssm start qdrant
+```
+
+**확인:**
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:6333/health
+# StatusCode : 200
+```
+
+✅ **확인**: 결과가 200이고 "ok" 메시지가 보이면 정상 실행
+
+---
+
+### 옵션 B: Docker로 실행
+
+Docker Desktop이 이미 설치된 환경이라면 이 방법도 가능합니다.
 
 **Docker 설치:**
 
@@ -676,44 +724,32 @@ IIS 관리자에서:
 4. PowerShell에서 확인:
    ```powershell
    docker --version
-   # 결과: Docker version 24.x.x 등
    ```
 
 **Qdrant 실행:**
 
 ```powershell
-# 관리자 PowerShell에서
 docker run -d --name qdrant --restart=always `
   -p 6333:6333 `
   -v C:\deploy\qdrant\storage:/qdrant/storage `
   qdrant/qdrant
-
-# 실행 결과 (컨테이너 ID가 출력됨)
-# a1b2c3d4e5f6g7h8...
 ```
 
 **확인:**
 
 ```powershell
-# Qdrant가 실행 중인지 확인
 docker ps
-
-# 또는 HTTP 요청
 Invoke-WebRequest http://127.0.0.1:6333/health
-
-# 결과:
-# StatusCode : 200
 ```
 
-✅ **확인**: 결과가 200이고 "ok" 메시지가 보이면 정상 실행
+---
 
-### 옵션 B: 별도 Linux/Windows 서버에 설치 (대규모 운영)
+### 옵션 C: 별도 Linux/Windows 서버에 설치 (대규모 운영)
 
 대규모 트래픽이 예상되면 별도 서버에 Qdrant를 설치합니다.
 
-1. 별도 서버(Linux 권장)에 Docker 설치
-2. 위 명령어와 동일하게 실행
-3. 백엔드 설정에서 Qdrant URL 변경:
+1. 별도 서버(Linux 권장)에 바이너리 또는 Docker로 설치
+2. 백엔드 설정에서 Qdrant URL 변경:
 
 ```json
 {
