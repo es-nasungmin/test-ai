@@ -40,7 +40,8 @@ namespace AiDeskApi.Data
             db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS KnowledgeBases (
                 Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBases PRIMARY KEY AUTOINCREMENT,
-                Title TEXT NULL,
+                Title TEXT NOT NULL,
+                Content TEXT NOT NULL,
                 Problem TEXT NOT NULL,
                 Solution TEXT NOT NULL,
                 ProblemEmbedding TEXT NULL,
@@ -55,6 +56,7 @@ namespace AiDeskApi.Data
             );");
 
             EnsureColumnExists(db, "KnowledgeBases", "Title", "ALTER TABLE KnowledgeBases ADD COLUMN Title TEXT NULL;");
+            EnsureColumnExists(db, "KnowledgeBases", "Content", "ALTER TABLE KnowledgeBases ADD COLUMN Content TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "Visibility", "ALTER TABLE KnowledgeBases ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'admin';");
             EnsureColumnExists(db, "KnowledgeBases", "Platform", "ALTER TABLE KnowledgeBases ADD COLUMN Platform TEXT NOT NULL DEFAULT '공통';");
             EnsureColumnExists(db, "KnowledgeBases", "Tags", "ALTER TABLE KnowledgeBases ADD COLUMN Tags TEXT NULL;");
@@ -66,6 +68,16 @@ namespace AiDeskApi.Data
             UPDATE KnowledgeBases
             SET UpdatedAt = COALESCE(UpdatedAt, CreatedAt)
             WHERE UpdatedAt IS NULL;");
+
+            db.Database.ExecuteSqlRaw(@"
+            UPDATE KnowledgeBases
+            SET Title = COALESCE(NULLIF(TRIM(Title), ''), NULLIF(TRIM(Problem), ''), '제목 없음')
+            WHERE Title IS NULL OR TRIM(Title) = '';");
+
+            db.Database.ExecuteSqlRaw(@"
+            UPDATE KnowledgeBases
+            SET Content = COALESCE(NULLIF(TRIM(Content), ''), NULLIF(TRIM(Solution), ''), '')
+            WHERE Content IS NULL OR TRIM(Content) = '';");
 
             db.Database.ExecuteSqlRaw(@"
             UPDATE KnowledgeBases
@@ -219,6 +231,46 @@ namespace AiDeskApi.Data
             db.Database.ExecuteSqlRaw(@"
             CREATE INDEX IF NOT EXISTS IX_KnowledgeBases_UpdatedAt
             ON KnowledgeBases (UpdatedAt DESC);");
+
+            // 10. KnowledgeBaseHistories 테이블
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS KnowledgeBaseHistories (
+                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseHistories PRIMARY KEY AUTOINCREMENT,
+                KnowledgeBaseId INTEGER NOT NULL,
+                Action TEXT NOT NULL,
+                Actor TEXT NOT NULL,
+                ChangedAt TEXT NOT NULL,
+                BeforeTitle TEXT NULL,
+                BeforeContent TEXT NULL,
+                BeforeVisibility TEXT NULL,
+                BeforePlatform TEXT NULL,
+                BeforeKeywords TEXT NULL,
+                AfterTitle TEXT NULL,
+                AfterContent TEXT NULL,
+                AfterVisibility TEXT NULL,
+                AfterPlatform TEXT NULL,
+                AfterKeywords TEXT NULL
+            );");
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseHistories_KnowledgeBaseId_ChangedAt
+            ON KnowledgeBaseHistories (KnowledgeBaseId, ChangedAt DESC);");
+
+            // 11. KnowledgeBaseExpectedQuestionHistories 테이블
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS KnowledgeBaseExpectedQuestionHistories (
+                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseExpectedQuestionHistories PRIMARY KEY AUTOINCREMENT,
+                KnowledgeBaseId INTEGER NOT NULL,
+                Action TEXT NOT NULL,
+                Actor TEXT NOT NULL,
+                ChangedAt TEXT NOT NULL,
+                BeforeQuestion TEXT NULL,
+                AfterQuestion TEXT NULL
+            );");
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseExpectedQuestionHistories_KnowledgeBaseId_ChangedAt
+            ON KnowledgeBaseExpectedQuestionHistories (KnowledgeBaseId, ChangedAt DESC);");
 
             db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS KnowledgeBaseWriterPromptTemplates (

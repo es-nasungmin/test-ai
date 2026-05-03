@@ -15,6 +15,8 @@ namespace AiDeskApi.Data
 
         // 고객/상담/지식베이스 핵심 테이블
         public DbSet<KnowledgeBase> KnowledgeBases { get; set; } = null!;
+        public DbSet<KnowledgeBaseHistory> KnowledgeBaseHistories { get; set; } = null!;
+        public DbSet<KnowledgeBaseExpectedQuestionHistory> KnowledgeBaseExpectedQuestionHistories { get; set; } = null!;
         public DbSet<KbPlatform> KbPlatforms { get; set; } = null!;
         public DbSet<KnowledgeBaseSimilarQuestion> KnowledgeBaseSimilarQuestions { get; set; } = null!;
         public DbSet<LowSimilarityQuestion> LowSimilarityQuestions { get; set; } = null!;
@@ -43,13 +45,13 @@ namespace AiDeskApi.Data
             modelBuilder.Entity<KnowledgeBase>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Title).HasMaxLength(200);
-                entity.Property(e => e.Problem).IsRequired().HasMaxLength(500);
-                entity.Property(e => e.Solution).IsRequired();
+                entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Content).IsRequired();
                 entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Content).HasColumnName("Content");
                 entity.Property(e => e.Keywords).HasColumnName("Tags").HasMaxLength(500);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
                 entity.HasIndex(e => e.UpdatedAt);
@@ -64,6 +66,32 @@ namespace AiDeskApi.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(50);
                 entity.HasIndex(e => e.Name).IsUnique();
+            });
+
+            modelBuilder.Entity<KnowledgeBaseHistory>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Action).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.Actor).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.BeforeTitle).HasMaxLength(200);
+                entity.Property(e => e.AfterTitle).HasMaxLength(200);
+                entity.Property(e => e.BeforeVisibility).HasMaxLength(20);
+                entity.Property(e => e.AfterVisibility).HasMaxLength(20);
+                entity.Property(e => e.BeforePlatform).HasMaxLength(200);
+                entity.Property(e => e.AfterPlatform).HasMaxLength(200);
+                entity.Property(e => e.BeforeKeywords).HasMaxLength(500);
+                entity.Property(e => e.AfterKeywords).HasMaxLength(500);
+                entity.HasIndex(e => new { e.KnowledgeBaseId, e.ChangedAt });
+            });
+
+            modelBuilder.Entity<KnowledgeBaseExpectedQuestionHistory>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Action).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.Actor).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.BeforeQuestion).HasMaxLength(500);
+                entity.Property(e => e.AfterQuestion).HasMaxLength(500);
+                entity.HasIndex(e => new { e.KnowledgeBaseId, e.ChangedAt });
             });
 
             modelBuilder.Entity<KnowledgeBaseSimilarQuestion>(entity =>

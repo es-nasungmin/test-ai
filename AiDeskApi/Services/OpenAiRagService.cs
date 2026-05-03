@@ -24,11 +24,17 @@ namespace AiDeskApi.Services
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
     public class OpenAiRagService : IRagService
     {
+        // 초기 벡터 검색 후보 수. document/expected를 분리하기 전에 넓게 가져온다.
         private const int RawVectorTopK = 40;
+        // KB 본문(document) 포인트에서 유지할 상위 후보 수
         private const int DocumentVectorTopK = 15;
+        // 예상질문(expected) 포인트에서 유지할 상위 후보 수
         private const int ExpectedVectorTopK = 20;
+        // KB 단위 병합 이후 유지할 후보 수
         private const int MergeTopK = 10;
+        // LLM rerank 대상으로 넘길 최대 후보 수
         private const int ReRankTopK = 8;
+        // 최종 답변 컨텍스트에 사용할 최대 후보 수
         private const int FinalTopK = 5;
         private const float ReRankSkipScoreThreshold = 0.82f;   // 상위 후보가 이 이상이면 rerank 스킵
         private const float ReRankSkipGapThreshold = 0.15f;    // 1위~2위 점수 차가 이 이상이면 rerank 스킵
@@ -86,6 +92,7 @@ namespace AiDeskApi.Services
                 _logger.LogInformation($"📝 질문 받음 [{role}/{platform}]: {question}");
                 runtimeOptions ??= new RagRuntimeOptions();
 
+                // prompt-only 모드: 검색/판단 로직을 모두 건너뛰고 프롬프트 응답만 생성
                 if (runtimeOptions.PromptOnly)
                 {
                     var promptOnlyAnswer = await GenerateAnswerAsync(
@@ -107,12 +114,15 @@ namespace AiDeskApi.Services
                     };
                 }
 
-                // 1) 사용자 질문 임베딩
+                // 1) 사용자 질문 정규화 + 임베딩 생성
+                //    - 표기 흔들림(안됨/불가/안 보여요 등)을 정규화해 임베딩 분산을 줄인다.
                 var normalizedQuestion = NormalizeQueryForEmbedding(question);
                 var questionEmbedding = await _embeddingService.EmbedTextAsync(normalizedQuestion);
                 var normalizedPlatform = NormalizePlatform(platform);
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
+                // role/platform 기반으로 "조회 가능한 KB 범위"를 먼저 제한한다.
+                // 실제 유사도 계산은 벡터DB에서 하되, 후속 병합 시 이 범위를 다시 검증한다.
                 var kbQuery = _context.KnowledgeBases.AsNoTracking().AsQueryable();
                 if (role != "admin")
                 {
@@ -126,6 +136,7 @@ namespace AiDeskApi.Services
                 }
 
                 // 1-1) 벡터 검색: 본문(document) + 예상질문(expected) 포인트를 함께 조회
+                //      실패 시 예외를 전파하지 않고 빈 결과로 진행해 서비스 가용성을 우선한다.
                 IReadOnlyList<VectorSearchHit> semanticHits;
                 try
                 {
@@ -138,17 +149,19 @@ namespace AiDeskApi.Services
                 }
 
                 var documentVectorHits = semanticHits
-                    .Where(x => !x.IsSimilarQuestion)
+                    .Where(x => !x.IsExpectedQuestion)
                     .OrderByDescending(x => x.Score)
                     .Take(DocumentVectorTopK)
                     .ToList();
 
                 var expectedVectorHits = semanticHits
-                    .Where(x => x.IsSimilarQuestion)
+                    .Where(x => x.IsExpectedQuestion)
                     .OrderByDescending(x => x.Score)
                     .Take(ExpectedVectorTopK)
                     .ToList();
 
+                // 두 소스의 top-k를 결합해 KB 후보군을 만든다.
+                // (한쪽만 강한 KB가 누락되지 않도록 source별 컷을 따로 적용)
                 var semanticTop = documentVectorHits.Concat(expectedVectorHits).ToList();
 
                 // 2) 질문 키워드 추출 (키워드는 임베딩하지 않고 약한 가산/진단 용도로만 사용)
@@ -178,6 +191,7 @@ namespace AiDeskApi.Services
                         documentBestByKb.TryGetValue(id, out var bestDoc);
                         expectedBestByKb.TryGetValue(id, out var bestExpected);
 
+                        // KB별 대표 semantic score는 document/expected 중 더 높은 쪽을 채택한다.
                         var bestSemantic = bestExpected != null && (bestDoc == null || bestExpected.Score >= bestDoc.Score)
                             ? bestExpected
                             : bestDoc;
@@ -185,9 +199,8 @@ namespace AiDeskApi.Services
                         var semanticScore = bestSemantic?.Score ?? 0f;
                         var matchedQuestion = bestSemantic?.MatchedQuestion
                             ?? kbById[id].Title
-                            ?? kbById[id].Problem
                             ?? string.Empty;
-                        var isExpectedMatch = bestSemantic?.IsSimilarQuestion == true;
+                        var isExpectedMatch = bestSemantic?.IsExpectedQuestion == true;
 
                         var keywordInfo = BuildKeywordBoostInfo(kbById[id], questionTokens);
                         var keywordBoost = semanticScore >= similarityThreshold - KeywordBoostHardFloorGap
@@ -218,6 +231,8 @@ namespace AiDeskApi.Services
                 var reranked = ShouldSkipRerank(mergedCandidates)
                     ? mergedCandidates.OrderByDescending(x => x.FinalScore).Take(ReRankTopK).ToList()
                     : await ReRankCandidatesAsync(question, mergedCandidates, ReRankTopK);
+
+                // 최종 답변 생성 단계로 넘길 후보 집합
                 var topResults = reranked
                     .Take(FinalTopK)
                     .Select(x => (x.Kb, x.FinalScore, x.MatchedQuestion, x.IsExpectedMatch))
@@ -245,6 +260,7 @@ namespace AiDeskApi.Services
                     .ToList();
 
                 // 임계치 이상 FAQ 후보만 충돌 감지/우선안 선택 수행
+                // (노이즈 후보는 다수결/충돌판단에서 제외)
                 var voteResult = BuildResolutionVote(eligibleResults);
                 var selectedResults = voteResult.SelectedCases;
                 var topResultSet = topResults.Select(x => x.Item1.Id).ToHashSet();
@@ -261,7 +277,7 @@ namespace AiDeskApi.Services
                         .Select(x => new RetrievalCandidateDiagnostic
                         {
                             Id = x.Kb.Id,
-                            Title = string.IsNullOrWhiteSpace(x.Kb.Title) ? x.Kb.Problem : x.Kb.Title,
+                            Title = x.Kb.Title,
                             MatchedQuestion = x.MatchedQuestion,
                             BaseSimilarity = x.SemanticScore,
                             KeywordBoost = x.KeywordScore,
@@ -289,6 +305,7 @@ namespace AiDeskApi.Services
                 }
 
                 // 답변 생성
+                // 관리자/사용자 role에 따라 BuildContext에서 노출 정보 레벨이 달라진다.
                 var faqContext = BuildContext(eligibleResults, voteResult, role);
                 var contextText = faqContext;
 
@@ -296,10 +313,8 @@ namespace AiDeskApi.Services
                 var topScore = topKbScore;
                 var topMatchedQuestion = topResults.Count > 0 ? topResults[0].Item3 : null;
                 var topKb = topResults.Count > 0 ? topResults[0].Item1 : null;
-                var topMatchedKbTitle = topKb != null
-                    ? (string.IsNullOrWhiteSpace(topKb.Title) ? topKb.Problem : topKb.Title)
-                    : null;
-                var topMatchedKbContent = topKb?.Solution;
+                var topMatchedKbTitle = topKb?.Title;
+                var topMatchedKbContent = topKb?.Content;
 
                 var answer = await GenerateAnswerAsync(question, contextText, role, topScore, history, runtimeOptions);
                 var isLowSimilarity = topScore < similarityThreshold;
@@ -321,8 +336,8 @@ namespace AiDeskApi.Services
                         .Select(x => new KBSummary
                         {
                             Id = x.Item1.Id,
-                            Title = string.IsNullOrWhiteSpace(x.Item1.Title) ? x.Item1.Problem : x.Item1.Title,
-                            Solution = x.Item1.Solution,
+                            Title = x.Item1.Title,
+                            Content = x.Item1.Content,
                             Similarity = x.Item2,
                             MatchedQuestion = x.Item3,
                             IsSelected = selectedResults.Any(s => s.kb.Id == x.Item1.Id)
@@ -409,6 +424,7 @@ namespace AiDeskApi.Services
                     }
                     else
                     {
+                        // 규칙을 prompt에 명시적으로 반복 주입해 Hallucination을 억제한다.
                         prompt = $@"{context}
 
 【사용자 질문】
@@ -500,7 +516,7 @@ namespace AiDeskApi.Services
                 : options.LowSimilarityMessageOverride;
         }
 
-        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedSimilar)> results, ResolutionVoteResult voteResult, string role)
+        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results, ResolutionVoteResult voteResult, string role)
         {
             if (role != "admin")
             {
@@ -511,11 +527,11 @@ namespace AiDeskApi.Services
             sb.AppendLine("【관련된 과거 상담 사례】");
             for (int i = 0; i < results.Count; i++)
             {
-                var (kb, similarity, matchedQuestion, matchedSimilar) = results[i];
+                var (kb, similarity, matchedQuestion, matchedExpected) = results[i];
                 sb.AppendLine($"\n{i + 1}. 유사도: {similarity:P0}");
-                sb.AppendLine($"   매칭 근거: {matchedQuestion} {(matchedSimilar ? "(예상질문)" : "(제목/내용)")}");
-                sb.AppendLine($"   제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
-                sb.AppendLine($"   해결: {kb.Solution}");
+                sb.AppendLine($"   매칭 근거: {matchedQuestion} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
+                sb.AppendLine($"   제목: {kb.Title}");
+                sb.AppendLine($"   해결: {kb.Content}");
             }
 
             sb.AppendLine("\n【충돌 분석 결과】");
@@ -526,24 +542,24 @@ namespace AiDeskApi.Services
             {
                 var top = voteResult.SelectedCases[0];
                 sb.AppendLine($"- 우선 선택 사례: KB#{top.kb.Id} (유사도 {top.similarity:P0})");
-                sb.AppendLine($"- 우선 해결안: {top.kb.Solution}");
+                sb.AppendLine($"- 우선 해결안: {top.kb.Content}");
             }
 
             return sb.ToString();
         }
 
-        private string BuildUserContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedSimilar)> results)
+        private string BuildUserContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results)
         {
             var sb = new StringBuilder();
             sb.AppendLine("【답변 후보 정보(우선순위 순)】");
 
             for (int i = 0; i < results.Count; i++)
             {
-                var (kb, _, matchedQuestion, matchedSimilar) = results[i];
+                var (kb, _, matchedQuestion, matchedExpected) = results[i];
                 sb.AppendLine($"\n우선순위 {i + 1}");
-                sb.AppendLine($"- 매칭된 근거: {matchedQuestion} {(matchedSimilar ? "(예상질문)" : "(제목/내용)")}");
-                sb.AppendLine($"- KB 제목: {(string.IsNullOrWhiteSpace(kb.Title) ? kb.Problem : kb.Title)}");
-                sb.AppendLine($"- 권장 안내: {kb.Solution}");
+                sb.AppendLine($"- 매칭된 근거: {matchedQuestion} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
+                sb.AppendLine($"- KB 제목: {kb.Title}");
+                sb.AppendLine($"- 권장 안내: {kb.Content}");
             }
 
             sb.AppendLine("\n※ 주의: 답변에는 우선순위, 유사도, 사례/내역 건수 같은 내부 기준을 노출하지 말 것.");
@@ -558,7 +574,7 @@ namespace AiDeskApi.Services
             return text[..maxLength] + "...";
         }
 
-        private ResolutionVoteResult BuildResolutionVote(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedSimilar)> results)
+        private ResolutionVoteResult BuildResolutionVote(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results)
         {
             if (results.Count == 0)
             {
@@ -571,7 +587,7 @@ namespace AiDeskApi.Services
             }
 
             var grouped = results
-                .GroupBy(x => NormalizeSolutionForVote(x.kb.Solution))
+                .GroupBy(x => NormalizeSolutionForVote(x.kb.Content))
                 .Select(g => new
                 {
                     Key = g.Key,
@@ -723,7 +739,7 @@ namespace AiDeskApi.Services
             }
 
             var candidateLines = candidates.Select((x, idx) =>
-                $"{idx + 1}. id={x.Kb.Id}, title={x.Kb.Title}, semantic={x.SemanticScore:F3}, final={x.FinalScore:F3}, matched={x.MatchedQuestion}, source={(x.IsExpectedMatch ? "expected" : "document")}, content={TruncateText(x.Kb.Solution, 180)}");
+                $"{idx + 1}. id={x.Kb.Id}, title={x.Kb.Title}, semantic={x.SemanticScore:F3}, final={x.FinalScore:F3}, matched={x.MatchedQuestion}, source={(x.IsExpectedMatch ? "expected" : "document")}, content={TruncateText(x.Kb.Content, 180)}");
 
             var prompt = $@"사용자 질문과 관련성 순으로 후보를 재정렬하세요.
 
@@ -974,7 +990,7 @@ namespace AiDeskApi.Services
     {
         public int Id { get; set; }
         public string? Title { get; set; }
-        public string? Solution { get; set; }
+        public string? Content { get; set; }
         public float Similarity { get; set; }
         public string? MatchedQuestion { get; set; }
         public bool IsSelected { get; set; }

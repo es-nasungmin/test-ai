@@ -8,13 +8,13 @@
 
 ## 1. 목표와 구성
 
-시스템은 두 채널을 함께 사용합니다.
+시스템은 단일 KB 채널을 사용하며, 검색용 벡터 포인트를 두 종류로 운용합니다.
 
-1. FAQ형 KB 채널
-   - 관리자가 작성한 KB(제목, 내용, 키워드, 예상질문)
+1. KB 본문 포인트 (`document` 타입)
+   - 관리자가 작성한 KB의 제목+내용 기반 임베딩
 
-2. 문서형 KB 채널
-   - 업로드한 문서(PDF/텍스트)를 청크로 분할한 근거 (보조 채널)
+2. 예상질문 포인트 (`expected` 타입)
+   - KB별 예상질문 임베딩
 
 핵심 원칙:
 - 본문(제목+내용) 벡터와 예상질문 벡터를 분리해 인덱싱
@@ -63,6 +63,9 @@ KB 저장/수정 후 Qdrant 컬렉션으로 upsert 됩니다.
 
 payload 주요 필드:
 - `kbId`, `type`(`document`|`expected`), `question`, `visibility`, `platforms`, `keywords`, `updatedAt`
+
+참고:
+- 여기서 `document`는 업로드 문서 타입이 아니라 "KB 본문 임베딩 포인트"를 의미합니다.
 
 > 앱 기동 시 `SyncAllKnowledgeBasesAsync`로 전체 KB 재동기화를 수행합니다.
 

@@ -12,6 +12,13 @@ namespace AiDeskApi.Controllers
     [Route("api/[controller]")]
     public class KnowledgeBaseController : ControllerBase
     {
+        private const string KbHistoryActionCreate = "create";
+        private const string KbHistoryActionUpdate = "update";
+        private const string KbHistoryActionDelete = "delete";
+        private const string ExpectedQuestionHistoryActionAdd = "add";
+        private const string ExpectedQuestionHistoryActionUpdate = "update";
+        private const string ExpectedQuestionHistoryActionRemove = "remove";
+
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
         private readonly IRagService _ragService;
@@ -236,19 +243,14 @@ namespace AiDeskApi.Controllers
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, content);
-                var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                 var now = DateTime.Now;
                 var actor = await ResolveActorNameAsync();
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
 
                 var kb = new KnowledgeBase
                 {
-                    Title = request.Title?.Trim(),
-                    // 레거시 호환: Problem/Solution 컬럼은 유지하되 문서형 구조에서는 Title/Content 의미로 저장
-                    Problem = request.Title!.Trim(),
-                    Solution = content,
-                    ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding),
+                    Title = request.Title!.Trim(),
+                    Content = content,
                     Visibility = NormalizeVisibility(request.Visibility),
                     Platform = SerializePlatforms(platforms),
                     Keywords = (request.Keywords ?? request.Tags)?.Trim(),
@@ -265,6 +267,12 @@ namespace AiDeskApi.Controllers
 
                 _context.KnowledgeBases.Add(kb);
                 await _context.SaveChangesAsync();
+
+                _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionCreate));
+                _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
+                    kb.SimilarQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
+                await _context.SaveChangesAsync();
+
                 try
                 {
                     await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
@@ -299,17 +307,19 @@ namespace AiDeskApi.Controllers
                 if (kb == null)
                     return NotFound("KB를 찾을 수 없습니다.");
 
+                var beforeTitle = kb.Title;
+                var beforeContent = kb.Content;
+                var beforeVisibility = kb.Visibility;
+                var beforePlatform = kb.Platform;
+                var beforeKeywords = kb.Keywords;
+
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, content);
-                var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
-                kb.ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding);
 
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
                 var actor = await ResolveActorNameAsync();
-                kb.Title = request.Title?.Trim();
-                kb.Problem = request.Title!.Trim();
-                kb.Solution = content;
+                kb.Title = request.Title!.Trim();
+                kb.Content = content;
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
                 kb.Keywords = (request.Keywords ?? request.Tags)?.Trim();
@@ -335,15 +345,20 @@ namespace AiDeskApi.Controllers
                     if (existingByKey.TryGetValue(key, out var existing))
                     {
                         // 표현(대소문자/공백)만 바뀐 경우 표시 문자열만 최신값으로 동기화
+                        var beforeQuestion = existing.Question;
                         existing.Question = q;
-                        if (string.IsNullOrWhiteSpace(existing.QuestionEmbedding))
+                        if (!string.Equals(beforeQuestion, existing.Question, StringComparison.Ordinal))
                         {
-                            existing.QuestionEmbedding = JsonSerializer.Serialize(await _embeddingService.EmbedTextAsync(q));
+                            _context.KnowledgeBaseExpectedQuestionHistories.Add(
+                                BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionUpdate, beforeQuestion, existing.Question));
                         }
                         continue;
                     }
 
-                    kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
+                    var newItem = await BuildSimilarQuestionAsync(q);
+                    kb.SimilarQuestions.Add(newItem);
+                    _context.KnowledgeBaseExpectedQuestionHistories.Add(
+                        BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, newItem.Question));
                 }
 
                 var toRemove = kb.SimilarQuestions
@@ -352,7 +367,32 @@ namespace AiDeskApi.Controllers
 
                 if (toRemove.Count > 0)
                 {
+                    _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
+                        toRemove.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionRemove, x.Question, null)));
                     _context.KnowledgeBaseSimilarQuestions.RemoveRange(toRemove);
+                }
+
+                if (HasKbMetaChanges(
+                        beforeTitle,
+                        beforeContent,
+                        beforeVisibility,
+                        beforePlatform,
+                        beforeKeywords,
+                        kb.Title,
+                        kb.Content,
+                        kb.Visibility,
+                        kb.Platform,
+                        kb.Keywords))
+                {
+                    _context.KnowledgeBaseHistories.Add(BuildKbHistory(
+                        kb,
+                        actor,
+                        KbHistoryActionUpdate,
+                        beforeTitle,
+                        beforeContent,
+                        beforeVisibility,
+                        beforePlatform,
+                        beforeKeywords));
                 }
 
                 await _context.SaveChangesAsync();
@@ -418,7 +458,7 @@ namespace AiDeskApi.Controllers
                     {
                         query = query.Where(x =>
                             (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
-                            EF.Functions.Like(x.Solution, $"%{q}%") ||
+                            EF.Functions.Like(x.Content, $"%{q}%") ||
                             (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
                             x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
                     }
@@ -433,7 +473,7 @@ namespace AiDeskApi.Controllers
                     {
                         x.Id,
                         x.Title,
-                        content = x.Solution,
+                        content = x.Content,
                         x.CreatedAt,
                         x.UpdatedAt,
                         x.CreatedBy,
@@ -551,7 +591,7 @@ namespace AiDeskApi.Controllers
                 {
                     kb.Id,
                     kb.Title,
-                    content = kb.Solution,
+                    content = kb.Content,
                     kb.CreatedAt,
                     kb.UpdatedAt,
                     kb.CreatedBy,
@@ -582,6 +622,16 @@ namespace AiDeskApi.Controllers
                 if (kb == null)
                     return NotFound("KB를 찾을 수 없습니다.");
 
+                var actor = await ResolveActorNameAsync();
+
+                _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionDelete));
+                var questions = await _context.KnowledgeBaseSimilarQuestions
+                    .Where(x => x.KnowledgeBaseId == id)
+                    .Select(x => x.Question)
+                    .ToListAsync();
+                _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
+                    questions.Select(x => BuildExpectedQuestionHistory(id, actor, ExpectedQuestionHistoryActionRemove, x, null)));
+
                 _context.KnowledgeBases.Remove(kb);
                 await _context.SaveChangesAsync();
                 try
@@ -599,6 +649,71 @@ namespace AiDeskApi.Controllers
             {
                 return StatusCode(500, new { error = ex.Message });
             }
+        }
+
+        [HttpGet("{id}/history")]
+        public async Task<IActionResult> GetKnowledgeBaseHistory(int id)
+        {
+            var exists = await _context.KnowledgeBases.AnyAsync(x => x.Id == id);
+            if (!exists)
+            {
+                var hasHistory = await _context.KnowledgeBaseHistories.AnyAsync(x => x.KnowledgeBaseId == id)
+                    || await _context.KnowledgeBaseExpectedQuestionHistories.AnyAsync(x => x.KnowledgeBaseId == id);
+
+                if (!hasHistory)
+                    return NotFound("KB를 찾을 수 없습니다.");
+            }
+
+            var kbHistory = await _context.KnowledgeBaseHistories
+                .AsNoTracking()
+                .Where(x => x.KnowledgeBaseId == id)
+                .OrderByDescending(x => x.ChangedAt)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.Action,
+                    x.Actor,
+                    x.ChangedAt,
+                    before = new
+                    {
+                        title = x.BeforeTitle,
+                        content = x.BeforeContent,
+                        visibility = x.BeforeVisibility,
+                        platform = x.BeforePlatform,
+                        keywords = x.BeforeKeywords
+                    },
+                    after = new
+                    {
+                        title = x.AfterTitle,
+                        content = x.AfterContent,
+                        visibility = x.AfterVisibility,
+                        platform = x.AfterPlatform,
+                        keywords = x.AfterKeywords
+                    }
+                })
+                .ToListAsync();
+
+            var expectedQuestionHistory = await _context.KnowledgeBaseExpectedQuestionHistories
+                .AsNoTracking()
+                .Where(x => x.KnowledgeBaseId == id)
+                .OrderByDescending(x => x.ChangedAt)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.Action,
+                    x.Actor,
+                    x.ChangedAt,
+                    beforeQuestion = x.BeforeQuestion,
+                    afterQuestion = x.AfterQuestion
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                kbId = id,
+                kbHistory,
+                expectedQuestionHistory
+            });
         }
 
         [HttpGet("stats")]
@@ -924,17 +1039,13 @@ namespace AiDeskApi.Controllers
                 {
                     var resolvedContent = ResolveContent(request);
                     var resolvedQuestions = ResolveExpectedQuestions(request);
-                    var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, resolvedContent);
-                    var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
                     var now = DateTime.Now;
                     var platforms = NormalizePlatforms(request.Platforms, request.Platform);
 
                     var kb = new KnowledgeBase
                     {
-                        Title = request.Title?.Trim(),
-                        Problem = request.Title!.Trim(),
-                        Solution = resolvedContent,
-                        ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding),
+                        Title = request.Title!.Trim(),
+                        Content = resolvedContent,
                         Visibility = NormalizeVisibility(request.Visibility),
                         Platform = SerializePlatforms(platforms),
                         Keywords = (request.Keywords ?? request.Tags)?.Trim(),
@@ -948,6 +1059,11 @@ namespace AiDeskApi.Controllers
                         kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
 
                     _context.KnowledgeBases.Add(kb);
+                    await _context.SaveChangesAsync();
+
+                    _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionCreate));
+                    _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
+                        kb.SimilarQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
                     await _context.SaveChangesAsync();
 
                     try { await _vectorSearchService.UpsertKnowledgeBaseAsync(kb); }
@@ -1283,12 +1399,10 @@ namespace AiDeskApi.Controllers
         private async Task<KnowledgeBaseSimilarQuestion> BuildSimilarQuestionAsync(string question)
         {
             var trimmed = question.Trim();
-            var embedding = await _embeddingService.EmbedTextAsync(trimmed);
 
             return new KnowledgeBaseSimilarQuestion
             {
                 Question = trimmed,
-                QuestionEmbedding = JsonSerializer.Serialize(embedding),
                 CreatedAt = DateTime.UtcNow
             };
         }
@@ -1427,6 +1541,72 @@ namespace AiDeskApi.Controllers
         {
             var normalized = NormalizePlatform(platform);
             return SplitPlatforms(serialized).Contains(normalized);
+        }
+
+        private static bool HasKbMetaChanges(
+            string? beforeTitle,
+            string? beforeContent,
+            string? beforeVisibility,
+            string? beforePlatform,
+            string? beforeKeywords,
+            string? afterTitle,
+            string? afterContent,
+            string? afterVisibility,
+            string? afterPlatform,
+            string? afterKeywords)
+        {
+            return !string.Equals(beforeTitle, afterTitle, StringComparison.Ordinal)
+                || !string.Equals(beforeContent, afterContent, StringComparison.Ordinal)
+                || !string.Equals(beforeVisibility, afterVisibility, StringComparison.Ordinal)
+                || !string.Equals(beforePlatform, afterPlatform, StringComparison.Ordinal)
+                || !string.Equals(beforeKeywords, afterKeywords, StringComparison.Ordinal);
+        }
+
+        private static KnowledgeBaseHistory BuildKbHistory(
+            KnowledgeBase kb,
+            string actor,
+            string action,
+            string? beforeTitle = null,
+            string? beforeContent = null,
+            string? beforeVisibility = null,
+            string? beforePlatform = null,
+            string? beforeKeywords = null)
+        {
+            return new KnowledgeBaseHistory
+            {
+                KnowledgeBaseId = kb.Id,
+                Action = action,
+                Actor = actor,
+                ChangedAt = DateTime.UtcNow,
+                BeforeTitle = beforeTitle,
+                BeforeContent = beforeContent,
+                BeforeVisibility = beforeVisibility,
+                BeforePlatform = beforePlatform,
+                BeforeKeywords = beforeKeywords,
+                AfterTitle = kb.Title,
+                AfterContent = kb.Content,
+                AfterVisibility = kb.Visibility,
+                AfterPlatform = kb.Platform,
+                AfterKeywords = kb.Keywords
+            };
+        }
+
+        private static KnowledgeBaseExpectedQuestionHistory BuildExpectedQuestionHistory(
+            int kbId,
+            string actor,
+            string action,
+            string? beforeQuestion,
+            string? afterQuestion)
+        {
+            return new KnowledgeBaseExpectedQuestionHistory
+            {
+                KnowledgeBaseId = kbId,
+                Action = action,
+                Actor = actor,
+                ChangedAt = DateTime.UtcNow,
+                BeforeQuestion = beforeQuestion,
+                AfterQuestion = afterQuestion
+            };
         }
 
         private static string ReplacePlatform(string? serialized, string oldPlatform, string newPlatform)
