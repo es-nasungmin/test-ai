@@ -12,18 +12,15 @@ namespace AiDeskApi.Controllers
     public class InteractionController : ControllerBase
     {
         private readonly AiDeskContext _context;
-        private readonly IGeminiService _geminiService;
         private readonly IGptService _gptService;
         private readonly ISummaryPromptTemplateService _promptTemplates;
 
         public InteractionController(
             AiDeskContext context,
-            IGeminiService geminiService,
             IGptService gptService,
             ISummaryPromptTemplateService promptTemplates)
         {
             _context = context;
-            _geminiService = geminiService;
             _gptService = gptService;
             _promptTemplates = promptTemplates;
         }
@@ -256,22 +253,12 @@ namespace AiDeskApi.Controllers
 
         private async Task<string> SummarizeSingleAsync(string? provider, string content, string type)
         {
-            var normalized = (provider ?? "gpt").Trim().ToLowerInvariant();
-            return normalized switch
-            {
-                "gpt" or "openai" => await _gptService.SummarizeConsultationAsync(content, type),
-                _ => await _geminiService.SummarizeConsultationAsync(content, type)
-            };
+            return await _gptService.SummarizeConsultationAsync(content, type);
         }
 
         private async Task<string> SummarizeAllAsync(string? provider, List<ConsultationData> consultations, CompanyData company)
         {
-            var normalized = (provider ?? "gpt").Trim().ToLowerInvariant();
-            return normalized switch
-            {
-                "gpt" or "openai" => await _gptService.SummarizeAllConsultationsAsync(consultations, company),
-                _ => await _geminiService.SummarizeAllConsultationsAsync(consultations, company)
-            };
+            return await _gptService.SummarizeAllConsultationsAsync(consultations, company);
         }
     }
 

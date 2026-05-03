@@ -55,10 +55,12 @@ function getActorHeader() {
     const userRaw = localStorage.getItem('user')
     const user = userRaw ? JSON.parse(userRaw) : null
     const candidates = [
-      user?.username,
-      user?.Username,
+      user?.loginId,
+      user?.LoginId,
       user?.name,
-      user?.Name
+      user?.Name,
+      user?.username,
+      user?.Username
     ]
     const actorName = candidates
       .find((x) => typeof x === 'string' && x.trim())
@@ -112,6 +114,12 @@ const showRefinePreview = ref(false)
 const refinedSolutionPreview = ref('')
 const showWriterPromptEditor = ref(false)
 const savingWriterPromptTemplate = ref(false)
+const bulkImportResult = ref(null)
+const csvFileInput = ref(null)
+const bulkImporting = ref(false)
+const showBulkModal = ref(false)
+const bulkSelectedFile = ref(null)
+const bulkTotalCount = ref(0)
 const writerPromptTemplateForm = ref({
   answerRefineSystemPrompt: '',
   answerRefineRulesPrompt: '',
@@ -123,6 +131,20 @@ const writerPromptTemplateForm = ref({
 const MAX_EXPECTED_QUESTIONS = 10
 
 const kbTotalPages = computed(() => Math.max(1, Math.ceil(kbTotal.value / kbPageSize)))
+const kbPageNumbers = computed(() => {
+  const total = kbTotalPages.value
+  const cur = kbPage.value
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages = []
+  pages.push(1)
+  if (cur > 3) pages.push('...')
+  const start = Math.max(2, cur - 2)
+  const end = Math.min(total - 1, cur + 2)
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (cur < total - 2) pages.push('...')
+  pages.push(total)
+  return pages
+})
 const lowSimilarityTotalPages = computed(() => Math.max(1, Math.ceil(lowSimilarityTotal.value / lowSimilarityPageSize)))
 
 async function fetchKbs() {
@@ -699,352 +721,91 @@ onMounted(async () => {
   await fetchPlatforms()
   await fetchKbs()
   await fetchLowSimilarityQuestions()
-  await fetchDocuments()
 })
 
-// ─── 문서 관리 ─────────────────────────────────────────────────
-const activeTab = ref('kb') // 'kb' | 'documents'
-const documentList = ref([])
-const loadingDocuments = ref(false)
-const documentError = ref('')
-const docPlatformFilter = ref('all')
-const uploadingDocument = ref(false)
-const updatingDocId = ref(null)
-const editingDocumentId = ref(null)
-const docFileInput = ref(null)
-const selectedDocumentFile = ref(null)
-const selectedEditDocumentFile = ref(null)
-const docForm = ref({ displayName: '', visibility: 'admin', platform: '공통' })
-const editDocForm = ref({ displayName: '', visibility: 'admin', platform: '공통' })
-
-async function fetchDocuments() {
-  loadingDocuments.value = true
-  documentError.value = ''
-  try {
-    const platform = docPlatformFilter.value === 'all' ? undefined : docPlatformFilter.value
-    const res = await axios.get(`${API_URL}/knowledgebase/documents`, {
-      params: { role: 'admin', platform }
-    })
-    documentList.value = res.data.data || []
-    if (editingDocumentId.value && !documentList.value.some((x) => x.id === editingDocumentId.value)) {
-      editingDocumentId.value = null
-    }
-  } catch {
-    documentError.value = '문서 목록을 불러오지 못했습니다.'
-  } finally {
-    loadingDocuments.value = false
-  }
+function downloadCsvTemplate() {
+  axios.get(`${API_URL}/knowledgebase/bulk-import/template`, {
+    headers: getActorHeader(),
+    responseType: 'blob'
+  }).then((res) => {
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv;charset=utf-8;' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'kb-import-template.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }).catch(() => {
+    alert('양식 다운로드에 실패했습니다.')
+  })
 }
 
-function startEditDocument(doc) {
-  editingDocumentId.value = doc.id
-  selectedEditDocumentFile.value = null
-  editDocForm.value = {
-    displayName: doc.displayName || '',
-    visibility: doc.visibility || 'admin',
-    platform: doc.platform || '공통'
-  }
+function openBulkModal() {
+  bulkSelectedFile.value = null
+  bulkTotalCount.value = 0
+  bulkImportResult.value = null
+  showBulkModal.value = true
 }
 
-function cancelEditDocument() {
-  const currentEditingId = editingDocumentId.value
-  editingDocumentId.value = null
-  selectedEditDocumentFile.value = null
-  if (currentEditingId) {
-    const inputEl = document.getElementById(`edit-file-input-${currentEditingId}`)
-    if (inputEl) {
-      inputEl.value = ''
-    }
-  }
+function closeBulkModal() {
+  if (bulkImporting.value) return
+  showBulkModal.value = false
+  bulkImportResult.value = null
+  bulkSelectedFile.value = null
+  if (csvFileInput.value) csvFileInput.value.value = ''
 }
 
-function onSelectEditDocumentFile(e) {
-  const file = e.target.files?.[0] || null
-  selectedEditDocumentFile.value = file
-}
-
-async function updateDocument(doc) {
-  const displayName = (editDocForm.value.displayName || '').trim()
-  if (!displayName) {
-    alert('표시 이름을 입력해주세요.')
+function onBulkModalFileChange(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (!file.name.endsWith('.csv')) {
+    alert('CSV 파일(.csv)만 업로드 가능합니다.')
+    event.target.value = ''
     return
   }
-
-  if (updatingDocId.value) return
-  updatingDocId.value = doc.id
-
-  try {
-    await axios.put(`${API_URL}/knowledgebase/documents/${doc.id}`, {
-      displayName,
-      visibility: editDocForm.value.visibility || 'admin',
-      platform: editDocForm.value.platform || '공통'
-    }, {
-      headers: getActorHeader()
-    })
-
-    if (selectedEditDocumentFile.value) {
-      const fileName = selectedEditDocumentFile.value.name || ''
-      if (!fileName.toLowerCase().endsWith('.pdf')) {
-        alert('파일 교체는 PDF만 가능합니다.')
-        return
-      }
-
-      const fd = new FormData()
-      fd.append('file', selectedEditDocumentFile.value)
-      try {
-        await axios.post(`${API_URL}/knowledgebase/documents/${doc.id}/reindex`, fd, {
-          headers: getActorHeader()
-        })
-      } catch (err) {
-        await fetchDocuments()
-        alert(err.response?.data?.error || '메타데이터는 저장됐지만 파일 재인덱싱에 실패했습니다.')
-        return
-      }
+  bulkSelectedFile.value = file
+  // 클라이언트에서 CSV 행 수 카운트 (헤더 제외)
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const text = e.target.result
+    // 큰따옴표 안의 줄바꿈을 무시하고 실제 데이터 행 수 계산
+    let count = 0
+    let inQuotes = false
+    for (const ch of text) {
+      if (ch === '"') inQuotes = !inQuotes
+      else if (ch === '\n' && !inQuotes) count++
     }
-
-    selectedEditDocumentFile.value = null
-    const editInputEl = document.getElementById(`edit-file-input-${doc.id}`)
-    if (editInputEl) {
-      editInputEl.value = ''
-    }
-    editingDocumentId.value = null
-    await fetchDocuments()
-  } catch (err) {
-    if (err.response?.status === 405) {
-      alert('백엔드가 최신 코드로 반영되지 않았습니다. 서버를 재시작한 뒤 다시 시도해주세요.')
-    } else {
-      alert(err.response?.data?.error || '문서 메타데이터 수정에 실패했습니다.')
-    }
-  } finally {
-    updatingDocId.value = null
+    bulkTotalCount.value = Math.max(0, count - 1) // 헤더 1행 제외
   }
+  reader.readAsText(file, 'utf-8')
 }
 
-function onSelectDocumentFile(e) {
-  const file = e.target.files?.[0] || null
-  selectedDocumentFile.value = file
-}
-
-async function uploadDocument() {
-  const file = selectedDocumentFile.value
-  if (!file) {
-    alert('먼저 업로드할 PDF 파일을 선택해주세요.')
-    return
-  }
-
-  if (uploadingDocument.value) return
-  uploadingDocument.value = true
-  documentError.value = ''
-
+async function startBulkUpload() {
+  if (!bulkSelectedFile.value) return
+  bulkImporting.value = true
+  bulkImportResult.value = null
   try {
-    const fd = new FormData()
-    fd.append('file', file)
-    if (docForm.value.displayName.trim()) fd.append('displayName', docForm.value.displayName.trim())
-    fd.append('visibility', docForm.value.visibility)
-    fd.append('platform', docForm.value.platform || '공통')
-
-    await axios.post(`${API_URL}/knowledgebase/documents/upload`, fd, {
+    const formData = new FormData()
+    formData.append('file', bulkSelectedFile.value)
+    const res = await axios.post(`${API_URL}/knowledgebase/bulk-import`, formData, {
       headers: { ...getActorHeader(), 'Content-Type': 'multipart/form-data' }
     })
-    docForm.value.displayName = ''
-    selectedDocumentFile.value = null
-    if (docFileInput.value) {
-      docFileInput.value.value = ''
-    }
-    await fetchDocuments()
+    bulkImportResult.value = res.data
   } catch (err) {
-    documentError.value = err.response?.data?.error || '업로드에 실패했습니다.'
+    alert('CSV 업로드에 실패했습니다: ' + (err.response?.data?.error || err.message))
+    showBulkModal.value = false
   } finally {
-    uploadingDocument.value = false
+    bulkImporting.value = false
+    if (csvFileInput.value) csvFileInput.value.value = ''
   }
 }
 
-async function deleteDocument(doc) {
-  if (!confirm(`"${doc.displayName}" 문서를 삭제하시겠습니까?`)) return
-  try {
-    await axios.delete(`${API_URL}/knowledgebase/documents/${doc.id}`, {
-      headers: getActorHeader()
-    })
-    await fetchDocuments()
-  } catch (err) {
-    alert(err.response?.data?.error || '삭제에 실패했습니다.')
-  }
-}
-
-async function downloadDocument(doc) {
-  try {
-    const response = await axios.get(`${API_URL}/knowledgebase/documents/${doc.id}/download`, {
-      responseType: 'blob',
-      headers: getActorHeader()
-    })
-
-    const blob = new Blob([response.data], { type: 'application/pdf' })
-    const url = window.URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    const fallback = `document-${doc.id}.pdf`
-    const name = (doc.displayName || doc.fileName || fallback).toLowerCase().endsWith('.pdf')
-      ? (doc.displayName || doc.fileName || fallback)
-      : `${doc.displayName || doc.fileName || fallback}.pdf`
-
-    anchor.href = url
-    anchor.download = name
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-    window.URL.revokeObjectURL(url)
-  } catch (err) {
-    alert(err.response?.data?.error || '문서 다운로드에 실패했습니다.')
-  }
-}
-
-function formatDate(val) {
-  if (!val) return '-'
-  const d = new Date(val)
-  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+async function onCsvFileSelected(event) {
+  onBulkModalFileChange(event)
 }
 </script>
 
 <template>
   <section class="kb-wrap">
-    <div class="tab-bar">
-      <button class="tab-btn" :class="{ active: activeTab === 'kb' }" @click="activeTab = 'kb'">가이드KB</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'documents' }" @click="activeTab = 'documents'">문서KB</button>
-    </div>
-
-    <template v-if="activeTab === 'documents'">
-      <div class="panel">
-        <div class="panel-head">
-          <h3>PDF 문서 업로드</h3>
-        </div>
-        <div class="doc-upload-form">
-          <label>
-            표시 이름
-            <input v-model="docForm.displayName" placeholder="예) 사용자 매뉴얼 v2.pdf" />
-          </label>
-          <label>
-            공개수준
-            <select v-model="docForm.visibility">
-              <option value="user">사용자 공개</option>
-              <option value="admin">관리자 전용</option>
-            </select>
-          </label>
-          <label>
-            <div class="label-head-inline">
-              <span class="field-title">플랫폼</span>
-              <button class="ghost" type="button" @click="openPlatformEditor">관리</button>
-            </div>
-            <select v-model="docForm.platform">
-              <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
-            </select>
-          </label>
-          <div class="upload-btn-row">
-            <input ref="docFileInput" type="file" accept=".pdf" style="display:none" @change="onSelectDocumentFile" />
-            <button class="secondary" :disabled="uploadingDocument" @click="docFileInput.click()">
-              파일 업로드
-            </button>
-            <button class="primary" :disabled="uploadingDocument || !selectedDocumentFile" @click="uploadDocument">
-              {{ uploadingDocument ? '등록 중...' : '등록' }}
-            </button>
-          </div>
-          <div v-if="selectedDocumentFile" class="selected-file-name hint">선택됨: {{ selectedDocumentFile.name }}</div>
-          <div v-if="documentError" class="error">{{ documentError }}</div>
-        </div>
-      </div>
-
-      <div class="panel list-panel">
-        <div class="panel-head">
-          <h3>문서 목록</h3>
-          <div style="display:flex;gap:8px;align-items:center">
-            <select v-model="docPlatformFilter" @change="fetchDocuments">
-              <option value="all">플랫폼 전체</option>
-              <option v-for="p in platformOptions" :key="p" :value="p">{{ p }}</option>
-            </select>
-            <button class="ghost" :disabled="loadingDocuments" @click="fetchDocuments">새로고침</button>
-          </div>
-        </div>
-
-        <div v-if="loadingDocuments" class="empty">불러오는 중...</div>
-        <div v-else-if="documentList.length === 0" class="empty">업로드된 문서가 없습니다.</div>
-
-        <div v-else class="kb-list">
-          <article v-for="doc in documentList" :key="doc.id" class="kb-item">
-            <div class="kb-top">
-              <div class="badges">
-                <span class="scope" :class="doc.status === 'ready' ? 'user' : 'admin'">
-                  {{ doc.status === 'ready' ? '✅ 준비됨' : '⏳ 인덱싱 중' }}
-                </span>
-                <span class="scope" :class="doc.visibility">
-                  {{ doc.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}
-                </span>
-                <span class="scope platform">{{ doc.platform || '공통' }}</span>
-              </div>
-              <div class="kb-item-actions">
-                <button class="secondary" :disabled="updatingDocId === doc.id" @click="startEditDocument(doc)">수정</button>
-                <button class="danger" @click="deleteDocument(doc)">삭제</button>
-              </div>
-            </div>
-            <div class="kb-body">
-              <div class="kb-row">
-                <div class="kb-label">파일명</div>
-                <div class="kb-value">
-                  <button class="file-link-btn" type="button" @click="downloadDocument(doc)">{{ doc.fileName }}</button>
-                </div>
-              </div>
-              <div class="kb-row">
-                <div class="kb-label">표시명</div>
-                <div v-if="editingDocumentId === doc.id" class="kb-value">
-                  <input v-model="editDocForm.displayName" placeholder="표시 이름" />
-                </div>
-                <div v-else class="kb-value kb-title">{{ doc.displayName }}</div>
-              </div>
-              <div class="kb-row">
-                <div class="kb-label">공개수준</div>
-                <div v-if="editingDocumentId === doc.id" class="kb-value">
-                  <select v-model="editDocForm.visibility">
-                    <option value="user">사용자 공개</option>
-                    <option value="admin">관리자 전용</option>
-                  </select>
-                </div>
-                <div v-else class="kb-value">{{ doc.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}</div>
-              </div>
-              <div class="kb-row">
-                <div class="kb-label">플랫폼</div>
-                <div v-if="editingDocumentId === doc.id" class="kb-value">
-                  <select v-model="editDocForm.platform">
-                    <option v-for="p in platformOptions" :key="`doc-edit-${doc.id}-${p}`" :value="p">{{ p }}</option>
-                  </select>
-                </div>
-                <div v-else class="kb-value">{{ doc.platform || '공통' }}</div>
-              </div>
-              <div v-if="editingDocumentId === doc.id" class="kb-row">
-                <div class="kb-label">파일 교체</div>
-                <div class="kb-value">
-                  <div class="doc-file-inline-row">
-                    <input class="doc-file-picker" :id="`edit-file-input-${doc.id}`" type="file" accept=".pdf" @change="onSelectEditDocumentFile" />
-                    <span class="hint">파일을 선택하지 않으면 기존 PDF 파일이 그대로 유지됩니다.</span>
-                  </div>
-                  <div class="upload-btn-row" v-if="selectedEditDocumentFile">
-                    <span class="hint">현재 선택된 파일: {{ selectedEditDocumentFile.name }} (저장 시 파일이 교체됩니다)</span>
-                  </div>
-                </div>
-              </div>
-              <div class="kb-row">
-                <div class="kb-label">수정일</div>
-                <div class="kb-value">{{ formatDate(doc.updatedAt) }}</div>
-              </div>
-              <div v-if="editingDocumentId === doc.id" class="upload-btn-row">
-                <button class="primary" :disabled="updatingDocId === doc.id" @click="updateDocument(doc)">
-                  {{ updatingDocId === doc.id ? (selectedEditDocumentFile ? '저장/인덱싱 중...' : '저장 중...') : '수정 저장' }}
-                </button>
-                <button class="ghost" :disabled="updatingDocId === doc.id" @click="cancelEditDocument">취소</button>
-              </div>
-            </div>
-          </article>
-        </div>
-      </div>
-    </template>
-
-    <template v-else>
     <div class="panel form-panel" :class="{ collapsed: !showWriter }">
       <div class="panel-head writer-toggle-head" @click="showWriter = !showWriter">
         <div class="panel-head-title">
@@ -1056,7 +817,9 @@ function formatDate(val) {
         </div>
         <div class="panel-head-actions">
           <button class="ghost" @click.stop="resetForm">초기화</button>
+          <button class="ghost" type="button" @click.stop="openBulkModal">CSV 업로드</button>
           <button class="ghost" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
+          <input ref="csvFileInput" type="file" accept=".csv" style="display:none" @change="onBulkModalFileChange" />
         </div>
       </div>
 
@@ -1175,6 +938,70 @@ function formatDate(val) {
       </div>
     </div>
 
+    <!-- CSV 업로드 통합 팝업 -->
+    <div v-if="showBulkModal" class="modal-overlay" @click.self="closeBulkModal">
+      <div class="modal-box bulk-modal" @click.stop>
+
+        <!-- 헤더 -->
+        <div class="bulk-modal-head">
+          <h3>CSV 대량 등록</h3>
+          <button class="icon-btn" type="button" :disabled="bulkImporting" @click="closeBulkModal">✕</button>
+        </div>
+
+        <!-- ① 파일 선택 단계 -->
+        <template v-if="!bulkImporting && !bulkImportResult">
+          <div class="bulk-step-section">
+            <p class="bulk-step-label">1단계 — CSV 양식 다운로드</p>
+            <button class="ghost" type="button" @click="downloadCsvTemplate">양식 다운로드</button>
+          </div>
+          <div class="bulk-step-section">
+            <p class="bulk-step-label">2단계 — 파일 선택</p>
+            <div class="bulk-file-area" @click="csvFileInput.click()">
+              <span v-if="bulkSelectedFile" class="bulk-file-name">
+                📄 {{ bulkSelectedFile.name }}
+                <small>{{ bulkTotalCount }}건 감지됨</small>
+              </span>
+              <span v-else class="bulk-file-placeholder">클릭하여 CSV 파일 선택</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="primary" :disabled="!bulkSelectedFile" @click="startBulkUpload">업로드 시작</button>
+            <button class="ghost" @click="closeBulkModal">취소</button>
+          </div>
+        </template>
+
+        <!-- ② 업로드 중 -->
+        <template v-if="bulkImporting">
+          <div class="bulk-progress-wrap">
+            <div class="bulk-spinner"></div>
+            <p class="bulk-loading-title">KB 등록 중입니다…</p>
+            <p class="bulk-loading-sub">총 <strong>{{ bulkTotalCount }}</strong>건 처리 중 &nbsp;·&nbsp; 임베딩 생성 중이니 잠시만 기다려 주세요.</p>
+          </div>
+        </template>
+
+        <!-- ③ 결과 -->
+        <template v-if="bulkImportResult && !bulkImporting">
+          <div class="bulk-result-summary-bar">
+            <span class="brs-total">전체 <strong>{{ bulkImportResult.total }}</strong>건</span>
+            <span class="brs-ok">✅ 성공 <strong>{{ bulkImportResult.successCount }}</strong>건</span>
+            <span class="brs-fail">❌ 실패 <strong>{{ bulkImportResult.failCount }}</strong>건</span>
+          </div>
+          <div class="bulk-result-list">
+            <div v-for="r in bulkImportResult.results" :key="r.row"
+                 :class="['bulk-row', r.status]">
+              <span class="bulk-row-num">{{ r.row }}행</span>
+              <span class="bulk-row-title">{{ r.title || '(제목 없음)' }}</span>
+              <span class="bulk-row-status">{{ r.status === 'ok' ? '✅ 등록' : `❌ ${r.reason}` }}</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="primary" @click="closeBulkModal(); fetchKbs()">확인</button>
+          </div>
+        </template>
+
+      </div>
+    </div>
+
     <div class="panel list-panel">
       <div class="panel-head">
         <h3>KB 목록</h3>
@@ -1191,7 +1018,7 @@ function formatDate(val) {
           <option value="user">사용자 공개</option>
           <option value="admin">관리자 전용</option>
         </select>
-        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드 검색" />
+        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드/ID(#101) 검색" />
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -1202,6 +1029,7 @@ function formatDate(val) {
         <article v-for="kb in kbList" :key="kb.id" class="kb-item">
           <div class="kb-top">
             <div class="badges">
+              <span class="scope id-badge">#{{ kb.id }}</span>
               <span class="scope" :class="kb.visibility">
                 {{ kb.visibility === 'user' ? '사용자 공개' : '관리자 전용' }}
               </span>
@@ -1248,9 +1076,23 @@ function formatDate(val) {
       </div>
 
       <div v-if="!loading && kbTotal > 0" class="pager">
-        <button class="ghost" :disabled="kbPage <= 1" @click="goKbPage(kbPage - 1)">이전</button>
-        <span>{{ kbPage }} / {{ kbTotalPages }} (총 {{ kbTotal }}건)</span>
-        <button class="ghost" :disabled="kbPage >= kbTotalPages" @click="goKbPage(kbPage + 1)">다음</button>
+        <button class="pager-btn nav" :disabled="kbPage <= 1" @click="goKbPage(1)" title="처음">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+        </button>
+        <button class="pager-btn nav" :disabled="kbPage <= 1" @click="goKbPage(kbPage - 1)" title="이전">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <template v-for="p in kbPageNumbers" :key="p">
+          <span v-if="p === '...'" class="pager-ellipsis">…</span>
+          <button v-else class="pager-btn" :class="{ active: p === kbPage }" @click="goKbPage(p)">{{ p }}</button>
+        </template>
+        <button class="pager-btn nav" :disabled="kbPage >= kbTotalPages" @click="goKbPage(kbPage + 1)" title="다음">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="pager-btn nav" :disabled="kbPage >= kbTotalPages" @click="goKbPage(kbTotalPages)" title="마지막">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+        </button>
+        <span class="pager-info">총 {{ kbTotal }}건</span>
       </div>
     </div>
 
@@ -1264,7 +1106,7 @@ function formatDate(val) {
         <div class="similarity-guide">
           <p>
             가이드KB는 질문과의 의미 유사도를 기준으로 검색되며,
-            키워드 기반 후보 리콜과 AI 재정렬을 함께 사용합니다. 아래 기준대로 작성하면 검색 정확도를 높이는 데 도움이 됩니다.
+            키워드 매칭 점수 보정과 AI 재정렬을 함께 사용합니다. 아래 기준대로 작성하면 검색 정확도를 높이는 데 도움이 됩니다.
           </p>
 
           <div class="guide-card">
@@ -1381,7 +1223,7 @@ function formatDate(val) {
         </div>
       </div>
     </div>
-    </template><!-- /tab:kb -->
+    <!-- /tab:kb -->
 
     <!-- ── 공유 모달: 플랫폼 관리 (탭 공통) ── -->
     <div v-if="showPlatformEditor" class="modal-overlay" @click="showPlatformEditor = false">
@@ -1596,10 +1438,56 @@ function formatDate(val) {
   margin-top: 12px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-content: center;
+  gap: 4px;
   color: #495057;
   font-size: 13px;
+}
+.pager-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: #fff;
+  color: #495057;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+.pager-btn.nav {
+  min-width: 32px;
+  padding: 0;
+  color: #6c757d;
+}
+.pager-btn:hover:not(:disabled) {
+  background: #f1f3f5;
+  border-color: #ced4da;
+  color: #212529;
+}
+.pager-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.pager-btn.active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+  font-weight: 700;
+}
+.pager-ellipsis {
+  padding: 0 4px;
+  color: #adb5bd;
+  user-select: none;
+}
+.pager-info {
+  margin-left: 8px;
+  color: #868e96;
+  font-size: 12px;
 }
 
 .head-visibility {
@@ -2007,6 +1895,190 @@ select:focus {
   flex: 0 0 auto;
 }
 
+
+
+/* bulk import result modal */
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(600px, 96vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-box h3 {
+  margin: 0;
+}
+
+.bulk-loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px 48px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+
+.bulk-modal {
+  width: min(560px, 96vw);
+}
+
+.bulk-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bulk-modal-head h3 { margin: 0; }
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #868e96;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.icon-btn:hover { background: #f1f3f5; color: #212529; }
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.bulk-step-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-step-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.bulk-file-area {
+  border: 2px dashed #ced4da;
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.bulk-file-area:hover { border-color: #4263eb; background: #f0f4ff; }
+
+.bulk-file-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #212529;
+}
+.bulk-file-name small { font-size: 12px; color: #868e96; font-weight: 400; }
+
+.bulk-file-placeholder { font-size: 14px; color: #adb5bd; }
+
+.bulk-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.bulk-result-summary-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 14px;
+  align-items: center;
+}
+.brs-total { color: #495057; }
+.brs-ok { color: #198754; font-weight: 500; }
+.brs-fail { color: #dc3545; font-weight: 500; }
+
+.bulk-summary {
+  width: 48px;
+  height: 48px;
+  border: 5px solid #e9ecef;
+  border-top-color: #4263eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.bulk-loading-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.bulk-loading-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #868e96;
+}
+
+.bulk-summary {
+  margin: 0;
+  font-size: 14px;
+  color: #495057;
+}
+
+.bulk-summary .ok { color: #198754; }
+.bulk-summary .fail { color: #dc3545; }
+
+.bulk-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.bulk-row {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 2px;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.bulk-row:last-child { border-bottom: none; }
+.bulk-row.ok { background: #f0fdf4; }
+.bulk-row.fail, .bulk-row.skip { background: #fff5f5; }
+
+.bulk-row-num { color: #868e96; font-size: 12px; }
+.bulk-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bulk-row-status { white-space: nowrap; font-size: 12px; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .refresh-fit {
   width: auto;
   margin-left: auto;
@@ -2182,6 +2254,12 @@ select:focus {
 .scope.platform {
   background: #eef2ff;
   color: #3730a3;
+}
+
+.scope.id-badge {
+  background: #f1f3f5;
+  color: #6c757d;
+  font-family: monospace;
 }
 
 .kb-answer {

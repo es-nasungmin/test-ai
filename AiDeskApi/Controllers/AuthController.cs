@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
+using System.Security.Claims;
 using System.Text;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
@@ -26,18 +27,24 @@ namespace AiDeskApi.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request?.Username) || string.IsNullOrWhiteSpace(request?.Password))
+            var loginIdInput = request?.LoginId;
+            if (string.IsNullOrWhiteSpace(loginIdInput))
+            {
+                loginIdInput = request?.Username;
+            }
+
+            if (string.IsNullOrWhiteSpace(loginIdInput) || string.IsNullOrWhiteSpace(request?.Password))
             {
                 return BadRequest(new LoginResponse
                 {
                     Success = false,
-                    Message = "사용자명과 비밀번호를 입력해주세요."
+                    Message = "로그인 아이디와 비밀번호를 입력해주세요."
                 });
             }
 
-            var username = request.Username.Trim();
+            var loginId = loginIdInput.Trim();
             var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
+                .FirstOrDefaultAsync(u => u.LoginId == loginId && u.IsActive);
 
             if (user == null || !VerifyPassword(request.Password, user.PasswordHash))
             {
@@ -70,8 +77,8 @@ namespace AiDeskApi.Controllers
                 User = new UserDto
                 {
                     Id = user.Id,
+                    LoginId = user.LoginId,
                     Username = user.Username,
-                    Email = user.Email,
                     Role = user.Role,
                     IsApproved = user.IsApproved,
                     IsActive = user.IsActive,
@@ -82,18 +89,40 @@ namespace AiDeskApi.Controllers
             });
         }
 
+        [HttpGet("check-login-id")]
+        [HttpGet("check-username")]
+        public async Task<IActionResult> CheckLoginId([FromQuery] string loginId)
+        {
+            if (string.IsNullOrWhiteSpace(loginId))
+            {
+                return BadRequest(new { success = false, message = "아이디를 입력해주세요." });
+            }
+
+            var normalized = loginId.Trim();
+            var exists = await _context.Users.AnyAsync(u => u.LoginId.ToLower() == normalized.ToLower());
+            return Ok(new
+            {
+                success = true,
+                exists,
+                message = exists ? "이미 사용 중인 아이디입니다." : "사용 가능한 아이디입니다."
+            });
+        }
+
         [HttpPost("register")]
         public async Task<ActionResult<LoginResponse>> Register([FromBody] RegisterRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Email) 
+            if (string.IsNullOrWhiteSpace(request.LoginId) || string.IsNullOrWhiteSpace(request.Username)
                 || string.IsNullOrWhiteSpace(request.Password))
             {
                 return BadRequest(new LoginResponse
                 {
                     Success = false,
-                    Message = "사용자명, 이메일, 비밀번호는 필수입니다."
+                    Message = "로그인 아이디, 사용자명, 비밀번호는 필수입니다."
                 });
             }
+
+            var loginId = request.LoginId.Trim();
+            var username = request.Username.Trim();
 
             if (request.Password != request.ConfirmPassword)
             {
@@ -104,8 +133,16 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            // 사용자명 또는 이메일이 이미 존재하는지 확인
-            if (await _context.Users.AnyAsync(u => u.Username == request.Username))
+            if (await _context.Users.AnyAsync(u => u.LoginId.ToLower() == loginId.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 존재하는 로그인 아이디입니다."
+                });
+            }
+
+            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == username.ToLower()))
             {
                 return BadRequest(new LoginResponse
                 {
@@ -114,19 +151,10 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            if (await _context.Users.AnyAsync(u => u.Email == request.Email))
-            {
-                return BadRequest(new LoginResponse
-                {
-                    Success = false,
-                    Message = "이미 존재하는 이메일입니다."
-                });
-            }
-
             var user = new User
             {
-                Username = request.Username,
-                Email = request.Email,
+                LoginId = loginId,
+                Username = username,
                 PasswordHash = HashPassword(request.Password),
                 Role = "user",
                 IsActive = true,
@@ -143,8 +171,8 @@ namespace AiDeskApi.Controllers
                 User = new UserDto
                 {
                     Id = user.Id,
+                    LoginId = user.LoginId,
                     Username = user.Username,
-                    Email = user.Email,
                     Role = user.Role,
                     IsApproved = user.IsApproved,
                     IsActive = user.IsActive,
@@ -163,6 +191,176 @@ namespace AiDeskApi.Controllers
             return Ok(new { valid = true });
         }
 
+        [Authorize]
+        [HttpGet("me")]
+        public async Task<ActionResult<UserDto>> GetMe()
+        {
+            var userId = GetCurrentUserId();
+            if (userId <= 0)
+            {
+                return Unauthorized(new LoginResponse
+                {
+                    Success = false,
+                    Message = "인증 정보가 유효하지 않습니다."
+                });
+            }
+
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (user == null)
+            {
+                return NotFound(new LoginResponse
+                {
+                    Success = false,
+                    Message = "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            return Ok(new UserDto
+            {
+                Id = user.Id,
+                LoginId = user.LoginId,
+                Username = user.Username,
+                Role = user.Role,
+                IsApproved = user.IsApproved,
+                IsActive = user.IsActive,
+                CreatedAt = user.CreatedAt,
+                ApprovedAt = user.ApprovedAt,
+                LastLoginAt = user.LastLoginAt
+            });
+        }
+
+        [Authorize]
+        [HttpPut("me/profile")]
+        public async Task<ActionResult<LoginResponse>> UpdateMyProfile([FromBody] UpdateMyProfileRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Username))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "사용자명을 입력해주세요."
+                });
+            }
+
+            var userId = GetCurrentUserId();
+            if (userId <= 0)
+            {
+                return Unauthorized(new LoginResponse
+                {
+                    Success = false,
+                    Message = "인증 정보가 유효하지 않습니다."
+                });
+            }
+
+            var username = request.Username.Trim();
+            if (await _context.Users.AnyAsync(u => u.Id != userId && u.Username.ToLower() == username.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 사용 중인 사용자명입니다."
+                });
+            }
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+            if (user == null)
+            {
+                return NotFound(new LoginResponse
+                {
+                    Success = false,
+                    Message = "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            user.Username = username;
+            await _context.SaveChangesAsync();
+
+            return Ok(new LoginResponse
+            {
+                Success = true,
+                Message = "사용자명이 변경되었습니다.",
+                User = new UserDto
+                {
+                    Id = user.Id,
+                    LoginId = user.LoginId,
+                    Username = user.Username,
+                    Role = user.Role,
+                    IsApproved = user.IsApproved,
+                    IsActive = user.IsActive,
+                    CreatedAt = user.CreatedAt,
+                    ApprovedAt = user.ApprovedAt,
+                    LastLoginAt = user.LastLoginAt
+                }
+            });
+        }
+
+        [Authorize]
+        [HttpPut("me/password")]
+        public async Task<ActionResult<LoginResponse>> ChangeMyPassword([FromBody] ChangePasswordRequest request)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.CurrentPassword)
+                || string.IsNullOrWhiteSpace(request.NewPassword)
+                || string.IsNullOrWhiteSpace(request.ConfirmPassword))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "현재 비밀번호와 새 비밀번호를 입력해주세요."
+                });
+            }
+
+            if (request.NewPassword != request.ConfirmPassword)
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "새 비밀번호와 확인 비밀번호가 일치하지 않습니다."
+                });
+            }
+
+            var userId = GetCurrentUserId();
+            if (userId <= 0)
+            {
+                return Unauthorized(new LoginResponse
+                {
+                    Success = false,
+                    Message = "인증 정보가 유효하지 않습니다."
+                });
+            }
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+            if (user == null)
+            {
+                return NotFound(new LoginResponse
+                {
+                    Success = false,
+                    Message = "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            if (!VerifyPassword(request.CurrentPassword, user.PasswordHash))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "현재 비밀번호가 올바르지 않습니다."
+                });
+            }
+
+            user.PasswordHash = HashPassword(request.NewPassword);
+            await _context.SaveChangesAsync();
+
+            return Ok(new LoginResponse
+            {
+                Success = true,
+                Message = "비밀번호가 변경되었습니다."
+            });
+        }
+
         // Admin only endpoints
         [Authorize(Roles = "admin")]
         [HttpGet("users")]
@@ -173,8 +371,8 @@ namespace AiDeskApi.Controllers
                 .Select(u => new UserDto
                 {
                     Id = u.Id,
+                    LoginId = u.LoginId,
                     Username = u.Username,
-                    Email = u.Email,
                     Role = u.Role,
                     IsApproved = u.IsApproved,
                     IsActive = u.IsActive,
@@ -196,8 +394,8 @@ namespace AiDeskApi.Controllers
                 .Select(u => new UserDto
                 {
                     Id = u.Id,
+                    LoginId = u.LoginId,
                     Username = u.Username,
-                    Email = u.Email,
                     Role = u.Role,
                     IsApproved = u.IsApproved,
                     IsActive = u.IsActive,
@@ -208,6 +406,87 @@ namespace AiDeskApi.Controllers
                 .ToListAsync();
 
             return Ok(pendingUsers);
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpPut("users/{userId}")]
+        public async Task<ActionResult<LoginResponse>> UpdateUser(int userId, [FromBody] UpdateUserByAdminRequest request)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.LoginId)
+                || string.IsNullOrWhiteSpace(request.Username)
+                || string.IsNullOrWhiteSpace(request.Role))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "로그인 아이디, 사용자명, 권한은 필수입니다."
+                });
+            }
+
+            var loginId = request.LoginId.Trim();
+            var username = request.Username.Trim();
+            var role = request.Role.Trim().ToLowerInvariant();
+
+            if (role != "admin" && role != "user")
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "권한은 admin 또는 user만 가능합니다."
+                });
+            }
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+            {
+                return NotFound(new LoginResponse
+                {
+                    Success = false,
+                    Message = "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            if (await _context.Users.AnyAsync(u => u.Id != userId && u.LoginId.ToLower() == loginId.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 사용 중인 로그인 아이디입니다."
+                });
+            }
+
+            if (await _context.Users.AnyAsync(u => u.Id != userId && u.Username.ToLower() == username.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 사용 중인 사용자명입니다."
+                });
+            }
+
+            user.LoginId = loginId;
+            user.Username = username;
+            user.Role = role;
+            await _context.SaveChangesAsync();
+
+            return Ok(new LoginResponse
+            {
+                Success = true,
+                Message = "사용자 정보가 수정되었습니다.",
+                User = new UserDto
+                {
+                    Id = user.Id,
+                    LoginId = user.LoginId,
+                    Username = user.Username,
+                    Role = user.Role,
+                    IsApproved = user.IsApproved,
+                    IsActive = user.IsActive,
+                    CreatedAt = user.CreatedAt,
+                    ApprovedAt = user.ApprovedAt,
+                    LastLoginAt = user.LastLoginAt
+                }
+            });
         }
 
         [Authorize(Roles = "admin")]
@@ -271,7 +550,7 @@ namespace AiDeskApi.Controllers
             {
                 new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, user.Username),
-                new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, user.Email),
+                new System.Security.Claims.Claim("loginId", user.LoginId),
                 new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, user.Role)
             };
 
@@ -295,10 +574,35 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        private int GetCurrentUserId()
+        {
+            var userIdRaw = User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? User?.FindFirstValue("sub");
+            return int.TryParse(userIdRaw, out var userId) ? userId : 0;
+        }
+
         private bool VerifyPassword(string password, string hash)
         {
             var hashOfInput = HashPassword(password);
             return hashOfInput == hash;
+        }
+
+        public class UpdateMyProfileRequest
+        {
+            public string Username { get; set; } = string.Empty;
+        }
+
+        public class ChangePasswordRequest
+        {
+            public string CurrentPassword { get; set; } = string.Empty;
+            public string NewPassword { get; set; } = string.Empty;
+            public string ConfirmPassword { get; set; } = string.Empty;
+        }
+
+        public class UpdateUserByAdminRequest
+        {
+            public string LoginId { get; set; } = string.Empty;
+            public string Username { get; set; } = string.Empty;
+            public string Role { get; set; } = string.Empty;
         }
     }
 }

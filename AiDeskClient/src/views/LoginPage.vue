@@ -4,12 +4,12 @@
       <h1 class="login-title">AiDesk</h1>
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label for="username">아이디</label>
+          <label for="login-id">로그인 아이디</label>
           <input
-            id="username"
-            v-model="form.username"
+            id="login-id"
+            v-model="form.loginId"
             type="text"
-            placeholder="아이디를 입력하세요"
+            placeholder="로그인 아이디를 입력하세요"
             required
           />
         </div>
@@ -36,6 +36,15 @@
         >
           {{ isLoading ? '로그인 중...' : '로그인' }}
         </button>
+
+        <button
+          type="button"
+          class="signup-link"
+          :disabled="isLoading"
+          @click="toggleMode"
+        >
+          회원가입
+        </button>
       </form>
     </div>
   </div>
@@ -46,25 +55,34 @@
       <h2>회원가입</h2>
       <form @submit.prevent="handleRegister">
         <div class="form-group">
-          <label for="reg-username">아이디</label>
+          <label for="reg-username">사용자명</label>
           <input
             id="reg-username"
             v-model="registerForm.username"
             type="text"
-            placeholder="아이디를 입력하세요"
+            placeholder="사용자명을 입력하세요"
             required
           />
         </div>
 
         <div class="form-group">
-          <label for="reg-email">이메일</label>
-          <input
-            id="reg-email"
-            v-model="registerForm.email"
-            type="email"
-            placeholder="이메일을 입력하세요"
-            required
-          />
+          <label for="reg-login-id">로그인 아이디</label>
+          <div class="id-check-row">
+            <input
+              id="reg-login-id"
+              v-model="registerForm.loginId"
+              type="text"
+              placeholder="로그인 아이디를 입력하세요"
+              required
+              @input="onRegisterLoginIdInput"
+            />
+            <button type="button" class="check-btn" :disabled="isCheckingLoginId || !registerForm.loginId.trim()" @click="checkLoginIdDuplicate">
+              {{ isCheckingLoginId ? '확인 중...' : '중복확인' }}
+            </button>
+          </div>
+          <div v-if="loginIdCheckMessage" :class="['hint-message', loginIdCheckOk ? 'hint-ok' : 'hint-error']">
+            {{ loginIdCheckMessage }}
+          </div>
         </div>
 
         <div class="form-group">
@@ -116,13 +134,13 @@ import { ref } from 'vue'
 import { authApi } from '../api'
 
 const form = ref({
-  username: '',
+  loginId: '',
   password: ''
 })
 
 const registerForm = ref({
+  loginId: '',
   username: '',
-  email: '',
   password: '',
   confirmPassword: ''
 })
@@ -133,12 +151,52 @@ const errorMessage = ref('')
 const registerErrorMessage = ref('')
 const registerSuccessMessage = ref('')
 const isRegisterMode = ref(false)
+const isCheckingLoginId = ref(false)
+const loginIdCheckOk = ref(false)
+const loginIdCheckMessage = ref('')
+const checkedLoginId = ref('')
 
 const toggleMode = () => {
   isRegisterMode.value = !isRegisterMode.value
   errorMessage.value = ''
   registerErrorMessage.value = ''
   registerSuccessMessage.value = ''
+  isCheckingLoginId.value = false
+  loginIdCheckOk.value = false
+  loginIdCheckMessage.value = ''
+  checkedLoginId.value = ''
+}
+
+const onRegisterLoginIdInput = () => {
+  if (registerForm.value.loginId.trim() !== checkedLoginId.value) {
+    loginIdCheckOk.value = false
+    loginIdCheckMessage.value = ''
+  }
+}
+
+const checkLoginIdDuplicate = async () => {
+  const loginId = registerForm.value.loginId.trim()
+  if (!loginId) {
+    loginIdCheckOk.value = false
+    loginIdCheckMessage.value = '로그인 아이디를 입력해주세요.'
+    return
+  }
+
+  isCheckingLoginId.value = true
+  loginIdCheckMessage.value = ''
+
+  try {
+    const response = await authApi.checkLoginId(loginId)
+    const exists = response?.data?.exists === true
+    loginIdCheckOk.value = !exists
+    checkedLoginId.value = loginId
+    loginIdCheckMessage.value = response?.data?.message || (!exists ? '사용 가능한 아이디입니다.' : '이미 사용 중인 아이디입니다.')
+  } catch {
+    loginIdCheckOk.value = false
+    loginIdCheckMessage.value = '중복확인 중 오류가 발생했습니다.'
+  } finally {
+    isCheckingLoginId.value = false
+  }
 }
 
 const handleSubmit = async () => {
@@ -146,7 +204,7 @@ const handleSubmit = async () => {
   errorMessage.value = ''
 
   try {
-    const response = await authApi.login(form.value.username, form.value.password)
+    const response = await authApi.login(form.value.loginId, form.value.password)
     
     if (response.data.success) {
       // 토큰과 사용자 정보 저장
@@ -159,18 +217,29 @@ const handleSubmit = async () => {
       }))
     } else {
       errorMessage.value = response.data.message || '로그인에 실패했습니다.'
+      form.value.loginId = ''
+      form.value.password = ''
     }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || '오류가 발생했습니다.'
+    form.value.loginId = ''
+    form.value.password = ''
   } finally {
     isLoading.value = false
   }
 }
 
 const handleRegister = async () => {
-  registerErrorMessage.value = '현재는 admin 계정 로그인만 지원됩니다.'
-  isRegisterLoading.value = false
-  return
+  if (!registerForm.value.username.trim()) {
+    registerErrorMessage.value = '사용자명을 입력해주세요.'
+    return
+  }
+
+  const currentLoginId = registerForm.value.loginId.trim()
+  if (!loginIdCheckOk.value || checkedLoginId.value !== currentLoginId) {
+    registerErrorMessage.value = '로그인 아이디 중복확인을 먼저 진행해주세요.'
+    return
+  }
 
   isRegisterLoading.value = true
   registerErrorMessage.value = ''
@@ -178,8 +247,8 @@ const handleRegister = async () => {
 
   try {
     const response = await authApi.register(
+      registerForm.value.loginId,
       registerForm.value.username,
-      registerForm.value.email,
       registerForm.value.password,
       registerForm.value.confirmPassword
     )
@@ -188,11 +257,14 @@ const handleRegister = async () => {
       // 회원가입 완료 메시지 표시 후 로그인 화면으로 돌아가기
       registerSuccessMessage.value = '회원가입이 완료되었습니다. 관리자의 승인 후 로그인해주세요.'
       registerForm.value = {
+        loginId: '',
         username: '',
-        email: '',
         password: '',
         confirmPassword: ''
       }
+      loginIdCheckOk.value = false
+      loginIdCheckMessage.value = ''
+      checkedLoginId.value = ''
       
       // 2초 후 로그인 모달 닫기
       setTimeout(() => {
@@ -278,6 +350,47 @@ const handleRegister = async () => {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
+.id-check-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.check-btn {
+  padding: 10px 12px;
+  border: 1px solid #cfd4da;
+  border-radius: 5px;
+  background: #f8f9fa;
+  color: #495057;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.check-btn:hover:not(:disabled) {
+  background: #e9ecef;
+}
+
+.check-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hint-message {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hint-ok {
+  color: #2b8a3e;
+}
+
+.hint-error {
+  color: #c92a2a;
+}
+
 .login-btn {
   width: 100%;
   padding: 12px;
@@ -298,6 +411,27 @@ const handleRegister = async () => {
 
 .login-btn:disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.signup-link {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  color: #4c6ef5;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.signup-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.signup-link:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

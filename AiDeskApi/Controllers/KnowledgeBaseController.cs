@@ -19,7 +19,6 @@ namespace AiDeskApi.Controllers
         private readonly IChatbotPromptTemplateService _chatbotPromptTemplates;
         private readonly IKnowledgeBaseWriterPromptTemplateService _kbWriterPromptTemplates;
         private readonly IKnowledgeExtractorService _knowledgeExtractorService;
-        private readonly IDocumentKnowledgeService _documentKnowledgeService;
         private readonly ILogger<KnowledgeBaseController> _logger;
 
         public KnowledgeBaseController(
@@ -28,7 +27,6 @@ namespace AiDeskApi.Controllers
             IRagService ragService,
             IVectorSearchService vectorSearchService,
             IKnowledgeExtractorService knowledgeExtractorService,
-            IDocumentKnowledgeService documentKnowledgeService,
             IChatbotPromptTemplateService chatbotPromptTemplates,
             IKnowledgeBaseWriterPromptTemplateService kbWriterPromptTemplates,
             ILogger<KnowledgeBaseController> logger)
@@ -38,7 +36,6 @@ namespace AiDeskApi.Controllers
             _ragService = ragService;
             _vectorSearchService = vectorSearchService;
             _knowledgeExtractorService = knowledgeExtractorService;
-            _documentKnowledgeService = documentKnowledgeService;
             _chatbotPromptTemplates = chatbotPromptTemplates;
             _kbWriterPromptTemplates = kbWriterPromptTemplates;
             _logger = logger;
@@ -57,7 +54,7 @@ namespace AiDeskApi.Controllers
                 _logger.LogInformation($"❓ [{role}] 질문: {request.Question}");
 
                 var noSave = request.NoSave == true;
-                var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync();
+                var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync(request.Username, request.UserLoginId);
                 var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 6, 0, 20);
                 var runtimeOptions = new RagRuntimeOptions
                 {
@@ -411,11 +408,20 @@ namespace AiDeskApi.Controllers
                 if (!string.IsNullOrWhiteSpace(keyword))
                 {
                     var q = keyword.Trim();
-                    query = query.Where(x =>
-                        (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
-                        EF.Functions.Like(x.Solution, $"%{q}%") ||
-                        (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
-                        x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
+                    // #101 또는 순수 숫자 입력 시 ID 검색
+                    var idStr = q.StartsWith('#') ? q[1..] : q;
+                    if (int.TryParse(idStr, out var kbIdFilter))
+                    {
+                        query = query.Where(x => x.Id == kbIdFilter);
+                    }
+                    else
+                    {
+                        query = query.Where(x =>
+                            (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
+                            EF.Functions.Like(x.Solution, $"%{q}%") ||
+                            (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
+                            x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
+                    }
                 }
 
                 var total = await query.CountAsync();
@@ -448,189 +454,6 @@ namespace AiDeskApi.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpPost("documents/upload")]
-        [RequestSizeLimit(1024L * 1024L * 30L)]
-        public async Task<IActionResult> UploadDocument([FromForm] UploadDocumentRequest request, CancellationToken cancellationToken)
-        {
-            try
-            {
-                if (request.File == null || request.File.Length == 0)
-                    return BadRequest(new { error = "PDF 파일을 첨부해주세요." });
-
-                var ext = Path.GetExtension(request.File.FileName);
-                if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
-                    return BadRequest(new { error = "현재는 PDF 파일만 지원합니다." });
-
-                var actor = await ResolveActorNameAsync();
-                await using var stream = request.File.OpenReadStream();
-                var result = await _documentKnowledgeService.UploadPdfAsync(
-                    stream,
-                    request.File.FileName,
-                    request.DisplayName ?? request.File.FileName,
-                    request.Visibility ?? "admin",
-                    request.Platform ?? "공통",
-                    actor,
-                    cancellationToken);
-
-                return Ok(new
-                {
-                    result.DocumentId,
-                    result.DisplayName,
-                    result.Status,
-                    result.ChunkCount
-                });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 업로드/인덱싱 오류");
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpGet("documents")]
-        public async Task<IActionResult> ListDocuments([FromQuery] string? role = "admin", [FromQuery] string? platform = null, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var items = await _documentKnowledgeService.ListAsync(role ?? "admin", platform, cancellationToken);
-                return Ok(new { data = items, total = items.Count });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 목록 조회 오류");
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpPut("documents/{id:int}")]
-        public async Task<IActionResult> UpdateDocument(int id, [FromBody] UpdateDocumentRequest request, CancellationToken cancellationToken)
-        {
-            try
-            {
-                if (request == null)
-                    return BadRequest(new { error = "요청 본문이 필요합니다." });
-
-                var hasAnyField = request.DisplayName != null
-                    || request.Visibility != null
-                    || request.Platform != null;
-
-                if (!hasAnyField)
-                    return BadRequest(new { error = "수정할 항목을 하나 이상 입력해주세요." });
-
-                if (request.DisplayName != null && string.IsNullOrWhiteSpace(request.DisplayName))
-                    return BadRequest(new { error = "표시 이름은 비워둘 수 없습니다." });
-
-                var actor = await ResolveActorNameAsync();
-                var updated = await _documentKnowledgeService.UpdateAsync(
-                    id,
-                    request.DisplayName,
-                    request.Visibility,
-                    request.Platform,
-                    actor,
-                    cancellationToken);
-
-                if (updated == null)
-                    return NotFound(new { error = "문서를 찾을 수 없습니다." });
-
-                return Ok(new
-                {
-                    message = "문서가 수정되었습니다.",
-                    data = updated
-                });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 수정 오류 id={Id}", id);
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpDelete("documents/{id:int}")]
-        public async Task<IActionResult> DeleteDocument(int id, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var deleted = await _documentKnowledgeService.DeleteAsync(id, cancellationToken);
-                if (!deleted) return NotFound(new { error = "문서를 찾을 수 없습니다." });
-                return Ok(new { message = "문서가 삭제되었습니다." });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 삭제 오류 id={Id}", id);
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpPost("documents/{id:int}/reindex")]
-        [RequestSizeLimit(30 * 1024 * 1024)]
-        public async Task<IActionResult> ReindexDocument(int id, IFormFile file, CancellationToken cancellationToken)
-        {
-            try
-            {
-                if (file == null || file.Length == 0)
-                    return BadRequest(new { error = "파일을 첨부해주세요." });
-
-                var ext = Path.GetExtension(file.FileName);
-                if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
-                    return BadRequest(new { error = "현재는 PDF 파일만 지원합니다." });
-
-                var actor = await ResolveActorNameAsync();
-                await using var stream = file.OpenReadStream();
-                var result = await _documentKnowledgeService.ReindexAsync(id, stream, actor, cancellationToken);
-
-                return Ok(new
-                {
-                    result.DocumentId,
-                    result.DisplayName,
-                    result.Status,
-                    result.ChunkCount
-                });
-            }
-            catch (InvalidOperationException ex)
-            {
-                if (ex.Message.Contains("문서를 찾을 수 없습니다", StringComparison.OrdinalIgnoreCase))
-                {
-                    return NotFound(new { error = ex.Message });
-                }
-
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 재인덱싱 오류 id={Id}", id);
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
-
-        [HttpGet("documents/{id:int}/download")]
-        public async Task<IActionResult> DownloadDocument(int id, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var fileInfo = await _documentKnowledgeService.GetDownloadInfoAsync(id, cancellationToken);
-                if (fileInfo == null)
-                {
-                    return NotFound(new { error = "다운로드 가능한 원본 PDF를 찾을 수 없습니다." });
-                }
-
-                var stream = new FileStream(fileInfo.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return File(stream, "application/pdf", fileInfo.DownloadFileName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 문서 다운로드 오류 id={Id}", id);
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -1019,6 +842,225 @@ namespace AiDeskApi.Controllers
             return Ok(new { item.Id, item.IsResolved, item.ResolvedAt });
         }
 
+        // ─── CSV 템플릿 다운로드 ──────────────────────────────────────────────
+        [HttpGet("bulk-import/template")]
+        public IActionResult DownloadBulkImportTemplate()
+        {
+            var header = "공개수준,제목,내용,키워드(|구분),플랫폼(|구분),예상질문1,예상질문2,예상질문3,예상질문4,예상질문5,예상질문6,예상질문7,예상질문8,예상질문9,예상질문10";
+            var example = "user,인증서 오류 해결 방법,인증서가 만료되었을 때는 갱신을 진행하세요.,인증서|갱신|SSL,공통|windows,인증서가 안 보여요,인증서 어디서 받아요,SSL 오류가 나요,,,,,,,";
+            var csv = $"{header}\n{example}\n";
+            var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(csv)).ToArray();
+            return File(bytes, "text/csv; charset=utf-8", "kb-import-template.csv");
+        }
+
+        // ─── CSV 대량 등록 ────────────────────────────────────────────────────
+        [HttpPost("bulk-import")]
+        [RequestSizeLimit(10 * 1024 * 1024)]
+        public async Task<IActionResult> BulkImport(IFormFile file, CancellationToken cancellationToken)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest(new { error = "CSV 파일을 첨부해주세요." });
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".csv")
+                return BadRequest(new { error = "CSV 파일(.csv)만 지원합니다." });
+
+            var actor = await ResolveActorNameAsync();
+            var results = new List<object>();
+            var successCount = 0;
+            var failCount = 0;
+
+            // 전체 스트림을 읽어 멀티라인 quoted 필드를 올바르게 파싱
+            using var reader = new System.IO.StreamReader(file.OpenReadStream(), System.Text.Encoding.UTF8);
+            var allText = await reader.ReadToEndAsync(cancellationToken);
+            var csvRows = ParseCsvRows(allText);
+            var rowIndex = 0;
+
+            foreach (var cols in csvRows)
+            {
+                rowIndex++;
+                // 헤더 행 스킵
+                if (rowIndex == 1) continue;
+                // 빈 행 스킵
+                if (cols.Count == 0 || cols.All(c => string.IsNullOrWhiteSpace(c))) continue;
+
+
+                if (cols.Count < 3)
+                {
+                    results.Add(new { row = rowIndex, status = "skip", reason = "컬럼 부족(최소: 공개수준, 제목, 내용)" });
+                    failCount++;
+                    continue;
+                }
+
+                var visibility = cols[0].Trim();
+                var title = cols[1].Trim();
+                var content = cols[2].Trim();
+                var keywordsRaw = cols.Count > 3 ? cols[3].Trim() : "";
+                var platformsRaw = cols.Count > 4 ? cols[4].Trim() : "";
+                var expectedQuestions = new List<string>();
+                for (var i = 5; i < Math.Min(cols.Count, 15); i++)
+                {
+                    var q = cols[i].Trim();
+                    if (!string.IsNullOrWhiteSpace(q)) expectedQuestions.Add(q);
+                }
+
+                if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(content))
+                {
+                    results.Add(new { row = rowIndex, status = "skip", reason = "제목 또는 내용이 비어 있음", title });
+                    failCount++;
+                    continue;
+                }
+
+                var request = new UpsertKbRequest
+                {
+                    Title = title,
+                    Content = content,
+                    Visibility = visibility,
+                    Platforms = platformsRaw.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToList(),
+                    Keywords = keywordsRaw.Replace('|', ','),
+                    ExpectedQuestions = expectedQuestions
+                };
+
+                var validationError = ValidateRequest(request);
+                if (!string.IsNullOrWhiteSpace(validationError))
+                {
+                    results.Add(new { row = rowIndex, status = "fail", reason = validationError, title });
+                    failCount++;
+                    continue;
+                }
+
+                try
+                {
+                    var resolvedContent = ResolveContent(request);
+                    var resolvedQuestions = ResolveExpectedQuestions(request);
+                    var embeddingSource = BuildKbBodyEmbeddingSource(request.Title, resolvedContent);
+                    var kbEmbedding = await _embeddingService.EmbedTextAsync(embeddingSource);
+                    var now = DateTime.Now;
+                    var platforms = NormalizePlatforms(request.Platforms, request.Platform);
+
+                    var kb = new KnowledgeBase
+                    {
+                        Title = request.Title?.Trim(),
+                        Problem = request.Title!.Trim(),
+                        Solution = resolvedContent,
+                        ProblemEmbedding = JsonSerializer.Serialize(kbEmbedding),
+                        Visibility = NormalizeVisibility(request.Visibility),
+                        Platform = SerializePlatforms(platforms),
+                        Keywords = (request.Keywords ?? request.Tags)?.Trim(),
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        CreatedBy = actor,
+                        UpdatedBy = actor
+                    };
+
+                    foreach (var q in resolvedQuestions)
+                        kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
+
+                    _context.KnowledgeBases.Add(kb);
+                    await _context.SaveChangesAsync();
+
+                    try { await _vectorSearchService.UpsertKnowledgeBaseAsync(kb); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "⚠️ 벡터 동기화 실패(bulk). kbId={Id}", kb.Id); }
+
+                    results.Add(new { row = rowIndex, status = "ok", id = kb.Id, title });
+                    successCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ bulk-import 행 오류 row={Row}", rowIndex);
+                    results.Add(new { row = rowIndex, status = "fail", reason = ex.Message, title });
+                    failCount++;
+                }
+            }
+
+            return Ok(new { successCount, failCount, total = successCount + failCount, results });
+        }
+
+        /// <summary>전체 CSV 텍스트를 파싱하여 멀티라인 quoted 필드를 올바르게 처리합니다.</summary>
+        private static List<List<string>> ParseCsvRows(string text)
+        {
+            var rows = new List<List<string>>();
+            var row = new List<string>();
+            var sb = new System.Text.StringBuilder();
+            var inQuotes = false;
+            var i = 0;
+            // BOM 제거
+            if (text.Length > 0 && text[0] == '\uFEFF') i = 1;
+
+            while (i < text.Length)
+            {
+                var c = text[i];
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < text.Length && text[i + 1] == '"')
+                    {
+                        sb.Append('"');
+                        i += 2;
+                        continue;
+                    }
+                    inQuotes = !inQuotes;
+                }
+                else if (c == ',' && !inQuotes)
+                {
+                    row.Add(sb.ToString());
+                    sb.Clear();
+                }
+                else if ((c == '\r' || c == '\n') && !inQuotes)
+                {
+                    // \r\n 처리
+                    if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+                    row.Add(sb.ToString());
+                    sb.Clear();
+                    if (row.Count > 0) rows.Add(row);
+                    row = new List<string>();
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+                i++;
+            }
+            // 마지막 행 처리
+            row.Add(sb.ToString());
+            if (row.Any(c => !string.IsNullOrWhiteSpace(c))) rows.Add(row);
+
+            return rows;
+        }
+
+        private static List<string> SplitCsvLine(string line)
+        {
+            var result = new List<string>();
+            var sb = new System.Text.StringBuilder();
+            var inQuotes = false;
+            for (var i = 0; i < line.Length; i++)
+            {
+                var c = line[i];
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        sb.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = !inQuotes;
+                    }
+                }
+                else if (c == ',' && !inQuotes)
+                {
+                    result.Add(sb.ToString());
+                    sb.Clear();
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            result.Add(sb.ToString());
+            return result;
+        }
+
         [HttpGet("platforms")]
         public async Task<IActionResult> GetPlatforms()
         {
@@ -1268,41 +1310,47 @@ namespace AiDeskApi.Controllers
             };
         }
 
-        private async Task<string> ResolveActorNameAsync()
+        private static string FormatActorName(string? name, string? loginId)
         {
-            var actor = User?.Identity?.Name
-                ?? User?.FindFirstValue(ClaimTypes.Name)
-                ?? User?.FindFirstValue("name")
-                ?? User?.FindFirstValue("unique_name");
+            name = name?.Trim();
+            loginId = loginId?.Trim();
+            if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(loginId))
+                return $"{name}({loginId})";
+            return !string.IsNullOrEmpty(name) ? name
+                : !string.IsNullOrEmpty(loginId) ? loginId
+                : "알 수 없음";
+        }
 
-            if (!string.IsNullOrWhiteSpace(actor))
-            {
-                return actor.Trim();
-            }
+        private async Task<string> ResolveActorNameAsync(string? bodyUsername = null, string? bodyLoginId = null)
+        {
+            // 1. 외부 위젯이 body로 전달한 값 우선 (JSON body는 UTF-8이라 한글 안전)
+            var bName = bodyUsername?.Trim();
+            var bId = bodyLoginId?.Trim();
+            if (!string.IsNullOrEmpty(bName) || !string.IsNullOrEmpty(bId))
+                return FormatActorName(bName, bId);
 
+            // 2. JWT → DB에서 Username + LoginId 조회
             var userIdRaw = User?.FindFirstValue(ClaimTypes.NameIdentifier)
                 ?? User?.FindFirstValue("sub");
 
             if (int.TryParse(userIdRaw, out var userId) && userId > 0)
             {
-                var username = await _context.Users
+                var userMeta = await _context.Users
                     .AsNoTracking()
                     .Where(x => x.Id == userId)
-                    .Select(x => x.Username)
+                    .Select(x => new { x.Username, x.LoginId })
                     .FirstOrDefaultAsync();
 
-                if (!string.IsNullOrWhiteSpace(username))
-                {
-                    return username.Trim();
-                }
+                if (userMeta != null)
+                    return FormatActorName(userMeta.Username, userMeta.LoginId);
             }
 
-            if (string.IsNullOrWhiteSpace(actor) && Request.Headers.TryGetValue("X-Actor-Name", out var headerActor))
-            {
-                actor = headerActor.ToString();
-            }
+            // 3. X-Actor-Name 헤더 fallback
+            if (Request.Headers.TryGetValue("X-Actor-Name", out var headerActor)
+                && !string.IsNullOrWhiteSpace(headerActor.ToString()))
+                return headerActor.ToString().Trim();
 
-            return string.IsNullOrWhiteSpace(actor) ? "알 수 없음" : actor.Trim();
+            return "알 수 없음";
         }
 
         private static string NormalizeVisibility(string? value)
@@ -1425,6 +1473,10 @@ namespace AiDeskApi.Controllers
         public bool? NoSave { get; set; }
         public int? HistoryTurnCount { get; set; }
         public AskPromptOverrideRequest? PromptOverride { get; set; }
+        /// <summary>외부 위젯에서 전달하는 사용자 표시명 (예: 나성민)</summary>
+        public string? Username { get; set; }
+        /// <summary>외부 위젯에서 전달하는 로그인 ID (예: smna)</summary>
+        public string? UserLoginId { get; set; }
     }
 
     public class AskPromptOverrideRequest
@@ -1450,21 +1502,6 @@ namespace AiDeskApi.Controllers
         public string? Tags { get; set; }
         public List<string>? ExpectedQuestions { get; set; }
         public List<string>? SimilarQuestions { get; set; }
-    }
-
-    public class UploadDocumentRequest
-    {
-        public IFormFile? File { get; set; }
-        public string? DisplayName { get; set; }
-        public string? Visibility { get; set; }
-        public string? Platform { get; set; }
-    }
-
-    public class UpdateDocumentRequest
-    {
-        public string? DisplayName { get; set; }
-        public string? Visibility { get; set; }
-        public string? Platform { get; set; }
     }
 
     public class AddPlatformRequest

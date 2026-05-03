@@ -24,7 +24,12 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const requestUrl = String(error.config?.url || '').toLowerCase()
+    const hasToken = !!localStorage.getItem('token')
+    const isAuthEntryRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register')
+
+    if (status === 401 && hasToken && !isAuthEntryRequest) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       window.location.href = '/'
@@ -34,11 +39,23 @@ apiClient.interceptors.response.use(
 )
 
 export const authApi = {
-  login: (username, password) => 
-    apiClient.post('/auth/login', { username, password }),
+  login: (loginId, password) => 
+    apiClient.post('/auth/login', { loginId, password }),
+
+  checkLoginId: (loginId) =>
+    apiClient.get('/auth/check-login-id', { params: { loginId } }),
   
-  register: (username, email, password, confirmPassword) =>
-    apiClient.post('/auth/register', { username, email, password, confirmPassword }),
+  register: (loginId, username, password, confirmPassword) =>
+    apiClient.post('/auth/register', { loginId, username, password, confirmPassword }),
+
+  getMe: () =>
+    apiClient.get('/auth/me'),
+
+  updateMyProfile: (username) =>
+    apiClient.put('/auth/me/profile', { username }),
+
+  changeMyPassword: (currentPassword, newPassword, confirmPassword) =>
+    apiClient.put('/auth/me/password', { currentPassword, newPassword, confirmPassword }),
   
   validate: () =>
     apiClient.post('/auth/validate'),
@@ -52,6 +69,9 @@ export const authApi = {
 
   approveUser: (userId) =>
     apiClient.post(`/auth/approve-user/${userId}`),
+
+  updateUser: (userId, payload) =>
+    apiClient.put(`/auth/users/${userId}`, payload),
 
   rejectUser: (userId) =>
     apiClient.post(`/auth/reject-user/${userId}`)

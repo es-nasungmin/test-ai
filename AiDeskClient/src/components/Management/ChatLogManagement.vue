@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { API_BASE_URL } from '../../config'
 
@@ -21,6 +21,7 @@ const loadingDetail = ref(false)
 const showKbModal = ref(false)
 const loadingKbDetail = ref(false)
 const selectedKbDetail = ref(null)
+const selectedKbId = ref(null)
 const selectedKbSimilarity = ref(null)
 const selectedKbEvidence = ref(null)
 const showSimilarityExplain = ref(false)
@@ -232,29 +233,6 @@ function getRelatedKbsSorted(message) {
     })
 }
 
-function parseRelatedDocuments(message) {
-  const raw = message?.relatedDocumentMeta || message?.RelatedDocumentMeta
-  if (!raw) return []
-
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    return parsed
-      .map((doc) => ({
-        documentId: Number(doc?.documentId),
-        documentName: typeof doc?.documentName === 'string' ? doc.documentName : '',
-        pageNumber: Number(doc?.pageNumber),
-        excerpt: typeof doc?.excerpt === 'string' ? doc.excerpt : '',
-        similarity: Number.isFinite(Number(doc?.similarity)) ? Number(doc.similarity) : null
-      }))
-      .filter((doc) => Number.isInteger(doc.documentId) && doc.documentId > 0)
-      .sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1))
-  } catch {
-    return []
-  }
-}
-
 function sourceLabelClass(item) {
   const bySemantic = item?.includedBySemantic === true
   const byKeyword = item?.includedByKeyword === true
@@ -297,10 +275,11 @@ function buildSimilarityEvidence(rawEvidence, fallbackSimilarity) {
     ? Math.floor(keywordMatchCountRaw)
     : matchedKeywords.length
 
-  // 최신 로직: 최종 유사도는 벡터(semantic) 점수만 사용하고,
-  // 키워드는 후보 리콜/디버깅 메타로만 사용한다.
+  // 실제 로직: FinalScore = SemanticScore + KeywordBoost
   const semanticSimilarity = toFiniteNumberOrNull(evidence.baseSimilarity)
     ?? finalSimilarity
+
+  const keywordBoost = toFiniteNumberOrNull(evidence.keywordBoost) ?? 0
 
   const adjustedSimilarity = finalSimilarity ?? semanticSimilarity
 
@@ -309,6 +288,7 @@ function buildSimilarityEvidence(rawEvidence, fallbackSimilarity) {
     matchedKeywords,
     keywordMatchCount,
     semanticSimilarity,
+    keywordBoost,
     adjustedSimilarity,
     includedBySemantic: evidence.includedBySemantic === true,
     includedByKeyword: evidence.includedByKeyword === true
@@ -320,18 +300,38 @@ function similarityExplainText(evidence, fallbackSimilarity) {
 
   const semantic = formatPercentPart(normalized.semanticSimilarity)
   const adjusted = formatPercentPart(normalized.adjustedSimilarity)
+
+  // 키워드 가산 여부
+  const keywordBoost = typeof normalized.keywordBoost === 'number' ? normalized.keywordBoost : 0
+  const hasBoost = keywordBoost > 0
+  const boostText = hasBoost
+    ? `키워드 점수 가산: +${(keywordBoost * 100).toFixed(1)}%`
+    : '키워드 점수 가산: 없음'
+
   const keywordInfo = normalized.matchedKeywords.length
     ? `매칭 키워드: ${normalized.matchedKeywords.join(', ')}`
     : '매칭 키워드 없음'
 
   const inclusionReasons = []
   if (normalized.includedBySemantic) inclusionReasons.push('벡터 검색')
-  if (normalized.includedByKeyword) inclusionReasons.push('키워드 리콜')
+  if (normalized.includedByKeyword) inclusionReasons.push('키워드 매칭')
   const inclusionText = inclusionReasons.length > 0
     ? `후보 포함 경로: ${inclusionReasons.join(' + ')}`
     : '후보 포함 경로: 정보 없음'
 
-  return `최종 유사도(벡터 기준): ${adjusted}\nsemantic 유사도: ${semantic}\n키워드 점수 가산: 없음\n${keywordInfo}\n${inclusionText}`
+  // 키워드 매칭됐지만 점수 가산이 없는 경우: 유사도가 너무 낮아 가산 차단됨
+  const keywordNote = normalized.includedByKeyword && !hasBoost
+    ? '※ 유사도가 낮아 키워드 점수 가산이 차단됨'
+    : ''
+
+  return [
+    `최종 유사도: ${adjusted}`,
+    `벡터 유사도: ${semantic}`,
+    boostText,
+    keywordInfo,
+    inclusionText,
+    keywordNote
+  ].filter(Boolean).join('\n')
 }
 
 async function openKbDetail(id, similarity = null, evidence = null) {
@@ -341,6 +341,7 @@ async function openKbDetail(id, similarity = null, evidence = null) {
   loadingKbDetail.value = true
   showKbModal.value = true
   selectedKbDetail.value = null
+  selectedKbId.value = kbId
   selectedKbSimilarity.value = normalizedSimilarity
   selectedKbEvidence.value = buildSimilarityEvidence(evidence, normalizedSimilarity)
   showSimilarityExplain.value = false
@@ -387,6 +388,7 @@ function closeKbModal() {
   showKbModal.value = false
   loadingKbDetail.value = false
   selectedKbDetail.value = null
+  selectedKbId.value = null
   selectedKbSimilarity.value = null
   selectedKbEvidence.value = null
   showSimilarityExplain.value = false
@@ -450,9 +452,20 @@ watch([showKbModal, loadingKbDetail], ([isOpen, isLoading]) => {
   }, 12000)
 })
 
+function handleOutsideClick(e) {
+  if (showSimilarityExplain.value && !e.target.closest('.sim-chip-wrap')) {
+    showSimilarityExplain.value = false
+  }
+}
+
 onMounted(async () => {
   await fetchPlatforms()
   await fetchSessions()
+  document.addEventListener('click', handleOutsideClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleOutsideClick)
 })
 </script>
 
@@ -588,23 +601,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="msg.role === 'bot' && parseRelatedDocuments(msg).length > 0" class="related-kb">
-            <span class="label">참조 문서KB:</span>
-            <div class="related-kb-list">
-              <div
-                v-for="(doc, idx) in parseRelatedDocuments(msg)"
-                :key="`doc-${msg.id}-${doc.documentId}-${idx}`"
-                class="related-kb-item"
-              >
-                <span class="kb-chip">
-                  {{ idx + 1 }}위 · 문서#{{ doc.documentId }} · {{ formatSimilarity(doc.similarity) }}
-                </span>
-                <span class="source-label keyword">
-                  {{ doc.documentName || '문서명 없음' }} · p.{{ Number.isFinite(doc.pageNumber) ? doc.pageNumber : '-' }}
-                </span>
-              </div>
-            </div>
-          </div>
         </article>
       </div>
     </div>
@@ -615,6 +611,7 @@ onMounted(async () => {
           <h4>
             <span class="kb-head-icon">KB</span>
             <span>지식 베이스 상세</span>
+            <span v-if="selectedKbId" class="kb-modal-id-badge">#{{ selectedKbId }}</span>
           </h4>
           <button class="ghost" type="button" @click="closeKbModal">닫기</button>
         </div>
@@ -627,12 +624,14 @@ onMounted(async () => {
               <div class="kb-title">KB 상세 정보</div>
               <div class="kb-header-top-right">
                 <div v-if="selectedKbSimilarity !== null" class="sim-chip-wrap">
-                  <p v-if="showSimilarityExplain" class="sim-mini-explain">{{ similarityExplainText(selectedKbEvidence, selectedKbSimilarity) }}</p>
                   <span class="sim-chip">
                     <button class="sim-chip-btn" type="button" @click="showSimilarityExplain = !showSimilarityExplain">
                       연관 유사도 {{ formatSimilarity(selectedKbSimilarity) }}
                     </button>
                   </span>
+                  <div v-if="showSimilarityExplain" class="sim-float-popup">
+                    <p class="sim-mini-explain">{{ similarityExplainText(selectedKbEvidence, selectedKbSimilarity) }}</p>
+                  </div>
                 </div>
                 <span class="badge visibility-chip" :class="(selectedKbDetail.visibility || selectedKbDetail.Visibility) === 'admin' ? 'admin' : 'user'">
                   {{ (selectedKbDetail.visibility || selectedKbDetail.Visibility) === 'admin' ? '관리자 전용' : '사용자 공개' }}
@@ -1187,20 +1186,29 @@ select {
 }
 
 .sim-chip-wrap {
-  display: grid;
-  gap: 4px;
-  justify-items: end;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sim-float-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  min-width: 220px;
+  max-width: 340px;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,.12));
 }
 
 .sim-mini-explain {
   margin: 0;
-  max-width: 320px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid #dbe4f0;
   background: #f8fbff;
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.45;
   color: #475569;
   white-space: pre-line;
 }
@@ -1335,6 +1343,18 @@ select {
   color: #fff;
   font-size: 11px;
   font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.kb-modal-id-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: #e7f0ff;
+  color: #0d6efd;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.2px;
 }
 

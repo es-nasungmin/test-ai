@@ -29,10 +29,9 @@ qdrant
 
 ---
 
-## 2. 백엔드 API 키 설정
+## 2. 백엔드 시크릿 설정 (권장: 환경 변수)
 
-`AiDeskApi/appsettings.Development.json` 파일에 실제 값을 입력합니다.  
-`appsettings.json`은 플레이스홀더이므로 수정하지 마세요.
+`AiDeskApi/appsettings.Development.json`은 플레이스홀더만 유지하고, 실제 키는 환경 변수로 주입합니다.
 
 ```json
 {
@@ -40,12 +39,8 @@ qdrant
     "Provider": "sqlite"
   },
   "OpenAI": {
-    "ApiKey": "sk-...",
+    "ApiKey": "YOUR_OPENAI_API_KEY",
     "Model": "gpt-4o-mini"
-  },
-  "Gemini": {
-    "ApiKey": "AIza...",
-    "Model": "gemini-2.0-flash"
   },
   "Qdrant": {
     "Enabled": true,
@@ -59,6 +54,24 @@ qdrant
   }
 }
 ```
+
+macOS/Linux:
+
+```bash
+export OpenAI__ApiKey="<REAL_OPENAI_KEY>"
+export JwtSettings__SecretKey="32자이상충분히긴랜덤문자열"
+```
+
+Windows PowerShell:
+
+```powershell
+setx OpenAI__ApiKey "<REAL_OPENAI_KEY>"
+setx JwtSettings__SecretKey "32자이상충분히긴랜덤문자열"
+```
+
+노트:
+- ASP.NET Core 규칙에 따라 `:` 구분자는 환경 변수에서 `__`로 치환합니다.
+- 운영(Production)에서는 `OpenAI:ApiKey`, `JwtSettings:SecretKey` 미설정 시 앱이 시작되지 않도록 보호됩니다.
 
 ### MSSQL 사용 시 (선택)
 ```json
@@ -148,6 +161,6 @@ DB는 다음 실행 시 자동 재생성됩니다.
 - [ ] `appsettings.Production.json`의 `Cors:AllowedOrigins`를 실제 도메인으로 교체
 - [ ] `JwtSettings:SecretKey`를 충분히 긴 랜덤 문자열로 변경 (32자 이상)
 - [ ] `Database:Provider`를 `mssql`로 변경 및 ConnectionString 설정
-- [ ] OpenAI / Gemini API 키를 환경 변수 또는 Secret Manager로 관리
+- [ ] OpenAI API 키를 환경 변수 또는 Secret Manager로 관리
 - [ ] Qdrant를 클라우드 또는 별도 서버로 분리
 - [ ] HTTPS 적용

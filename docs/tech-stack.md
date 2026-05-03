@@ -8,7 +8,7 @@
 - Backend: ASP.NET Core Web API (.NET 10)
 - Database: SQLite (기본), MSSQL (설정 전환)
 - Vector DB: Qdrant
-- LLM/AI: OpenAI (임베딩 + 답변), Gemini(보조 서비스)
+- LLM/AI: OpenAI (임베딩 + 답변)
 
 ## 2. Frontend 스택
 
@@ -48,8 +48,10 @@
 - Chat Model: `gpt-4o-mini`
 - Chat Endpoint: `https://api.openai.com/v1/chat/completions`
 - Vector Search: Qdrant cosine distance
-- Retrieval 방식: Semantic 검색 + Keyword 후보 확장 + GPT re-rank
-- Threshold 정책: 기본 `0.4` (템플릿 서비스에서 관리)
+- Retrieval 방식: Semantic 검색 + Keyword 후보 확장 + 조건부 GPT re-rank
+- Threshold 정책: 기본 `0.5` (ChatbotPromptTemplateService에서 관리)
+- Raw hit 수: 40 → document 15 + expected 20 분리 → KB 단위 병합 10 → 최종 5
+- Rerank 스킵: 1위 score ≥ 0.82 또는 1~2위 gap ≥ 0.15 시 LLM 호출 없이 정렬만
 
 주요 파일:
 - `AiDeskApi/Services/OpenAiEmbeddingService.cs`

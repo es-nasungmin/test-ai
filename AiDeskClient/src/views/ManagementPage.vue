@@ -551,7 +551,19 @@ const saveChatbotPromptTemplate = async () => {
 const activePage = ref('kb')  // 'kb' | 'logs' | 'question-analysis' | 'prompt-test' | 'crm' | 'user-management'
 const activeAnalysisTab = ref('report')  // 'report' | 'low-similarity'
 const showCrmTestPage = false
-const showPromptAndUserManagement = false
+const showPromptTestPage = false
+const showUserManagement = computed(() => {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return false
+    const user = JSON.parse(raw)
+    const username = typeof user?.username === 'string' ? user.username.trim().toLowerCase() : ''
+    const role = typeof user?.role === 'string' ? user.role.trim().toLowerCase() : ''
+    return username === 'admin' || role === 'admin'
+  } catch {
+    return false
+  }
+})
 
 // 채팅 필터 및 기간별 질문 분석 관련 상태
 const roleFilter = ref('all')
@@ -567,6 +579,12 @@ const openChatWidgetHtmlExample = () => {
 
 watch([summaryDays, summaryTop], () => {
   fetchQuestionSummary()
+})
+
+watch(showUserManagement, (canManageUsers) => {
+  if (!canManageUsers && activePage.value === 'user-management') {
+    activePage.value = 'kb'
+  }
 })
 
 onMounted(() => {
@@ -612,13 +630,13 @@ onMounted(() => {
             @click="activePage = 'crm'"
           >CRM 상담관리(테스트)</button>
           <button
-            v-if="showPromptAndUserManagement"
+            v-if="showPromptTestPage"
             class="page-tab"
             :class="{ active: activePage === 'prompt-test' }"
             @click="activePage = 'prompt-test'"
           >프롬프트 테스트</button>
           <button
-            v-if="showPromptAndUserManagement"
+            v-if="showUserManagement"
             class="page-tab"
             :class="{ active: activePage === 'user-management' }"
             @click="activePage = 'user-management'"
@@ -790,11 +808,11 @@ onMounted(() => {
         <LowSimilarityManagement />
       </div>
     </div>
-    <div v-if="showPromptAndUserManagement && activePage === 'prompt-test'" class="kb-page">
+    <div v-if="showPromptTestPage && activePage === 'prompt-test'" class="kb-page">
       <PromptTestPanel />
     </div>
 
-    <div v-if="showPromptAndUserManagement && activePage === 'user-management'" class="kb-page">
+    <div v-if="showUserManagement && activePage === 'user-management'" class="kb-page">
       <UserApproval />
     </div>
 

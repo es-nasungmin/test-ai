@@ -115,6 +115,67 @@
     return fb;
   }
 
+  function clampChannel(n) {
+    return Math.max(0, Math.min(255, n));
+  }
+
+  function parseHexColor(input) {
+    if (typeof input !== 'string') return null;
+    var hex = input.trim();
+    if (!hex) return null;
+    if (hex.charAt(0) === '#') hex = hex.slice(1);
+    if (hex.length === 3) {
+      hex = hex.split('').map(function (ch) { return ch + ch; }).join('');
+    }
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
+
+  function rgbToHex(rgb) {
+    return '#'
+      + clampChannel(rgb.r).toString(16).padStart(2, '0')
+      + clampChannel(rgb.g).toString(16).padStart(2, '0')
+      + clampChannel(rgb.b).toString(16).padStart(2, '0');
+  }
+
+  function mixHexColor(base, target, ratio) {
+    var b = parseHexColor(base);
+    var t = parseHexColor(target);
+    if (!b || !t) return typeof base === 'string' && base.trim() ? base.trim() : '#1f7a6d';
+    var p = Math.max(0, Math.min(1, Number(ratio) || 0));
+    return rgbToHex({
+      r: Math.round(b.r + (t.r - b.r) * p),
+      g: Math.round(b.g + (t.g - b.g) * p),
+      b: Math.round(b.b + (t.b - b.b) * p)
+    });
+  }
+
+  function createThemePalette(themeColor) {
+    var base = typeof themeColor === 'string' && themeColor.trim() ? themeColor.trim() : '#1f7a6d';
+    var dark = mixHexColor(base, '#000000', 0.22);
+    var light = mixHexColor(base, '#ffffff', 0.22);
+    var lightStrong = mixHexColor(base, '#ffffff', 0.42);
+    var surface = mixHexColor(base, '#ffffff', 0.95);
+    var surfaceSoft = mixHexColor(base, '#ffffff', 0.9);
+    var border = mixHexColor(base, '#ffffff', 0.72);
+    var botBubble = mixHexColor(base, '#ffffff', 0.92);
+
+    return {
+      base: base,
+      headerGradient: 'linear-gradient(135deg, ' + dark + ' 0%, ' + base + ' 55%, ' + light + ' 100%)',
+      avatarBotGradient: 'linear-gradient(145deg, ' + dark + ' 0%, ' + base + ' 55%, ' + light + ' 100%)',
+      avatarUserGradient: 'linear-gradient(145deg, ' + base + ' 0%, ' + light + ' 55%, ' + lightStrong + ' 100%)',
+      surface: surface,
+      surfaceSoft: surfaceSoft,
+      border: border,
+      botBubble: botBubble
+    };
+  }
+
   function createCrmChatWidget(options) {
     ensureStyle();
 
@@ -123,6 +184,7 @@
       role: 'user',
       userId: '',
       username: '',
+      userLoginId: '',
       title: 'AI 상담 어시스턴트',
       platform: '전체 플랫폼',
       showPlatformSelector: false,
@@ -141,9 +203,7 @@
     if (typeof opts.defaultPlatform === 'string' && !opts.platform) {
       opts.platform = opts.defaultPlatform;
     }
-    if (typeof opts.accent === 'string' && !opts.themeColor) {
-      opts.themeColor = opts.accent;
-    }
+    var theme = createThemePalette(opts.themeColor);
 
     var state = {
       widgetVisible: true,
@@ -152,6 +212,7 @@
       sessionId: null,
       selectedPlatform: opts.platform || opts.defaultPlatform || '전체 플랫폼',
       platformOptions: ['전체 플랫폼'],
+      platformsFetched: false,
       messages: [
         { role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, opts.platform || opts.defaultPlatform)), time: now() }
       ]
@@ -164,6 +225,9 @@
           : '',
         username: typeof opts.username === 'string'
           ? opts.username.trim()
+          : '',
+        userLoginId: typeof opts.userLoginId === 'string'
+          ? opts.userLoginId.trim()
           : ''
       };
     }
@@ -177,20 +241,17 @@
     }
 
     var fab = createEl('button', 'crm-chat-fab');
-    fab.style.right = opts.buttonRight || opts.fabRight || '20px';
-    fab.style.bottom = opts.buttonBottom || opts.fabBottom || '20px';
-    fab.style.background = isAdmin
-      ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
-      : opts.themeColor;
+    fab.style.right = opts.buttonRight || '20px';
+    fab.style.bottom = opts.buttonBottom || '20px';
+    fab.style.background = theme.base;
 
     var popup = createEl('div', 'crm-chat-popup');
     popup.style.right = opts.popupRight;
     popup.style.bottom = opts.popupBottom;
+    popup.style.border = '1px solid ' + theme.border;
 
     var header = createEl('div', 'crm-chat-header');
-    header.style.background = isAdmin
-      ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
-      : 'linear-gradient(135deg, #1f7a6d 0%, #155f56 100%)';
+    header.style.background = theme.headerGradient;
 
     var titleWrap = createEl('div');
     var titleEl = createEl('div', 'crm-chat-title', opts.title);
@@ -212,13 +273,18 @@
     header.appendChild(actions);
 
     var messagesEl = createEl('div', 'crm-chat-messages');
+    messagesEl.style.background = theme.surface;
 
     var inputWrap = createEl('div', 'crm-chat-input');
+    inputWrap.style.background = theme.surfaceSoft;
+    inputWrap.style.borderTopColor = theme.border;
     var isComposing = false;
     var textarea = createEl('textarea', 'crm-chat-textarea');
+    textarea.style.borderColor = theme.border;
     textarea.rows = 2;
     textarea.placeholder = '질문 입력... (Shift+Enter 줄바꿈)';
     var sendBtn = createEl('button', 'crm-chat-send', '➤');
+    sendBtn.style.background = theme.base;
 
     inputWrap.appendChild(textarea);
     inputWrap.appendChild(sendBtn);
@@ -231,7 +297,7 @@
     mountRoot.appendChild(popup);
 
     function applyVisibility() {
-      var noBtn = opts.hideButton || opts.hideFab;
+      var noBtn = !!opts.hideButton;
       fab.style.display = (noBtn || !state.widgetVisible) ? 'none' : 'flex';
       var popupOn = noBtn ? state.isOpen : (state.widgetVisible && state.isOpen);
       popup.style.display = popupOn ? 'flex' : 'none';
@@ -239,10 +305,13 @@
 
     function setOpen(open) {
       state.isOpen = open;
-      fab.textContent = open ? '✕' : (opts.buttonLabel || opts.fabLabel || (isAdmin ? 'M' : 'U'));
+      fab.textContent = open ? '✕' : (opts.buttonLabel || 'CHAT');
       applyVisibility();
       if (open) {
-        refreshPlatforms().catch(function () {});
+        if (!state.platformsFetched) {
+          refreshPlatforms().catch(function () {});
+        }
+        setTimeout(function () { textarea.focus(); }, 50);
       }
     }
 
@@ -268,15 +337,15 @@
         var row = createEl('div', 'crm-chat-row ' + msg.role);
         var avatar = createEl('div', 'crm-chat-avatar', msg.role === 'bot' ? (isAdmin ? 'M' : 'C') : (isAdmin ? 'A' : 'U'));
         avatar.style.background = msg.role === 'bot'
-          ? (isAdmin ? 'linear-gradient(145deg,#7f1d1d 0%,#b91c1c 55%,#ef4444 100%)' : 'linear-gradient(145deg,#0b4f4a 0%,#0f766e 55%,#14b8a6 100%)')
-          : (isAdmin ? 'linear-gradient(145deg,#9f1239 0%,#e11d48 55%,#fb7185 100%)' : 'linear-gradient(145deg,#0f766e 0%,#14b8a6 55%,#5eead4 100%)');
+          ? theme.avatarBotGradient
+          : theme.avatarUserGradient;
 
         var content = createEl('div', 'crm-chat-content');
         var bubble = createEl('div', 'crm-chat-bubble', msg.text);
         if (msg.role === 'user') {
-          bubble.style.background = isAdmin
-            ? 'linear-gradient(135deg, #f56565 0%, #c05621 100%)'
-            : 'linear-gradient(135deg, #1f7a6d 0%, #155f56 100%)';
+          bubble.style.background = theme.headerGradient;
+        } else {
+          bubble.style.background = theme.botBubble;
         }
 
         var time = createEl('div', 'crm-chat-time', msg.time || now());
@@ -298,14 +367,12 @@
       if (state.loading) {
         var loadingRow = createEl('div', 'crm-chat-row bot');
         var loadingAvatar = createEl('div', 'crm-chat-avatar', isAdmin ? 'M' : 'C');
-        loadingAvatar.style.background = isAdmin
-          ? 'linear-gradient(145deg,#7f1d1d 0%,#b91c1c 55%,#ef4444 100%)'
-          : 'linear-gradient(145deg,#0b4f4a 0%,#0f766e 55%,#14b8a6 100%)';
+        loadingAvatar.style.background = theme.avatarBotGradient;
         var loadingBubble = createEl('div', 'crm-chat-bubble crm-chat-loading');
 
         for (var i = 0; i < 3; i += 1) {
           var dot = createEl('span', 'crm-chat-dot');
-          dot.style.background = isAdmin ? '#f56565' : '#1f7a6d';
+          dot.style.background = theme.base;
           loadingBubble.appendChild(dot);
         }
 
@@ -315,6 +382,7 @@
       }
 
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      sendBtn.disabled = state.loading;
     }
 
     async function refreshPlatforms() {
@@ -322,6 +390,7 @@
         var res = await fetch(opts.apiBaseUrl + '/knowledgebase/platforms');
         var data = await res.json();
         state.platformOptions = normalizePlatforms(data);
+        state.platformsFetched = true;
       } catch (e) {
         state.platformOptions = ['전체 플랫폼'];
       }
@@ -346,13 +415,11 @@
           sessionId: state.sessionId,
           createSession: state.sessionId === null,
           userId: userContext.userId || null,
-          username: userContext.username || null
+          username: userContext.username || null,
+          userLoginId: userContext.userLoginId || null
         };
 
         var headers = { 'Content-Type': 'application/json' };
-        if (userContext.username) {
-          headers['X-Actor-Name'] = userContext.username;
-        }
         if (userContext.userId) {
           headers['X-Actor-Id'] = userContext.userId;
         }
@@ -397,16 +464,16 @@
       state.sessionId = null;
       state.messages = [{ role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, state.selectedPlatform)), time: now() }];
       setOpen(false);
-      renderMessages();
     });
 
     fab.addEventListener('click', function () {
-      if (state.isOpen) {
+      var opening = !state.isOpen;
+      if (!opening) {
         state.sessionId = null;
         state.messages = [{ role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, state.selectedPlatform)), time: now() }];
       }
-      setOpen(!state.isOpen);
-      renderMessages();
+      setOpen(opening);
+      if (opening) renderMessages();
     });
 
     textarea.addEventListener('compositionstart', function () {
@@ -465,6 +532,9 @@
         }
         if (Object.prototype.hasOwnProperty.call(next, 'username')) {
           opts.username = next.username == null ? '' : String(next.username);
+        }
+        if (Object.prototype.hasOwnProperty.call(next, 'userLoginId')) {
+          opts.userLoginId = next.userLoginId == null ? '' : String(next.userLoginId);
         }
       },
       destroy: function () {

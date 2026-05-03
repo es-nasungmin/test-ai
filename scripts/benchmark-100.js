@@ -6,6 +6,9 @@ const { kbCatalog, negativeQuestions } = require('./demo-kb-catalog')
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080/api'
 const OUTPUT_DIR = path.resolve(process.cwd(), 'reports')
+const BENCH_CASESET = String(process.env.BENCH_CASESET || 'demo').trim().toLowerCase()
+const POSITIVE_TARGET = 93
+const NEGATIVE_TARGET = 7
 
 function normalizeText(value) {
   return String(value || '')
@@ -21,11 +24,49 @@ function percentile(values, p) {
   return sorted[Math.max(0, idx)]
 }
 
-function buildCases() {
+async function listAllKnowledgeBases() {
+  const pageSize = 100
+  let page = 1
+  const rows = []
+
+  while (true) {
+    const response = await fetch(`${API_BASE_URL}/knowledgebase/list?page=${page}&pageSize=${pageSize}`)
+    if (!response.ok) {
+      throw new Error(`KB 목록 조회 실패: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const batch = Array.isArray(data?.data) ? data.data : []
+    rows.push(...batch)
+
+    const total = Number(data?.total || 0)
+    if (rows.length >= total || batch.length === 0) {
+      break
+    }
+
+    page += 1
+  }
+
+  return rows
+}
+
+function normalizeExpectedQuestions(expectedQuestions) {
+  if (!Array.isArray(expectedQuestions)) return []
+
+  return expectedQuestions
+    .map((x) => {
+      if (typeof x === 'string') return x.trim()
+      if (x && typeof x.question === 'string') return x.question.trim()
+      return ''
+    })
+    .filter(Boolean)
+}
+
+function buildPositiveCasesFromCatalog(sourceCatalog) {
   const positive = []
 
-  kbCatalog.forEach((kb, index) => {
-    const q = kb.expectedQuestions
+  sourceCatalog.forEach((kb, index) => {
+    const q = normalizeExpectedQuestions(kb.expectedQuestions)
     positive.push(
       {
         id: `P-${index + 1}-1`,
@@ -51,7 +92,31 @@ function buildCases() {
     )
   })
 
-  const negatives = negativeQuestions.map((question, idx) => ({
+  return positive
+}
+
+async function loadSourceCatalog() {
+  if (BENCH_CASESET === 'live') {
+    const current = await listAllKnowledgeBases()
+    const userVisible = current.filter((x) => String(x?.visibility || '').toLowerCase() === 'user')
+    return {
+      source: 'live',
+      catalog: userVisible
+    }
+  }
+
+  return {
+    source: 'demo',
+    catalog: kbCatalog
+  }
+}
+
+async function buildCases() {
+  const { source, catalog } = await loadSourceCatalog()
+  const positiveAll = buildPositiveCasesFromCatalog(catalog)
+  const positive = positiveAll.slice(0, POSITIVE_TARGET)
+
+  const negatives = negativeQuestions.slice(0, NEGATIVE_TARGET).map((question, idx) => ({
     id: `N-${idx + 1}`,
     type: 'negative',
     question,
@@ -59,12 +124,18 @@ function buildCases() {
     expectLowSimilarity: true
   }))
 
-  const all = positive.concat(negatives).slice(0, 100)
+  const all = positive.concat(negatives)
   if (all.length !== 100) {
-    throw new Error(`benchmark case count must be 100, got ${all.length}`)
+    throw new Error(`benchmark case count must be 100, got ${all.length} (source=${source}, positive=${positive.length}, negative=${negatives.length})`)
   }
 
-  return all
+  return {
+    source,
+    sourceCatalogCount: catalog.length,
+    positiveCount: positive.length,
+    negativeCount: negatives.length,
+    cases: all
+  }
 }
 
 async function ask(question) {
@@ -123,12 +194,15 @@ function evaluateQuality(testCase, result) {
   return topTitle.includes(expected) || expected.includes(topTitle)
 }
 
-function buildMarkdownReport(summary, rows) {
+function buildMarkdownReport(summary, rows, meta) {
   const lines = []
   lines.push('# 100문항 자동 벤치 리포트')
   lines.push('')
   lines.push(`- 실행시각(UTC): ${new Date().toISOString()}`)
   lines.push(`- API_BASE_URL: ${API_BASE_URL}`)
+  lines.push(`- 케이스 소스: ${meta.source}`)
+  lines.push(`- 소스 카탈로그 수: ${meta.sourceCatalogCount}`)
+  lines.push(`- Positive/Negative: ${meta.positiveCount}/${meta.negativeCount}`)
   lines.push(`- 총 문항: ${summary.total}`)
   lines.push('')
   lines.push('## 요약')
@@ -160,8 +234,12 @@ function buildMarkdownReport(summary, rows) {
 }
 
 async function main() {
-  const cases = buildCases()
+  const build = await buildCases()
+  const cases = build.cases
   console.log(`[bench] API_BASE_URL=${API_BASE_URL}`)
+  console.log(`[bench] case source=${build.source}`)
+  console.log(`[bench] source catalog count=${build.sourceCatalogCount}`)
+  console.log(`[bench] positive/negative=${build.positiveCount}/${build.negativeCount}`)
   console.log(`[bench] total cases=${cases.length}`)
 
   const rows = []
@@ -221,7 +299,11 @@ async function main() {
     negativeQualityRate: negative.filter((r) => r.qualitySuccess).length / negative.length,
     avgLatencyMs,
     p50LatencyMs: percentile(latencies, 50),
-    p95LatencyMs: percentile(latencies, 95)
+    p95LatencyMs: percentile(latencies, 95),
+    caseSource: build.source,
+    sourceCatalogCount: build.sourceCatalogCount,
+    positiveCount: build.positiveCount,
+    negativeCount: build.negativeCount
   }
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true })
@@ -234,7 +316,7 @@ async function main() {
   fs.writeFileSync(jsonPath, JSON.stringify({ summary, rows }, null, 2), 'utf8')
   fs.writeFileSync(latestJsonPath, JSON.stringify({ summary, rows }, null, 2), 'utf8')
 
-  const report = buildMarkdownReport(summary, rows)
+  const report = buildMarkdownReport(summary, rows, build)
   fs.writeFileSync(mdPath, report, 'utf8')
   fs.writeFileSync(latestMdPath, report, 'utf8')
 

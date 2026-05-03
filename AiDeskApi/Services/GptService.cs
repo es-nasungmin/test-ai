@@ -132,4 +132,26 @@ namespace AiDeskApi.Services
             return contentProp.GetString() ?? emptyFallbackMessage;
         }
     }
+
+    public class ConsultationData
+    {
+        public int Id { get; set; }
+        public int CustomerId { get; set; }
+        public string Type { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public string? Outcome { get; set; }
+        public DateTime? ScheduledDate { get; set; }
+        public bool IsCompleted { get; set; }
+    }
+
+    public class CompanyData
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string? PhoneNumber { get; set; }
+        public string? Email { get; set; }
+        public string? Company { get; set; }
+        public string? Position { get; set; }
+    }
 }

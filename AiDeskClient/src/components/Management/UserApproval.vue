@@ -28,8 +28,8 @@
       <table>
         <thead>
           <tr>
-            <th>사용자명</th>
-            <th>이메일</th>
+            <th>관리자명</th>
+            <th>아이디</th>
             <th>권한</th>
             <th>상태</th>
             <th>가입일</th>
@@ -39,8 +39,8 @@
         </thead>
         <tbody>
           <tr v-for="user in users" :key="user.id" class="user-row">
-            <td class="username">{{ user.username }}</td>
-            <td class="email">{{ user.email }}</td>
+            <td class="username">{{ formatDisplayName(user) }}</td>
+            <td class="username-id">{{ user.loginId || '-' }}</td>
             <td>{{ user.role }}</td>
             <td>
               <span :class="['status-badge', user.isApproved ? 'status-approved' : 'status-pending']">
@@ -50,6 +50,13 @@
             <td class="created-at">{{ formatDate(user.createdAt) }}</td>
             <td class="created-at">{{ formatDate(user.lastLoginAt) }}</td>
             <td class="actions">
+              <button
+                @click="openEditModal(user)"
+                class="btn btn-edit"
+                :disabled="savingEditUserId === user.id"
+              >
+                {{ savingEditUserId === user.id ? '저장 중...' : '수정' }}
+              </button>
               <button
                 @click="approveUser(user.id)"
                 class="btn btn-approve"
@@ -69,6 +76,37 @@
         </tbody>
       </table>
     </div>
+
+    <div v-if="editUserModalVisible" class="edit-modal-overlay" @click="closeEditModal">
+      <div class="edit-modal" @click.stop>
+        <div class="edit-modal-head">
+          <h3>사용자 정보 수정</h3>
+          <button type="button" class="edit-modal-close" @click="closeEditModal">닫기</button>
+        </div>
+        <form @submit.prevent="submitEditUser" class="edit-form">
+          <label>
+            로그인 아이디
+            <input v-model.trim="editForm.loginId" type="text" required />
+          </label>
+          <label>
+            사용자명
+            <input v-model.trim="editForm.username" type="text" required />
+          </label>
+          <label>
+            권한
+            <select v-model="editForm.role" required>
+              <option value="admin">admin</option>
+              <option value="user">user</option>
+            </select>
+          </label>
+          <div class="edit-actions">
+            <button type="submit" class="btn btn-edit-save" :disabled="savingEditUserId === editForm.id">
+              {{ savingEditUserId === editForm.id ? '저장 중...' : '저장' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -82,6 +120,14 @@ const error = ref(null)
 const approvalMessage = ref(null)
 const approvingUserId = ref(null)
 const rejectingUserId = ref(null)
+const savingEditUserId = ref(null)
+const editUserModalVisible = ref(false)
+const editForm = ref({
+  id: null,
+  loginId: '',
+  username: '',
+  role: 'user'
+})
 
 const loadUsers = async () => {
   loadingUsers.value = true
@@ -141,6 +187,57 @@ const rejectUser = async (userId) => {
   }
 }
 
+const openEditModal = (user) => {
+  editForm.value = {
+    id: user.id,
+    loginId: user.loginId || '',
+    username: user.username || '',
+    role: user.role || 'user'
+  }
+  editUserModalVisible.value = true
+}
+
+const closeEditModal = () => {
+  editUserModalVisible.value = false
+  editForm.value = {
+    id: null,
+    loginId: '',
+    username: '',
+    role: 'user'
+  }
+}
+
+const submitEditUser = async () => {
+  if (!editForm.value.id) return
+
+  if (!editForm.value.loginId || !editForm.value.username || !editForm.value.role) {
+    error.value = '로그인 아이디, 사용자명, 권한을 모두 입력해주세요.'
+    return
+  }
+
+  savingEditUserId.value = editForm.value.id
+  error.value = null
+
+  try {
+    await authApi.updateUser(editForm.value.id, {
+      loginId: editForm.value.loginId,
+      username: editForm.value.username,
+      role: editForm.value.role
+    })
+    approvalMessage.value = '사용자 정보가 수정되었습니다.'
+    await loadUsers()
+    closeEditModal()
+    setTimeout(() => {
+      approvalMessage.value = null
+    }, 3000)
+  } catch (err) {
+    error.value = err?.response?.data?.message || '사용자 정보 수정에 실패했습니다.'
+    console.error(err)
+  } finally {
+    savingEditUserId.value = null
+  }
+}
+
 const formatDate = (dateString) => {
   if (!dateString) {
     return '-'
@@ -154,6 +251,11 @@ const formatDate = (dateString) => {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+const formatDisplayName = (user) => {
+  const username = String(user?.username || '').trim()
+  return username || '-'
 }
 
 onMounted(() => {
@@ -264,9 +366,9 @@ td {
   min-width: 150px;
 }
 
-.email {
+.username-id {
   color: #666;
-  min-width: 200px;
+  min-width: 140px;
 }
 
 .created-at {
@@ -315,6 +417,15 @@ td {
   color: white;
 }
 
+.btn-edit {
+  background: #4c6ef5;
+  color: white;
+}
+
+.btn-edit:hover:not(:disabled) {
+  background: #3b5bdb;
+}
+
 .btn-approve:hover:not(:disabled) {
   background: #45a049;
 }
@@ -331,6 +442,85 @@ td {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.edit-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+}
+
+.edit-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28);
+}
+
+.edit-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef0f2;
+}
+
+.edit-modal-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.edit-modal-close {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.edit-form {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #495057;
+  font-weight: 600;
+}
+
+.edit-form input,
+.edit-form select {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.btn-edit-save {
+  background: #1f6feb;
+  color: #fff;
+}
+
+.btn-edit-save:hover:not(:disabled) {
+  background: #1a5fcc;
 }
 
 /* 모바일 반응형 */

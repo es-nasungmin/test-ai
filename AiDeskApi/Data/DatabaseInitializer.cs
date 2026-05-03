@@ -30,20 +30,8 @@ namespace AiDeskApi.Data
         /// </summary>
         private static void InitializeSqliteDatabase(AiDeskContext db)
         {
-            // 1. Users 테이블 명시적 생성
-            db.Database.ExecuteSqlRaw(@"
-            CREATE TABLE IF NOT EXISTS Users (
-                Id INTEGER NOT NULL CONSTRAINT PK_Users PRIMARY KEY AUTOINCREMENT,
-                Username TEXT NOT NULL UNIQUE,
-                Email TEXT NOT NULL UNIQUE,
-                PasswordHash TEXT NOT NULL,
-                Role TEXT NOT NULL,
-                IsActive INTEGER NOT NULL,
-                IsApproved INTEGER NOT NULL,
-                CreatedAt TEXT NOT NULL,
-                ApprovedAt TEXT NULL,
-                LastLoginAt TEXT NULL
-            );");
+            // 1. Users 테이블 스키마 정합성 보장 (loginId + username)
+            EnsureUsersTableSchema(db);
 
             // 2. 기본 管理者 사용자가 없으면 생성
             EnsureAdminUserExists(db);
@@ -121,6 +109,42 @@ namespace AiDeskApi.Data
             UPDATE KnowledgeBases
             SET CreatedBy = COALESCE(NULLIF(TRIM(CreatedBy), ''), '시스템'),
                 UpdatedBy = COALESCE(NULLIF(TRIM(UpdatedBy), ''), COALESCE(NULLIF(TRIM(CreatedBy), ''), '시스템'));");
+
+                        // 기존 작성자/수정자가 loginId로 저장된 경우 사용자명(username)으로 보정
+                        db.Database.ExecuteSqlRaw(@"
+                        UPDATE KnowledgeBases
+                        SET CreatedBy = (
+                                SELECT u.Username
+                                FROM Users u
+                                WHERE u.LoginId = KnowledgeBases.CreatedBy
+                                    AND u.Username IS NOT NULL
+                                    AND TRIM(u.Username) <> ''
+                                LIMIT 1
+                        )
+                        WHERE EXISTS (
+                                SELECT 1
+                                FROM Users u
+                                WHERE u.LoginId = KnowledgeBases.CreatedBy
+                                    AND u.Username IS NOT NULL
+                                    AND TRIM(u.Username) <> ''
+                        );
+
+                        UPDATE KnowledgeBases
+                        SET UpdatedBy = (
+                                SELECT u.Username
+                                FROM Users u
+                                WHERE u.LoginId = KnowledgeBases.UpdatedBy
+                                    AND u.Username IS NOT NULL
+                                    AND TRIM(u.Username) <> ''
+                                LIMIT 1
+                        )
+                        WHERE EXISTS (
+                                SELECT 1
+                                FROM Users u
+                                WHERE u.LoginId = KnowledgeBases.UpdatedBy
+                                    AND u.Username IS NOT NULL
+                                    AND TRIM(u.Username) <> ''
+                        );");
 
             // 레거시 가시성 값 정리
             db.Database.ExecuteSqlRaw(@"
@@ -404,20 +428,20 @@ namespace AiDeskApi.Data
         /// </summary>
         private static void EnsureAdminUserExists(AiDeskContext db)
         {
-            const string adminUsername = "admin";
-            const string adminEmail = "admin@aidesk.com";
+            const string adminLoginId = "admin";
+            const string adminUsername = "관리자";
             const string adminPassword = "esgroup00";
 
             // 기존 admin 사용자 확인
-            var adminUser = db.Users.FirstOrDefault(u => u.Username == adminUsername);
+            var adminUser = db.Users.FirstOrDefault(u => u.LoginId == adminLoginId);
 
             if (adminUser == null)
             {
                 // admin 사용자 생성
                 adminUser = new User
                 {
+                    LoginId = adminLoginId,
                     Username = adminUsername,
-                    Email = adminEmail,
                     PasswordHash = HashPassword(adminPassword),
                     Role = "admin",
                     IsActive = true,
@@ -428,6 +452,114 @@ namespace AiDeskApi.Data
                 db.Users.Add(adminUser);
                 db.SaveChanges();
             }
+            else
+            {
+                var changed = false;
+                if (string.IsNullOrWhiteSpace(adminUser.Username))
+                {
+                    adminUser.Username = adminUsername;
+                    changed = true;
+                }
+
+                if (!string.Equals(adminUser.Role, "admin", StringComparison.OrdinalIgnoreCase))
+                {
+                    adminUser.Role = "admin";
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    db.SaveChanges();
+                }
+            }
+        }
+
+        private static void EnsureUsersTableSchema(AiDeskContext db)
+        {
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS Users (
+                Id INTEGER NOT NULL CONSTRAINT PK_Users PRIMARY KEY AUTOINCREMENT,
+                LoginId TEXT NOT NULL UNIQUE,
+                Username TEXT NOT NULL,
+                PasswordHash TEXT NOT NULL,
+                Role TEXT NOT NULL,
+                IsActive INTEGER NOT NULL,
+                IsApproved INTEGER NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                ApprovedAt TEXT NULL,
+                LastLoginAt TEXT NULL
+            );");
+
+            if (!HasColumn(db, "Users", "LoginId"))
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE Users RENAME TO Users_Legacy;");
+
+                db.Database.ExecuteSqlRaw(@"
+                CREATE TABLE Users (
+                    Id INTEGER NOT NULL CONSTRAINT PK_Users PRIMARY KEY AUTOINCREMENT,
+                    LoginId TEXT NOT NULL UNIQUE,
+                    Username TEXT NOT NULL,
+                    PasswordHash TEXT NOT NULL,
+                    Role TEXT NOT NULL,
+                    IsActive INTEGER NOT NULL,
+                    IsApproved INTEGER NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    ApprovedAt TEXT NULL,
+                    LastLoginAt TEXT NULL
+                );");
+
+                db.Database.ExecuteSqlRaw(@"
+                INSERT INTO Users (Id, LoginId, Username, PasswordHash, Role, IsActive, IsApproved, CreatedAt, ApprovedAt, LastLoginAt)
+                SELECT
+                    Id,
+                    COALESCE(NULLIF(TRIM(Username), ''), 'user_' || Id),
+                    COALESCE(NULLIF(TRIM(FullName), ''), NULLIF(TRIM(Username), ''), '사용자' || Id),
+                    PasswordHash,
+                    CASE WHEN LOWER(Role) = 'admin' THEN 'admin' ELSE 'user' END,
+                    IsActive,
+                    IsApproved,
+                    CreatedAt,
+                    ApprovedAt,
+                    LastLoginAt
+                FROM Users_Legacy;");
+
+                db.Database.ExecuteSqlRaw("DROP TABLE Users_Legacy;");
+                db.Database.ExecuteSqlRaw("CREATE UNIQUE INDEX IF NOT EXISTS IX_Users_LoginId ON Users (LoginId);");
+            }
+            else
+            {
+                db.Database.ExecuteSqlRaw(@"
+                UPDATE Users
+                SET Role = CASE WHEN LOWER(Role) = 'admin' THEN 'admin' ELSE 'user' END;
+
+                UPDATE Users
+                SET Username = COALESCE(NULLIF(TRIM(Username), ''), LoginId)
+                WHERE Username IS NULL OR TRIM(Username) = '';
+                ");
+            }
+        }
+
+        private static bool HasColumn(AiDeskContext db, string tableName, string columnName)
+        {
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != ConnectionState.Open)
+            {
+                connection.Open();
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA table_info({tableName});";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

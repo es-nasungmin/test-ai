@@ -100,7 +100,7 @@ namespace AiDeskApi.Controllers
                 {
                     Title = request.Title,
                     UserRole = string.IsNullOrWhiteSpace(request.Role) ? "user" : request.Role,
-                    ActorName = ResolveActorName(),
+                    ActorName = await ResolveActorNameAsync(),
                     Platform = string.IsNullOrWhiteSpace(request.Platform) ? "web" : request.Platform.Trim().ToLowerInvariant(),
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -441,17 +441,38 @@ namespace AiDeskApi.Controllers
             return result;
         }
 
-        private string ResolveActorName()
+        private static string FormatActorName(string? name, string? loginId)
         {
+            name = name?.Trim();
+            loginId = loginId?.Trim();
+            if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(loginId))
+                return $"{name}({loginId})";
+            return !string.IsNullOrEmpty(name) ? name
+                : !string.IsNullOrEmpty(loginId) ? loginId
+                : "알 수 없음";
+        }
+
+        private async Task<string> ResolveActorNameAsync()
+        {
+            var userIdRaw = User?.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User?.FindFirstValue("sub");
+
+            if (int.TryParse(userIdRaw, out var userId) && userId > 0)
+            {
+                var userMeta = await _context.Users
+                    .AsNoTracking()
+                    .Where(x => x.Id == userId)
+                    .Select(x => new { x.Username, x.LoginId })
+                    .FirstOrDefaultAsync();
+
+                if (userMeta != null)
+                    return FormatActorName(userMeta.Username, userMeta.LoginId);
+            }
+
             var actor = User?.Identity?.Name
                 ?? User?.FindFirstValue(ClaimTypes.Name)
                 ?? User?.FindFirstValue("name")
                 ?? User?.FindFirstValue("unique_name");
-
-            if (string.IsNullOrWhiteSpace(actor) && Request.Headers.TryGetValue("X-Actor-Name", out var headerActor))
-            {
-                actor = headerActor.ToString();
-            }
 
             return string.IsNullOrWhiteSpace(actor) ? "알 수 없음" : actor.Trim();
         }

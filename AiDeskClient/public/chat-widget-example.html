@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat Widget HTML Example</title>
+    <script src="/chat-widget.js"></script>
     <style>
       :root {
         color-scheme: light;
@@ -281,7 +282,7 @@
           <span class="badge">가장 간단한 사용법</span>
           <h2>이 코드 그대로 복붙해서 시작</h2>
           <p>
-            아래 코드를 페이지의 <code>&lt;/body&gt;</code> 바로 위에 붙이면 바로 동작합니다.
+            아래 코드를 그대로 붙이면 스크립트 위치와 상관없이 안정적으로 동작합니다.
             <br>
             먼저 이 방식으로 붙여서 확인한 뒤, 필요하면 옵션을 추가하세요.
             <br>
@@ -291,21 +292,22 @@
           <div class="code" style="margin-top:14px">
             <pre>&lt;script src="/chat-widget.js"&gt;&lt;/script&gt;
 &lt;script&gt;
-  const widget = window.createCrmChatWidget({
-    apiBaseUrl: 'http://localhost:8080/api',
-    role: 'user',
-    userId: 'user-1001',
-    username: '홍길동',
-    title: '트러스트온 고객 챗봇',
-    platformLabel: '트러스트온',
-    platform: 'truston',
-    showPlatformSelector: false,
-    buttonLabel: 'Chat',
-    themeColor: '#0f766e',
-    initiallyOpen: false
-  })
+  document.addEventListener('DOMContentLoaded', function () {
+    const widget = window.createCrmChatWidget({
+      apiBaseUrl: 'http://localhost:8080/api',
+      role: 'user',
+      userId: 'user-1001',
+      username: '홍길동',
+      userLoginId: 'gildong@domain.com',
+      title: '링크업 고객 챗봇',
+      platformLabel: '링크업',
+      platform: '링크업',
+      buttonLabel: 'Chat',
+      themeColor: '#185ca2'
+    })
 
-  widget.showWidget()
+    widget.showWidget()
+  })
 &lt;/script&gt;</pre>
           </div>
 
@@ -316,7 +318,7 @@
             </div>
             <div class="step">
               <div class="step-num">2</div>
-              <div class="step-body">스크립트는 <b>반드시 body 맨 아래</b>에 두세요.</div>
+              <div class="step-body"><b>스크립트 로드 후 실행</b>되도록 위젯 생성 코드를 배치하세요.</div>
             </div>
           </div>
         </article>
@@ -353,7 +355,7 @@
               <div class="step-num">4</div>
               <div class="step-body">
                 <b><code>platformLabel</code>과 <code>platform</code>을 구분해서 쓰세요.</b><br>
-                예를 들어 화면에는 <code>트러스트온</code>으로 인사하고, API 조회 값은 <code>truston</code>으로 보낼 수 있습니다.
+                예를 들어 화면에는 <code>링크업</code>으로 인사하고, API 조회 값은 <code>링크업</code> 또는 <code>트러스트온</code>으로 보낼 수 있습니다.
               </div>
             </div>
           </div>
@@ -372,13 +374,16 @@ const widget = window.createCrmChatWidget({
   role: 'user',
   userId: 'user-1001',
   username: '홍길동',
-  title: '트러스트온 고객 Chat',
-  platformLabel: '트러스트온',
-  platform: 'truston',
-  showPlatformSelector: false,
+  userLoginId: 'gildong@domain.com',
+  title: '링크업 고객 Chat',
+  platformLabel: '링크업',
+  platform: '링크업',
   buttonLabel: 'Chat',
-  themeColor: '#0f766e',
-  initiallyOpen: false
+  themeColor: '#185ca2',
+  buttonRight: '20px',   // 플로팅 버튼 우측 여백
+  buttonBottom: '20px',  // 플로팅 버튼 하단 여백
+  popupRight: '20px',    // 채팅창 우측 여백
+  popupBottom: '88px'    // 채팅창 하단 여백
 })
 
 // 이후 코드에서 필요할 때 제어 가능
@@ -386,7 +391,7 @@ widget.showWidget()  // 플로팅 버튼 다시 표시
 widget.hideWidget()  // 플로팅 버튼 숨기기 (채팅창도 닫힘)
 widget.openChat()    // 채팅창 바로 열기
 widget.closeChat()   // 채팅창 닫기
-widget.setUserContext({ userId: 'user-2002', username: '김민수' }) // 로그인 사용자 변경 반영</pre>
+widget.setUserContext({ userId: 'user-2002', username: 'minsu' }) // 로그인 사용자 변경 반영 (loginId 사용)</pre>
           </div>
 
           <p style="margin-top:16px;margin-bottom:6px;font-weight:700;font-size:13px;color:#0f172a">위치 조절 체험 (슬라이더를 움직여 보세요)</p>
@@ -459,14 +464,13 @@ const myWidget = window.createCrmChatWidget({
   apiBaseUrl: 'http://localhost:8080/api',
   role: 'user',
   userId: 'user-1001',
-  username: '홍길동',
-  title: '트러스트온 고객 Chat',
-  platformLabel: '트러스트온',
-  platform: 'truston',
-  showPlatformSelector: false,
+  username: 'gildong',
+  title: '링크업 고객 Chat',
+  platformLabel: '링크업',
+  platform: '링크업',
   buttonLabel: 'Chat',
-  themeColor: '#0f766e',
-  hideButton: true,      // 플로팅 버튼 생성 안 함
+  themeColor: '#1a7a5e',
+  hideButton: true,      // 플로팅 버튼 생성 안 함 (방법 2는 팝업 위치 위주)
   popupRight: '20px',    // 채팅창 위치 직접 지정
   popupBottom: '20px'
 })
@@ -493,6 +497,85 @@ document.getElementById('closeBtn')
           </div>
         </article>
 
+        <!-- 메서드(함수) 목록 -->
+        <article class="card">
+          <h2>메서드(함수) 목록</h2>
+          <p style="margin-bottom:14px"><code>createCrmChatWidget()</code>이 반환하는 <code>widget</code> 객체에서 사용할 수 있는 함수 목록입니다.</p>
+          <div class="guide-grid">
+            <div>
+              <div class="row">
+                <div class="k">showWidget()</div>
+                <div class="v">플로팅 버튼을 다시 화면에 표시합니다<span class="meta">widget.showWidget()</span></div>
+              </div>
+              <div class="row">
+                <div class="k">hideWidget()</div>
+                <div class="v">플로팅 버튼을 숨깁니다. 채팅창이 열려 있어도 함께 닫힙니다<span class="meta">widget.hideWidget()</span></div>
+              </div>
+              <div class="row">
+                <div class="k">openChat()</div>
+                <div class="v">채팅 팝업창을 엽니다. 플로팅 버튼 없이 내 버튼으로 열 때 사용<span class="meta">widget.openChat()</span></div>
+              </div>
+              <div class="row">
+                <div class="k">closeChat()</div>
+                <div class="v">채팅 팝업창을 닫습니다. 세션은 초기화되지 않습니다<span class="meta">widget.closeChat()</span></div>
+              </div>
+              <div class="row">
+                <div class="k">setUserContext(ctx)</div>
+                <div class="v">로그인 상태가 바뀌었을 때 사용자 정보를 업데이트합니다. 이후 전송하는 메시지부터 반영됩니다<span class="meta">widget.setUserContext({<br>  userId: 'u-001',<br>  username: '홍길동',<br>  userLoginId: 'gildong'<br>})</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="row">
+                <div class="k">setButtonRight(val)</div>
+                <div class="v">플로팅 버튼의 오른쪽 여백을 동적으로 변경합니다<span class="meta">widget.setButtonRight('40px')</span></div>
+              </div>
+              <div class="row">
+                <div class="k">setButtonBottom(val)</div>
+                <div class="v">플로팅 버튼의 아래쪽 여백을 동적으로 변경합니다<span class="meta">widget.setButtonBottom('80px')</span></div>
+              </div>
+              <div class="row">
+                <div class="k">setPopupRight(val)</div>
+                <div class="v">채팅 팝업창의 오른쪽 여백을 동적으로 변경합니다<span class="meta">widget.setPopupRight('40px')</span></div>
+              </div>
+              <div class="row">
+                <div class="k">setPopupBottom(val)</div>
+                <div class="v">채팅 팝업창의 아래쪽 여백을 동적으로 변경합니다<span class="meta">widget.setPopupBottom('100px')</span></div>
+              </div>
+              <div class="row">
+                <div class="k">destroy()</div>
+                <div class="v">위젯을 DOM에서 완전히 제거합니다. SPA에서 페이지 전환 시 정리할 때 사용<span class="meta">widget.destroy()</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="code" style="margin-top:14px">
+            <pre>const widget = window.createCrmChatWidget({ ... })
+
+// 화면 표시/숨김
+widget.showWidget()   // 플로팅 버튼 표시
+widget.hideWidget()   // 플로팅 버튼 숨기기
+
+// 채팅창 열고 닫기
+widget.openChat()     // 채팅 팝업 열기
+widget.closeChat()    // 채팅 팝업 닫기
+
+// 로그인 후 사용자 정보 반영
+widget.setUserContext({
+  userId: 'u-001',
+  username: '홍길동',
+  userLoginId: 'gildong'   // ← 채팅자 표시에 사용
+})
+
+// 위치 조절
+widget.setButtonRight('40px')
+widget.setButtonBottom('80px')
+widget.setPopupRight('40px')
+widget.setPopupBottom('108px')
+
+// SPA 페이지 이동 시 정리
+widget.destroy()</pre>
+          </div>
+        </article>
+
         <!-- 속성 가이드 -->
         <article class="card">
           <h2>속성 가이드</h2>
@@ -507,24 +590,24 @@ document.getElementById('closeBtn')
                 <div class="v"><b>user</b>: 공개 KB만 검색 (일반 고객용) / <b>admin</b>: 전체 KB 검색 (내부 관리자용)<span class="meta">'user' | 'admin' | 기본값: 'user'</span></div>
               </div>
               <div class="row">
-                <div class="k">userId / username</div>
-                <div class="v">외부 서비스의 사용자 식별값과 사용자명을 위젯에 전달. 요청 시 함께 전송되며, 현재 서버에서는 <b>username</b> 기준으로 채팅자 표시/기록에 활용<span class="meta">string | 선택값<br>예: 'user-1001', '홍길동'</span></div>
-              </div>
-              <div class="row">
-                <div class="k">title</div>
-                <div class="v">채팅창 헤더에 표시되는 제목<span class="meta">string | 기본값: 'AI 상담 어시스턴트'</span></div>
-              </div>
-              <div class="row">
                 <div class="k">platform</div>
-                <div class="v">검색할 플랫폼. <b>GET /api/knowledgebase/platforms</b> 응답값을 그대로 입력. 비워두거나 '전체 플랫폼'이면 전체 KB 검색<span class="meta">string | 기본값: '전체 플랫폼'<br>예: '트러스트온', 'windows', 'mobile-app'</span></div>
+                <div class="v"><b>KB 관리 페이지에서 등록한 플랫폼 이름과 정확히 일치</b>해야 합니다. <b>GET /api/knowledgebase/platforms</b> 응답값을 그대로 사용하세요. 전체 검색이 필요하면 <b>'전체 플랫폼'</b>을 사용하세요.<br><b style="color:#b91c1c">⚠ 주의: 등록값이 '링크업'이면 위젯도 '링크업', 등록값이 '트러스트온'이면 위젯도 '트러스트온'으로 정확히 맞춰야 합니다.</b><span class="meta">string | 기본값: '전체 플랫폼'<br>예: '링크업', '트러스트온', '전체 플랫폼'</span></div>
               </div>
               <div class="row">
                 <div class="k">platformLabel</div>
-                <div class="v">인사말과 헤더 보조 문구에 표시할 플랫폼 이름. 지정하지 않으면 platform 또는 일반 문구 사용<span class="meta">string | 선택값<br>예: '트러스트온', 'Windows 에이전트'<br>표시용 이름과 실제 조회값을 분리할 때 사용</span></div>
+                <div class="v">인사말·헤더에 <b>표시만</b> 할 이름. 실제 KB 검색에는 사용되지 않습니다.<span class="meta">string | 선택값<br>예: platform='링크업' + platformLabel='링크업'</span></div>
               </div>
               <div class="row">
                 <div class="k">showPlatformSelector</div>
                 <div class="v"><b>false</b>: platform 고정 / <b>true</b>: 헤더에 드롭다운 표시, 사용자가 직접 플랫폼 선택<span class="meta">boolean | 기본값: false</span></div>
+              </div>
+              <div class="row">
+                <div class="k">userId / username / userLoginId</div>
+                <div class="v">외부 서비스의 사용자 식별값과 로그인 정보를 위젯에 전달. 요청 시 사용자 식별/기록에 사용됨<span class="meta">string | 선택값<br>예: 'user-1001', '홍길동', 'gildong@domain.com'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">title</div>
+                <div class="v">채팅창 헤더에 표시되는 제목<span class="meta">string | 기본값: 'AI 상담 어시스턴트'</span></div>
               </div>
               <div class="row">
                 <div class="k">themeColor</div>
@@ -533,24 +616,24 @@ document.getElementById('closeBtn')
             </div>
             <div>
               <div class="row">
-                <div class="k">buttonLabel</div>
-                <div class="v">우하단 플로팅 버튼 안에 표시할 텍스트<span class="meta">string | 기본값: 'CHAT'</span></div>
-              </div>
-              <div class="row">
                 <div class="k">hideButton</div>
                 <div class="v">플로팅 버튼을 만들지 않음. 채팅창만 독립 표시하고 openChat()으로 제어<span class="meta">boolean | 기본값: false</span></div>
               </div>
               <div class="row">
-                <div class="k">initiallyOpen</div>
-                <div class="v">페이지 로드 즉시 채팅창이 열린 상태로 시작<span class="meta">boolean | 기본값: false</span></div>
-              </div>
-              <div class="row">
-                <div class="k">buttonRight / buttonBottom</div>
-                <div class="v">플로팅 버튼의 우측·하단 여백<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '20px'</span></div>
+                <div class="k">buttonLabel</div>
+                <div class="v">우하단 플로팅 버튼 안에 표시할 텍스트<span class="meta">string | 기본값: 'CHAT'</span></div>
               </div>
               <div class="row">
                 <div class="k">popupRight / popupBottom</div>
-                <div class="v">채팅창 팝업의 우측·하단 여백. 플로팅 버튼 높이(약 68px)를 고려해 설정<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '88px'</span></div>
+                <div class="v">채팅창 팝업의 우측·하단 여백. 방법 2(내 버튼 연결)에서 우선 조정<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '88px'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">buttonRight / buttonBottom</div>
+                <div class="v">플로팅 버튼의 우측·하단 여백. 방법 1(플로팅 버튼)에서 사용<span class="meta">string (CSS 단위 포함) | 기본값: '20px' / '20px'</span></div>
+              </div>
+              <div class="row">
+                <div class="k">initiallyOpen</div>
+                <div class="v">페이지 로드 즉시 채팅창이 열린 상태로 시작<span class="meta">boolean | 기본값: false</span></div>
               </div>
               <div class="row">
                 <div class="k">mountTo</div>
@@ -562,62 +645,67 @@ document.getElementById('closeBtn')
       </section>
     </main>
 
-    <script src="/chat-widget.js"></script>
     <script>
-      const userOptions = {
-        apiBaseUrl: 'http://localhost:8080/api',
-        role: 'user',
-        userId: 'user-1001',
-        username: '홍길동',
-        title: '트러스트온 고객 챗봇',
-        platformLabel: '트러스트온',
-        platform: 'truston',
-        showPlatformSelector: false,
-        buttonLabel: 'Chat',
-        themeColor: '#0f766e',
-        initiallyOpen: false
-      }
+      document.addEventListener('DOMContentLoaded', function () {
+        const userOptions = {
+          apiBaseUrl: 'http://localhost:8080/api',
+          role: 'user',
+          userId: 'user-1001',
+          username: '홍길동',
+          userLoginId: 'gildong@domain.com',
+          title: '링크업 고객 챗봇',
+          platformLabel: '링크업',
+          platform: '링크업',
+          buttonLabel: 'Chat',
+          themeColor: '#185ca2',
+          buttonRight: '20px',
+          buttonBottom: '20px',
+          popupRight: '20px',
+          popupBottom: '88px'
+        }
 
-      // 방법 1: 플로팅 버튼 방식
-      const widget = window.createCrmChatWidget(userOptions)
-      widget.showWidget()
+        // 방법 1: 플로팅 버튼 방식
+        const widget = window.createCrmChatWidget(userOptions)
+        widget.showWidget()
 
-      document.getElementById('btnShowWidget').addEventListener('click', () => widget.showWidget())
-      document.getElementById('btnHideWidget').addEventListener('click', () => widget.hideWidget())
-      document.getElementById('btnOpenChat').addEventListener('click', () => widget.openChat())
-      document.getElementById('btnCloseChat').addEventListener('click', () => widget.closeChat())
+        document.getElementById('btnShowWidget').addEventListener('click', () => widget.showWidget())
+        document.getElementById('btnHideWidget').addEventListener('click', () => widget.hideWidget())
+        document.getElementById('btnOpenChat').addEventListener('click', () => widget.openChat())
+        document.getElementById('btnCloseChat').addEventListener('click', () => widget.closeChat())
 
-      // 방법 2: 내 버튼에 연결 (플로팅 버튼 없음)
-      const myWidget = window.createCrmChatWidget({
-        ...userOptions,
-        hideButton: true,
-        popupRight: '400px',
-        popupBottom: '20px'
-      })
-
-      document.getElementById('btnMyOpen').addEventListener('click', () => myWidget.openChat())
-      document.getElementById('btnMyClose').addEventListener('click', () => myWidget.closeChat())
-
-      // 슬라이더 유틸
-      function bindSlider(id, labelId, applyFn, unit) {
-        const sl = document.getElementById(id)
-        const lb = document.getElementById(labelId)
-        sl.addEventListener('input', () => {
-          const val = sl.value + (unit || 'px')
-          lb.textContent = val
-          applyFn(val)
+        // 방법 2: 내 버튼에 연결 (플로팅 버튼 없음)
+        const myWidget = window.createCrmChatWidget({
+          ...userOptions,
+          themeColor: '#1a7a5e',
+          hideButton: true,
+          popupRight: '400px',
+          popupBottom: '20px'
         })
-      }
 
-      // 방법 1 슬라이더 — widget 위젯 제어
-      bindSlider('slBtnRight',   'lblBtnRight',   v => widget.setButtonRight(v))
-      bindSlider('slBtnBottom',  'lblBtnBottom',  v => widget.setButtonBottom(v))
-      bindSlider('slPopupRight', 'lblPopupRight', v => widget.setPopupRight(v))
-      bindSlider('slPopupBottom','lblPopupBottom',v => widget.setPopupBottom(v))
+        document.getElementById('btnMyOpen').addEventListener('click', () => myWidget.openChat())
+        document.getElementById('btnMyClose').addEventListener('click', () => myWidget.closeChat())
 
-      // 방법 2 슬라이더 — myWidget 팝업 위치 제어
-      bindSlider('slMyPopupRight', 'lblMyPopupRight', v => myWidget.setPopupRight(v))
-      bindSlider('slMyPopupBottom','lblMyPopupBottom',v => myWidget.setPopupBottom(v))
+        // 슬라이더 유틸
+        function bindSlider(id, labelId, applyFn, unit) {
+          const sl = document.getElementById(id)
+          const lb = document.getElementById(labelId)
+          sl.addEventListener('input', () => {
+            const val = sl.value + (unit || 'px')
+            lb.textContent = val
+            applyFn(val)
+          })
+        }
+
+        // 방법 1 슬라이더 — widget 위젯 제어
+        bindSlider('slBtnRight',   'lblBtnRight',   v => widget.setButtonRight(v))
+        bindSlider('slBtnBottom',  'lblBtnBottom',  v => widget.setButtonBottom(v))
+        bindSlider('slPopupRight', 'lblPopupRight', v => widget.setPopupRight(v))
+        bindSlider('slPopupBottom','lblPopupBottom',v => widget.setPopupBottom(v))
+
+        // 방법 2 슬라이더 — myWidget 팝업 위치 제어
+        bindSlider('slMyPopupRight', 'lblMyPopupRight', v => myWidget.setPopupRight(v))
+        bindSlider('slMyPopupBottom','lblMyPopupBottom',v => myWidget.setPopupBottom(v))
+      })
     </script>
   </body>
 </html>

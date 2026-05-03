@@ -24,12 +24,14 @@ namespace AiDeskApi.Services
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
     public class OpenAiRagService : IRagService
     {
-        private const int RawVectorTopK = 80;
-        private const int DocumentVectorTopK = 20;
-        private const int ExpectedVectorTopK = 30;
-        private const int MergeTopK = 12;
+        private const int RawVectorTopK = 40;
+        private const int DocumentVectorTopK = 15;
+        private const int ExpectedVectorTopK = 20;
+        private const int MergeTopK = 10;
         private const int ReRankTopK = 8;
         private const int FinalTopK = 5;
+        private const float ReRankSkipScoreThreshold = 0.82f;   // 상위 후보가 이 이상이면 rerank 스킵
+        private const float ReRankSkipGapThreshold = 0.15f;    // 1위~2위 점수 차가 이 이상이면 rerank 스킵
         private const float KeywordBoostPerMatch = 0.01f;
         private const float MaxKeywordBoost = 0.03f;
         private const float KeywordBoostHardFloorGap = 0.05f;
@@ -37,7 +39,6 @@ namespace AiDeskApi.Services
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
         private readonly IVectorSearchService _vectorSearchService;
-        private readonly IDocumentKnowledgeService _documentKnowledgeService;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly IChatbotPromptTemplateService _promptTemplates;
@@ -51,7 +52,6 @@ namespace AiDeskApi.Services
             AiDeskContext context,
             IEmbeddingService embeddingService,
             IVectorSearchService vectorSearchService,
-            IDocumentKnowledgeService documentKnowledgeService,
             HttpClient httpClient,
             IConfiguration configuration,
             IChatbotPromptTemplateService promptTemplates,
@@ -60,7 +60,6 @@ namespace AiDeskApi.Services
             _context = context;
             _embeddingService = embeddingService;
             _vectorSearchService = vectorSearchService;
-            _documentKnowledgeService = documentKnowledgeService;
             _httpClient = httpClient;
             _configuration = configuration;
             _promptTemplates = promptTemplates;
@@ -215,39 +214,18 @@ namespace AiDeskApi.Services
                     .ToList();
 
                 // 3) 상위 후보를 AI로 재정렬 후 답변 컨텍스트 후보를 확정
-                var reranked = await ReRankCandidatesAsync(question, mergedCandidates, ReRankTopK);
+                //    고신뢰 후보(상위 점수가 임계치 이상이거나 2위와 격차가 충분히 크면) rerank LLM 호출 스킵
+                var reranked = ShouldSkipRerank(mergedCandidates)
+                    ? mergedCandidates.OrderByDescending(x => x.FinalScore).Take(ReRankTopK).ToList()
+                    : await ReRankCandidatesAsync(question, mergedCandidates, ReRankTopK);
                 var topResults = reranked
                     .Take(FinalTopK)
                     .Select(x => (x.Kb, x.FinalScore, x.MatchedQuestion, x.IsExpectedMatch))
                     .ToList();
 
-                var docTopK = Math.Clamp(_configuration.GetValue<int?>("Rag:DocumentTopK") ?? 15, 1, 20);
-                List<DocumentChunkSearchHit> documentHits;
-                try
+                if (topResults.Count == 0)
                 {
-                    // 본문/예상질문 벡터 모두 임계치 미달일 때만 문서형 근거를 보조로 탐색
-                    if (!topResults.Any(x => x.Item2 >= similarityThreshold))
-                    {
-                        documentHits = await _documentKnowledgeService.SearchChunksAsync(
-                            questionEmbedding,
-                            role,
-                            normalizedPlatform,
-                            docTopK);
-                    }
-                    else
-                    {
-                        documentHits = new List<DocumentChunkSearchHit>();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "⚠️ 문서형 KB 검색 실패. FAQ 채널만 사용");
-                    documentHits = new List<DocumentChunkSearchHit>();
-                }
-
-                if (topResults.Count == 0 && documentHits.Count == 0)
-                {
-                    _logger.LogWarning("⚠️ KB/문서 후보 없음");
+                    _logger.LogWarning("⚠️ KB 후보 없음");
                     return new RagResponse
                     {
                         Answer = "유사한 상담내역이 없습니다. 담당자에게 문의해주세요.",
@@ -259,16 +237,11 @@ namespace AiDeskApi.Services
                     };
                 }
 
-                _logger.LogInformation($"✓ 검색 완료 (kb={topResults.Count}, doc={documentHits.Count})");
+                _logger.LogInformation($"✓ 검색 완료 (kb={topResults.Count})");
 
                 // 답변 생성에 사용하는 FAQ 후보는 임계치 이상 사례로 제한
                 var eligibleResults = topResults
                     .Where(x => x.Item2 >= similarityThreshold)
-                    .ToList();
-
-                // 문서 후보도 임계치 이상만 근거 컨텍스트에 반영
-                var eligibleDocumentHits = documentHits
-                    .Where(x => x.Score >= similarityThreshold)
                     .ToList();
 
                 // 임계치 이상 FAQ 후보만 충돌 감지/우선안 선택 수행
@@ -317,14 +290,10 @@ namespace AiDeskApi.Services
 
                 // 답변 생성
                 var faqContext = BuildContext(eligibleResults, voteResult, role);
-                var documentContext = BuildDocumentContext(eligibleDocumentHits);
-                var contextText = string.IsNullOrWhiteSpace(documentContext)
-                    ? faqContext
-                    : $"{faqContext}\n\n{documentContext}";
+                var contextText = faqContext;
 
                 var topKbScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
-                var topDocScore = documentHits.Count > 0 ? documentHits[0].Score : 0f;
-                var topScore = Math.Max(topKbScore, topDocScore);
+                var topScore = topKbScore;
                 var topMatchedQuestion = topResults.Count > 0 ? topResults[0].Item3 : null;
                 var topKb = topResults.Count > 0 ? topResults[0].Item1 : null;
                 var topMatchedKbTitle = topKb != null
@@ -360,16 +329,7 @@ namespace AiDeskApi.Services
                         }).ToList(),
                     RelatedDocuments = isLowSimilarity
                         ? new List<DocumentReferenceSummary>()
-                        : eligibleDocumentHits
-                        .Select(x => new DocumentReferenceSummary
-                        {
-                            DocumentId = x.DocumentId,
-                            ChunkId = x.ChunkId,
-                            DocumentName = x.DocumentName,
-                            PageNumber = x.PageNumber,
-                            Excerpt = TruncateText(x.Content, 220),
-                            Similarity = x.Score
-                        }).ToList()
+                        : new List<DocumentReferenceSummary>()
                 };
             }
             catch (Exception ex)
@@ -590,27 +550,6 @@ namespace AiDeskApi.Services
             return sb.ToString();
         }
 
-        private string BuildDocumentContext(List<DocumentChunkSearchHit> documentHits)
-        {
-            if (documentHits.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            var sb = new StringBuilder();
-            sb.AppendLine("【문서형 매뉴얼 근거】");
-
-            for (var i = 0; i < documentHits.Count; i++)
-            {
-                var hit = documentHits[i];
-                sb.AppendLine($"\n문서 근거 {i + 1}");
-                sb.AppendLine($"- 문서: {hit.DocumentName} (p.{hit.PageNumber})");
-                sb.AppendLine($"- 내용: {TruncateText(hit.Content, 380)}");
-            }
-
-            return sb.ToString();
-        }
-
         private static string TruncateText(string? value, int maxLength)
         {
             if (string.IsNullOrWhiteSpace(value)) return string.Empty;
@@ -754,6 +693,23 @@ namespace AiDeskApi.Services
                 .Select(m => m.Value.Trim().ToLowerInvariant())
                 .Where(token => !stopwords.Contains(token))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldSkipRerank(List<MergedRetrievalCandidate> candidates)
+        {
+            if (candidates.Count <= 1) return true;
+
+            var sorted = candidates.OrderByDescending(x => x.FinalScore).ToList();
+            var top = sorted[0].FinalScore;
+            var second = sorted[1].FinalScore;
+
+            // 상위 후보가 충분히 높으면 스킵
+            if (top >= ReRankSkipScoreThreshold) return true;
+
+            // 1위와 2위 격차가 충분히 크면 스킵
+            if (top - second >= ReRankSkipGapThreshold) return true;
+
+            return false;
         }
 
         private async Task<List<MergedRetrievalCandidate>> ReRankCandidatesAsync(
