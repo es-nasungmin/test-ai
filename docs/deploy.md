@@ -234,9 +234,40 @@ SELECT GETDATE() AS CurrentTime;
 
 ---
 
-## 4. 백엔드 배포
+## 4. 소스코드 가져오기 (Windows PC)
 
-### 4.1 소스 빌드 (빌드 서버 또는 개발 PC)
+### 4.0 Git으로 소스코드 클론
+
+**Git이 설치되어 있어야 합니다.** (2.4절 참고)
+
+PowerShell에서:
+
+```powershell
+# 원하는 폴더로 이동 (예: C:\Users\사용자명\)
+cd C:\Users\$env:USERNAME
+
+# GitHub에서 소스코드 가져오기
+git clone https://github.com/YOUR_REPO/AIDeskPJ.git
+
+# 또는 USB/공유폴더로 복사한 경우 해당 경로로 이동
+cd C:\Users\$env:USERNAME\AIDeskPJ
+```
+
+> 💡 **GitHub에 올라가있지 않은 경우**: Mac에서 ZIP으로 압축해서 USB나 공유폴더로 옮기거나, GitHub에 private repo로 올린 뒤 clone 하세요.
+
+**Mac에서 ZIP 만들기 (터미널):**
+```bash
+cd ~/Projects
+zip -r AIDeskPJ.zip AIDeskPJ/ --exclude "*/node_modules/*" --exclude "*/.git/*" --exclude "*/bin/*" --exclude "*/obj/*"
+```
+
+✅ **확인**: `ls C:\Users\$env:USERNAME\AIDeskPJ` 에 파일들이 보이면 OK
+
+---
+
+## 5. 백엔드 배포
+
+### 5.1 소스 빌드
 
 **빌드가 뭔가요?** 소스 코드를 실행 가능한 프로그램으로 컴파일하는 과정입니다.
 
@@ -447,7 +478,7 @@ Invoke-WebRequest http://127.0.0.1:8080/health
 
 ---
 
-## 5. 프론트엔드 배포
+## 6. 프론트엔드 배포
 
 ### 5.1 프론트 빌드 (빌드 서버 또는 개발 PC)
 
@@ -558,7 +589,7 @@ Invoke-WebRequest http://127.0.0.1
 
 ---
 
-## 6. IIS ARR 역방향 프록시 설정 (선택 — 단일 포트 운영 시)
+## 7. IIS ARR 역방향 프록시 설정 (선택 — 단일 포트 운영 시)
 
 **프록시가 뭔가요?** 브라우저 → 프론트(포트 80) → 백엔드(포트 8080)로 요청을 중계해주는 기능입니다. 사용자는 포트 80만 알면 되고, 내부적으로 자동 중계됩니다.
 
@@ -629,7 +660,7 @@ IIS 관리자에서:
 
 ---
 
-## 7. Qdrant (Vector DB) 설치
+## 8. Qdrant (Vector DB) 설치
 
 **Qdrant가 뭔가요?** 벡터 데이터베이스입니다. 임베딩된 문서들을 저장하고, 유사한 문서를 빠르게 검색할 때 사용됩니다.
 
@@ -700,7 +731,7 @@ iisreset
 
 ---
 
-## 8. 외부 서비스/위젯 연동
+## 9. 외부 서비스/위젯 연동
 
 **위젯이 뭔가요?** 다른 사람의 웹사이트에 AiDesk 챗봇을 임베드하는 기능입니다. 예: WebForms 기반 레거시 시스템에도 추가 가능.
 
@@ -767,7 +798,7 @@ http://your-server:80/chat-widget.js
 
 ---
 
-## 9. 배포 후 헬스 체크
+## 10. 배포 후 헬스 체크
 
 **헬스 체크가 뭔가요?** 각 서비스가 정상 작동하는지 확인하는 과정입니다.
 
@@ -831,7 +862,7 @@ Test-Path C:\deploy\aidesk\frontend\web.config
 
 ---
 
-## 10. 운영 설정 체크리스트
+## 11. 운영 설정 체크리스트
 
 배포 전 아래 항목을 반드시 확인합니다.
 
@@ -850,7 +881,7 @@ Test-Path C:\deploy\aidesk\frontend\web.config
 | IIS 앱 풀 | .NET CLR 버전 = 관리 코드 없음 | ☐ |
 | 로그 폴더 | `C:\deploy\aidesk\api\logs` 생성 | ☐ |
 
-## 11. 코드 업데이트 배포 절차
+## 12. 코드 업데이트 배포 절차
 
 이후 새로운 버전을 배포할 때 순서입니다.
 
@@ -887,7 +918,7 @@ Copy-Item C:\deploy\aidesk -Destination C:\deploy\aidesk.backup -Recurse
 
 ---
 
-## 12. 트러블슈팅 (문제 발생 시)
+## 13. 트러블슈팅 (문제 발생 시)
 
 배포 중 문제가 생기면 이 표를 참고하세요.
 

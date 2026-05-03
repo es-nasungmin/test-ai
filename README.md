@@ -1,7 +1,7 @@
 # AiDesk
 
 > ASP.NET Core 10 + Vue 3 기반 KB/RAG 챗봇 시스템
-> 지식베이스 관리, 문서 벡터 검색, 채팅 로그/질문 분석 기능을 제공합니다.
+> 지식베이스 관리, 채팅 로그/질문 분석 기능을 제공합니다.
 
 ---
 
@@ -28,7 +28,6 @@
 - 본문 벡터 + 예상질문 벡터 분리 인덱싱
 - 사용자 질문에 대한 하이브리드 검색(벡터 병합 + 약한 키워드 보정 + rerank)
 - 채팅 세션/메시지 관리 및 질문 분석 리포트
-- 문서(PDF/텍스트) 기반 보조 근거 검색
 
 주의:
 - 이 README는 제출용으로 KB/채팅 범위만 설명합니다.
@@ -109,13 +108,12 @@ RAG 처리 흐름:
 AIDeskPJ/
 ├── AiDeskApi/
 │   ├── Controllers/
-│   │   ├── KnowledgeBaseController.cs  # KB CRUD + ask + 문서 업로드
+│   │   ├── KnowledgeBaseController.cs  # KB CRUD + ask
 │   │   └── ChatController.cs           # 세션/메시지/질문분석
 │   ├── Services/
 │   │   ├── OpenAiRagService.cs         # RAG 파이프라인
 │   │   ├── OpenAiEmbeddingService.cs   # 임베딩 생성
-│   │   ├── QdrantVectorSearchService.cs# 벡터 검색/동기화
-│   │   └── DocumentKnowledgeService.cs # 문서 파싱/청킹
+│   │   └── QdrantVectorSearchService.cs# 벡터 검색/동기화
 │   ├── Data/
 │   │   ├── AiDeskContext.cs
 │   │   └── DatabaseInitializer.cs
@@ -157,17 +155,11 @@ AIDeskPJ/
 - 질문 정규화 후 임베딩
 - 벡터 검색(document/expected 분리) + KB 병합 + 키워드 약보정 + GPT rerank
 - 임계치 기반 저유사도 차단
-- 문서형 KB 보조 검색
 
 ### 3) 채팅 로그/분석
 - 채팅 세션 목록/상세/삭제
 - 키워드/역할/플랫폼 필터
 - 질문 분석 리포트(top referenced KB, 키워드, 일별 집계)
-
-### 4) 문서형 KB
-- 문서 업로드
-- OCR/텍스트 추출
-- 청크 임베딩 및 벡터 인덱싱
 
 ---
 
@@ -193,17 +185,6 @@ AIDeskPJ/
 | PUT | /api/knowledgebase/chatbot-prompt-template | 챗봇 프롬프트 수정 |
 | GET | /api/knowledgebase/writer-prompt-template | 작성 프롬프트 조회 |
 | PUT | /api/knowledgebase/writer-prompt-template | 작성 프롬프트 수정 |
-
-### Document KB
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | /api/knowledgebase/documents/upload | 문서 업로드 |
-| GET | /api/knowledgebase/documents | 문서 목록 |
-| PUT | /api/knowledgebase/documents/{id} | 문서 정보 수정 |
-| DELETE | /api/knowledgebase/documents/{id} | 문서 삭제 |
-| POST | /api/knowledgebase/documents/{id}/reindex | 문서 재인덱싱 |
-| GET | /api/knowledgebase/documents/{id}/download | 문서 다운로드 |
 
 ### Chat
 
