@@ -43,8 +43,8 @@
             <td class="username-id">{{ user.loginId || '-' }}</td>
             <td>{{ user.role }}</td>
             <td>
-              <span :class="['status-badge', user.isApproved ? 'status-approved' : 'status-pending']">
-                {{ user.isApproved ? '승인됨' : '대기' }}
+              <span :class="['status-badge', statusClass(user)]">
+                {{ statusLabel(user) }}
               </span>
             </td>
             <td class="created-at">{{ formatDate(user.createdAt) }}</td>
@@ -58,18 +58,11 @@
                 {{ savingEditUserId === user.id ? '저장 중...' : '수정' }}
               </button>
               <button
-                @click="approveUser(user.id)"
-                class="btn btn-approve"
-                :disabled="approvingUserId === user.id || user.isApproved || user.role === 'admin'"
+                @click="deleteUser(user)"
+                class="btn btn-delete"
+                :disabled="deletingUserId === user.id || user.role === 'admin'"
               >
-                {{ approvingUserId === user.id ? '승인 중...' : (user.isApproved ? '승인완료' : '승인') }}
-              </button>
-              <button
-                @click="rejectUser(user.id)"
-                class="btn btn-reject"
-                :disabled="rejectingUserId === user.id || user.role === 'admin'"
-              >
-                {{ rejectingUserId === user.id ? '거절 중...' : '거절' }}
+                {{ deletingUserId === user.id ? '삭제 중...' : '삭제' }}
               </button>
             </td>
           </tr>
@@ -99,6 +92,22 @@
               <option value="user">user</option>
             </select>
           </label>
+          <label>
+            상태
+            <select v-model="editForm.status" required>
+              <option value="pending">승인대기</option>
+              <option value="approved">승인</option>
+              <option value="rejected">거절</option>
+              <option value="deleted">삭제</option>
+            </select>
+          </label>
+          <label class="edit-inline-checkbox">
+            <input v-model="editForm.resetPassword" type="checkbox" />
+            비밀번호 초기화
+          </label>
+          <small v-if="editForm.resetPassword" class="reset-password-hint">
+            저장 시 비밀번호가 a1234567890 으로 초기화됩니다.
+          </small>
           <div class="edit-actions">
             <button type="submit" class="btn btn-edit-save" :disabled="savingEditUserId === editForm.id">
               {{ savingEditUserId === editForm.id ? '저장 중...' : '저장' }}
@@ -118,16 +127,18 @@ const users = ref([])
 const loadingUsers = ref(false)
 const error = ref(null)
 const approvalMessage = ref(null)
-const approvingUserId = ref(null)
-const rejectingUserId = ref(null)
 const savingEditUserId = ref(null)
+const deletingUserId = ref(null)
 const editUserModalVisible = ref(false)
 const editForm = ref({
   id: null,
   loginId: '',
   username: '',
-  role: 'user'
+  role: 'user',
+  status: 'pending',
+  resetPassword: false
 })
+const DEFAULT_RESET_PASSWORD = 'a1234567890'
 
 const loadUsers = async () => {
   loadingUsers.value = true
@@ -145,46 +156,32 @@ const loadUsers = async () => {
   }
 }
 
-const approveUser = async (userId) => {
-  approvingUserId.value = userId
-  error.value = null
-
-  try {
-    await authApi.approveUser(userId)
-    approvalMessage.value = '사용자가 승인되었습니다.'
-    await loadUsers()
-    setTimeout(() => {
-      approvalMessage.value = null
-    }, 3000)
-  } catch (err) {
-    error.value = '사용자 승인에 실패했습니다.'
-    console.error(err)
-  } finally {
-    approvingUserId.value = null
+function resolveStatus(user) {
+  const status = typeof user?.status === 'string' ? user.status.trim().toLowerCase() : ''
+  if (status === 'approved' || status === 'pending' || status === 'rejected' || status === 'deleted') {
+    return status
   }
+  if (!user?.isActive) return 'rejected'
+  if (user?.isApproved) return 'approved'
+  return 'pending'
 }
 
-const rejectUser = async (userId) => {
-  if (!confirm('이 사용자를 거절하시겠습니까?')) {
-    return
-  }
+function statusLabel(user) {
+  const status = resolveStatus(user)
+  if (status === 'approved') return '승인'
+  if (status === 'pending') return '승인대기'
+  if (status === 'rejected') return '거절됨'
+  if (status === 'deleted') return '삭제됨'
+  return '승인대기'
+}
 
-  rejectingUserId.value = userId
-  error.value = null
-
-  try {
-    await authApi.rejectUser(userId)
-    approvalMessage.value = '사용자가 거절되었습니다.'
-    await loadUsers()
-    setTimeout(() => {
-      approvalMessage.value = null
-    }, 3000)
-  } catch (err) {
-    error.value = '사용자 거절에 실패했습니다.'
-    console.error(err)
-  } finally {
-    rejectingUserId.value = null
-  }
+function statusClass(user) {
+  const status = resolveStatus(user)
+  if (status === 'approved') return 'status-approved'
+  if (status === 'pending') return 'status-pending'
+  if (status === 'rejected') return 'status-rejected'
+  if (status === 'deleted') return 'status-deleted'
+  return 'status-pending'
 }
 
 const openEditModal = (user) => {
@@ -192,7 +189,9 @@ const openEditModal = (user) => {
     id: user.id,
     loginId: user.loginId || '',
     username: user.username || '',
-    role: user.role || 'user'
+    role: user.role || 'user',
+    status: resolveStatus(user),
+    resetPassword: false
   }
   editUserModalVisible.value = true
 }
@@ -203,7 +202,9 @@ const closeEditModal = () => {
     id: null,
     loginId: '',
     username: '',
-    role: 'user'
+    role: 'user',
+    status: 'pending',
+    resetPassword: false
   }
 }
 
@@ -215,6 +216,11 @@ const submitEditUser = async () => {
     return
   }
 
+  if (!editForm.value.status) {
+    error.value = '사용자 상태를 선택해주세요.'
+    return
+  }
+
   savingEditUserId.value = editForm.value.id
   error.value = null
 
@@ -222,9 +228,13 @@ const submitEditUser = async () => {
     await authApi.updateUser(editForm.value.id, {
       loginId: editForm.value.loginId,
       username: editForm.value.username,
-      role: editForm.value.role
+      role: editForm.value.role,
+      status: editForm.value.status,
+      newPassword: editForm.value.resetPassword ? DEFAULT_RESET_PASSWORD : null
     })
-    approvalMessage.value = '사용자 정보가 수정되었습니다.'
+    approvalMessage.value = editForm.value.resetPassword
+      ? '사용자 정보가 수정되고 비밀번호가 초기화되었습니다.'
+      : '사용자 정보가 수정되었습니다.'
     await loadUsers()
     closeEditModal()
     setTimeout(() => {
@@ -235,6 +245,30 @@ const submitEditUser = async () => {
     console.error(err)
   } finally {
     savingEditUserId.value = null
+  }
+}
+
+const deleteUser = async (user) => {
+  if (!user?.id) return
+  if (!confirm(`정말로 ${formatDisplayName(user)} 계정을 삭제하시겠습니까?`)) {
+    return
+  }
+
+  deletingUserId.value = user.id
+  error.value = null
+
+  try {
+    await authApi.deleteUser(user.id)
+    approvalMessage.value = '사용자가 삭제되었습니다.'
+    await loadUsers()
+    setTimeout(() => {
+      approvalMessage.value = null
+    }, 3000)
+  } catch (err) {
+    error.value = err?.response?.data?.message || '사용자 삭제에 실패했습니다.'
+    console.error(err)
+  } finally {
+    deletingUserId.value = null
   }
 }
 
@@ -396,6 +430,16 @@ td {
   color: #8a5700;
 }
 
+.status-rejected {
+  background: #fde2e1;
+  color: #a12622;
+}
+
+.status-deleted {
+  background: #ebedf0;
+  color: #4f5b67;
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -435,7 +479,16 @@ td {
   color: white;
 }
 
+.btn-delete {
+  background: #f44336;
+  color: white;
+}
+
 .btn-reject:hover:not(:disabled) {
+  background: #da190b;
+}
+
+.btn-delete:hover:not(:disabled) {
   background: #da190b;
 }
 
@@ -498,6 +551,25 @@ td {
   font-size: 13px;
   color: #495057;
   font-weight: 600;
+}
+
+.edit-inline-checkbox {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.edit-inline-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.reset-password-hint {
+  margin-top: -4px;
+  color: #6c757d;
+  font-size: 12px;
 }
 
 .edit-form input,

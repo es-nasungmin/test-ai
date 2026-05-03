@@ -43,10 +43,6 @@ builder.Services.AddDbContext<AiDeskContext>(options =>
 });
 
 // 외부 AI API 호출 서비스 등록
-builder.Services.AddHttpClient<IGptService, GptService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(30);
-});
 builder.Services.AddHttpClient<IEmbeddingService, OpenAiEmbeddingService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
@@ -63,7 +59,6 @@ builder.Services.AddHttpClient<IVectorSearchService, QdrantVectorSearchService>(
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
-builder.Services.AddSingleton<ISummaryPromptTemplateService, SummaryPromptTemplateService>();
 builder.Services.AddSingleton<IChatbotPromptTemplateService, ChatbotPromptTemplateService>();
 builder.Services.AddScoped<IKnowledgeBaseWriterPromptTemplateService, KnowledgeBaseWriterPromptTemplateService>();
 

@@ -1,12 +1,10 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using AiDeskApi.Models;
 
 namespace AiDeskApi.Services
 {
     public interface IKnowledgeExtractorService
     {
-        Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction);
         Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
         Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt);
@@ -15,7 +13,6 @@ namespace AiDeskApi.Services
     public class KnowledgeExtractorService : IKnowledgeExtractorService
     {
         private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
         private readonly ILogger<KnowledgeExtractorService> _logger;
         private readonly string _chatCompletionsEndpoint;
         private readonly string _chatModel;
@@ -23,7 +20,6 @@ namespace AiDeskApi.Services
         public KnowledgeExtractorService(HttpClient httpClient, IConfiguration configuration, ILogger<KnowledgeExtractorService> logger)
         {
             _httpClient = httpClient;
-            _configuration = configuration;
             _logger = logger;
 
             var apiKey = configuration["OpenAI:ApiKey"];
@@ -33,89 +29,15 @@ namespace AiDeskApi.Services
             _chatModel = configuration["OpenAI:Model"] ?? "gpt-4o-mini";
         }
 
-        public async Task<ExtractedKnowledge> ExtractFromInteractionAsync(Interaction interaction)
-        {
-            try
-            {
-                _logger.LogInformation($"🔍 분석 시작: [{interaction.Type}]");
-
-                var prompt = $@"다음 {interaction.Type} 상담을 분석하세요.
-
-【상담 내용】
-{interaction.Content}
-
-【요구사항】
-- 반드시 JSON 형식만 응답
-- 다른 텍스트 금지
-- 한국어 사용
-
-【JSON 형식】
-{{
-  ""problem"": ""고객의 구체적 문제 (최대 200자)"",
-  ""solution"": ""적용한 해결방법 또는 조치내용 (최대 500자)""
-}}";
-
-                var request = new
-                {
-                    model = _chatModel,
-                    messages = new[]
-                    {
-                        new
-                        {
-                            role = "system",
-                            content = "당신은 상담 내용을 분석하여 문제와 해결방법을 추출하는 전문가입니다. 항상 JSON 형식만 응답하세요."
-                        },
-                        new { role = "user", content = prompt }
-                    },
-                    temperature = 0.3,
-                    max_tokens = 500
-                };
-
-                var response = await _httpClient.PostAsJsonAsync(
-                    _chatCompletionsEndpoint,
-                    request);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var error = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"분석 실패: {error}");
-                    throw new Exception("GPT 분석 실패");
-                }
-
-                var jsonString = await response.Content.ReadAsStringAsync();
-                var json = JsonDocument.Parse(jsonString).RootElement;
-                var content = json
-                    .GetProperty("choices")[0]
-                    .GetProperty("message")
-                    .GetProperty("content")
-                    .GetString();
-
-                var extracted = ParseJson(content);
-                _logger.LogInformation($"✓ 분석 완료");
-
-                return extracted;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"❌ 분석 오류: {ex.Message}");
-                throw;
-            }
-        }
-
         public async Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt)
         {
-            if (string.IsNullOrWhiteSpace(content))
-                throw new ArgumentException("내용이 필요합니다.");
-            if (string.IsNullOrWhiteSpace(systemPrompt))
-                throw new ArgumentException("예상질문 시스템 프롬프트가 필요합니다.");
-            if (string.IsNullOrWhiteSpace(rulesPrompt))
-                throw new ArgumentException("예상질문 규칙 프롬프트가 필요합니다.");
+            if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("내용이 필요합니다.");
+            if (string.IsNullOrWhiteSpace(systemPrompt)) throw new ArgumentException("예상질문 시스템 프롬프트가 필요합니다.");
+            if (string.IsNullOrWhiteSpace(rulesPrompt)) throw new ArgumentException("예상질문 규칙 프롬프트가 필요합니다.");
 
-            try
-            {
-                var limitedCount = Math.Clamp(count, 1, 5);
-                var titleText = string.IsNullOrWhiteSpace(title) ? "(제목 없음)" : title.Trim();
-                var prompt = $@"다음 문서형 KB를 읽고, 사용자가 실제로 물어볼 법한 예상 질문을 {limitedCount}개 생성하세요.
+            var limitedCount = Math.Clamp(count, 1, 5);
+            var titleText = string.IsNullOrWhiteSpace(title) ? "(제목 없음)" : title.Trim();
+            var prompt = $@"다음 문서형 KB를 읽고, 사용자가 실제로 물어볼 법한 예상 질문을 {limitedCount}개 생성하세요.
 
 【제목】
 {titleText}
@@ -135,61 +57,13 @@ namespace AiDeskApi.Services
 
 예시 형식: JSON 문자열 배열";
 
-                var request = new
-                {
-                    model = _chatModel,
-                    messages = new[]
-                    {
-                        new
-                        {
-                            role = "system",
-                            content = $"{systemPrompt}\n\n{rulesPrompt}"
-                        },
-                        new { role = "user", content = prompt }
-                    },
-                    temperature = 0.5,
-                    max_tokens = 300
-                };
-
-                var response = await _httpClient.PostAsJsonAsync(
-                    _chatCompletionsEndpoint,
-                    request);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var error = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"유사 질문 생성 실패: {error}");
-                    throw new Exception("유사 질문 생성 실패");
-                }
-
-                var jsonString = await response.Content.ReadAsStringAsync();
-                var json = JsonDocument.Parse(jsonString).RootElement;
-                var responseContent = json
-                    .GetProperty("choices")[0]
-                    .GetProperty("message")
-                    .GetProperty("content")
-                    .GetString();
-
-                var parsed = ParseQuestionList(responseContent, titleText, limitedCount);
-                return parsed;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"❌ 유사 질문 생성 오류: {ex.Message}");
-                throw;
-            }
+            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.5, 300, "유사 질문 생성 실패");
+            return ParseTextList(responseContent, limitedCount, titleText);
         }
 
-        public async Task<List<string>> GenerateKeywordsAsync(
-            string content,
-            List<string>? additionalContent,
-            int count,
-            string systemPrompt,
-            string rulesPrompt,
-            string source = "question")
+        public async Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question")
         {
-            if (string.IsNullOrWhiteSpace(content))
-                throw new ArgumentException("콘텐츠가 필요합니다.");
+            if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("콘텐츠가 필요합니다.");
 
             var limitedCount = Math.Clamp(count, 3, 20);
             var mainContent = content.Trim();
@@ -200,50 +74,67 @@ namespace AiDeskApi.Services
                 .Take(20)
                 .ToList();
 
-            string prompt = source.ToLower() switch
-            {
-                "answer" => GenerateTopicKeywordPrompt(mainContent, additional, limitedCount),
-                _ => GenerateSearchKeywordPrompt(mainContent, additional, limitedCount)
-            };
+            var prompt = string.Equals(source, "answer", StringComparison.OrdinalIgnoreCase)
+                ? GenerateTopicKeywordPrompt(mainContent, limitedCount)
+                : GenerateSearchKeywordPrompt(mainContent, additional, limitedCount);
 
+            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.3, 250, "키워드 생성 실패");
+            return ParseTextList(responseContent, limitedCount);
+        }
+
+        public async Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt)
+        {
+            if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("내용이 필요합니다.");
+
+            var titleText = string.IsNullOrWhiteSpace(title) ? "(없음)" : title.Trim();
+            var prompt = $@"아래 KB 답변 초안을 가독성 높은 최종 답변으로 정리하세요.
+
+【제목】
+{titleText}
+
+【내용 초안】
+{content.Trim()}
+
+【출력 형식】
+- 한국어 마크다운 텍스트
+- 필요 시 번호 목록 사용
+- 원문 의미는 유지";
+
+            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.2, 700, "답변 정리 실패");
+            if (string.IsNullOrWhiteSpace(responseContent)) throw new Exception("답변 정리 결과가 비어 있습니다.");
+            return responseContent.Trim();
+        }
+
+        private async Task<string> RequestCompletionAsync(string systemPrompt, string rulesPrompt, string userPrompt, double temperature, int maxTokens, string errorMessage)
+        {
             var request = new
             {
                 model = _chatModel,
                 messages = new[]
                 {
                     new { role = "system", content = $"{systemPrompt}\n\n{rulesPrompt}" },
-                    new { role = "user", content = prompt }
+                    new { role = "user", content = userPrompt }
                 },
-                temperature = 0.3,
-                max_tokens = 250
+                temperature,
+                max_tokens = maxTokens
             };
 
             var response = await _httpClient.PostAsJsonAsync(_chatCompletionsEndpoint, request);
-
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"키워드 생성 실패: {error}");
-                throw new Exception("키워드 생성 실패");
+                _logger.LogError("{ErrorMessage}: {Error}", errorMessage, error);
+                throw new Exception(errorMessage);
             }
 
             var jsonString = await response.Content.ReadAsStringAsync();
             var json = JsonDocument.Parse(jsonString).RootElement;
-            var responseContent = json
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
-
-            return ParseTextList(responseContent, limitedCount);
+            return json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
         }
 
-        private string GenerateSearchKeywordPrompt(string mainContent, List<string> additionalContent, int limitedCount)
+        private static string GenerateSearchKeywordPrompt(string mainContent, List<string> additionalContent, int limitedCount)
         {
-            var additionalText = additionalContent.Count == 0
-                ? "없음"
-                : string.Join("\n", additionalContent.Select((x, i) => $"{i + 1}. {x}"));
-
+            var additionalText = additionalContent.Count == 0 ? "없음" : string.Join("\n", additionalContent.Select((x, i) => $"{i + 1}. {x}"));
             return $@"아래 KB 문서 데이터를 기준으로 검색 최적화 키워드를 {limitedCount}개 생성하세요.
 
 【주요 텍스트】
@@ -261,7 +152,7 @@ namespace AiDeskApi.Services
 - 사용자가 실제로 검색할 법한 표현 우선";
         }
 
-        private string GenerateTopicKeywordPrompt(string solution, List<string> _, int limitedCount)
+        private static string GenerateTopicKeywordPrompt(string solution, int limitedCount)
         {
             return $@"아래 KB 답변 내용을 기준으로 주제/도메인 키워드를 {limitedCount}개 생성하세요.
 
@@ -277,110 +168,21 @@ namespace AiDeskApi.Services
 - 다른 KB와의 관련도 연결에 도움이 되는 키워드 우선";
         }
 
-        public async Task<string> RefineSolutionAsync(
-            string title,
-            string content,
-            string systemPrompt,
-            string rulesPrompt)
-        {
-            if (string.IsNullOrWhiteSpace(content))
-                throw new ArgumentException("내용이 필요합니다.");
-
-            var titleText = title?.Trim();
-            var prompt = $@"아래 KB 답변 초안을 가독성 높은 최종 답변으로 정리하세요.
-
-【제목】
-{(string.IsNullOrWhiteSpace(titleText) ? "(없음)" : titleText)}
-
-【내용 초안】
-{content.Trim()}
-
-【출력 형식】
-- 한국어 마크다운 텍스트
-- 필요 시 번호 목록 사용
-- 원문 의미는 유지";
-
-            var request = new
-            {
-                model = _chatModel,
-                messages = new[]
-                {
-                    new { role = "system", content = $"{systemPrompt}\n\n{rulesPrompt}" },
-                    new { role = "user", content = prompt }
-                },
-                temperature = 0.2,
-                max_tokens = 700
-            };
-
-            var response = await _httpClient.PostAsJsonAsync(_chatCompletionsEndpoint, request);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"답변 정리 실패: {error}");
-                throw new Exception("답변 정리 실패");
-            }
-
-            var jsonString = await response.Content.ReadAsStringAsync();
-            var json = JsonDocument.Parse(jsonString).RootElement;
-            var responseContent = json
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
-
-            if (string.IsNullOrWhiteSpace(responseContent))
-                throw new Exception("답변 정리 결과가 비어 있습니다.");
-
-            return responseContent.Trim();
-        }
-
-        private ExtractedKnowledge ParseJson(string? response)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(response))
-                    throw new Exception("응답이 비어 있습니다.");
-
-                var nonNullResponse = response.Trim();
-                var jsonStart = nonNullResponse.IndexOf('{');
-                var jsonEnd = nonNullResponse.LastIndexOf('}');
-
-                if (jsonStart < 0 || jsonEnd <= jsonStart)
-                    throw new Exception("JSON 형식을 찾을 수 없습니다.");
-
-                var jsonString = nonNullResponse.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                var doc = JsonDocument.Parse(jsonString);
-
-                return new ExtractedKnowledge
-                {
-                    Problem = doc.RootElement.GetProperty("problem").GetString() ?? "알 수 없음",
-                    Solution = doc.RootElement.GetProperty("solution").GetString() ?? "알 수 없음"
-                };
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"JSON 파싱 실패: {ex.Message}\n응답: {response}");
-            }
-        }
-
-        private static List<string> ParseQuestionList(string? response, string? representativeQuestion, int count)
+        private static List<string> ParseTextList(string? response, int count, string? representativeQuestion = null)
         {
             try
             {
                 var raw = response?.Trim();
-                if (string.IsNullOrWhiteSpace(raw))
-                    throw new Exception("응답이 비어 있습니다.");
+                if (string.IsNullOrWhiteSpace(raw)) throw new Exception("응답이 비어 있습니다.");
 
                 var jsonStart = raw.IndexOf('[');
                 var jsonEnd = raw.LastIndexOf(']');
-                if (jsonStart < 0 || jsonEnd <= jsonStart)
-                    throw new Exception("JSON 배열 형식을 찾을 수 없습니다.");
+                if (jsonStart < 0 || jsonEnd <= jsonStart) throw new Exception("JSON 배열 형식을 찾을 수 없습니다.");
 
                 var jsonArray = raw.Substring(jsonStart, jsonEnd - jsonStart + 1);
                 var items = JsonSerializer.Deserialize<List<string>>(jsonArray) ?? new List<string>();
-
                 var rep = representativeQuestion?.Trim();
+
                 return items
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())
@@ -391,45 +193,8 @@ namespace AiDeskApi.Services
             }
             catch (Exception ex)
             {
-                throw new Exception($"유사 질문 JSON 파싱 실패: {ex.Message}\n응답: {response}");
-            }
-        }
-
-        private static List<string> ParseTextList(string? response, int count)
-        {
-            try
-            {
-                var raw = response?.Trim();
-                if (string.IsNullOrWhiteSpace(raw))
-                    throw new Exception("응답이 비어 있습니다.");
-
-                var jsonStart = raw.IndexOf('[');
-                var jsonEnd = raw.LastIndexOf(']');
-                if (jsonStart < 0 || jsonEnd <= jsonStart)
-                    throw new Exception("JSON 배열 형식을 찾을 수 없습니다.");
-
-                var jsonArray = raw.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                var items = JsonSerializer.Deserialize<List<string>>(jsonArray) ?? new List<string>();
-
-                return items
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(count)
-                    .ToList();
-            }
-            catch (Exception ex)
-            {
                 throw new Exception($"JSON 배열 파싱 실패: {ex.Message}\n응답: {response}");
             }
         }
-
     }
-
-    public class ExtractedKnowledge
-    {
-        public string Problem { get; set; } = string.Empty;
-        public string Solution { get; set; } = string.Empty;
-    }
-
 }

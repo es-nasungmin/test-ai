@@ -3,14 +3,11 @@
     <!-- 로그인 페이지 또는 메인 페이지 표시 -->
     <LoginPage v-if="!isLoggedIn" />
     <div v-else>
-      <header class="app-header">
-        <h1 class="app-title">AiDesk</h1>
-        <div class="user-info">
-          <button class="username-link" type="button" @click="openMyPage">{{ displayUserName }}</button>
-          <button class="logout-btn" @click="handleLogout">로그아웃</button>
-        </div>
-      </header>
-      <ManagementPage :user="currentUser" />
+      <ManagementPage
+        :user="currentUser"
+        @open-my-page="openMyPage"
+        @logout="handleLogout"
+      />
 
       <div v-if="showMyPage" class="mypage-overlay" @click="closeMyPage">
         <div class="mypage-modal" @click.stop>
@@ -341,64 +338,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 24px;
-  background: linear-gradient(135deg, #0d6efd 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 24px;
-}
-
-.app-title {
-  font-size: 24px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.username {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.username-link {
-  border: none;
-  background: transparent;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 0;
-}
-
-.username-link:hover {
-  text-decoration: underline;
-}
-
-.logout-btn {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 1px solid white;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.logout-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
 .app {
   min-height: 100vh;
   background: #f5f5f5;

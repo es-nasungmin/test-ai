@@ -209,7 +209,6 @@ async function addPlatform() {
     if (!platformOptions.value.includes(added)) {
       platformOptions.value.push(added)
     }
-    form.value.platforms = normalizeSelectedPlatforms([...form.value.platforms, added])
     newPlatformName.value = ''
     await fetchPlatforms()
     await fetchLowSimilarityQuestions()

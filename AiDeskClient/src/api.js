@@ -73,6 +73,9 @@ export const authApi = {
   updateUser: (userId, payload) =>
     apiClient.put(`/auth/users/${userId}`, payload),
 
+  deleteUser: (userId) =>
+    apiClient.delete(`/auth/users/${userId}`),
+
   rejectUser: (userId) =>
     apiClient.post(`/auth/reject-user/${userId}`)
 }

@@ -467,7 +467,6 @@ namespace AiDeskApi.Controllers
                     return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
-
                 var generated = await _knowledgeExtractorService.GenerateSimilarQuestionsAsync(
                     request.Title?.Trim() ?? string.Empty,
                     request.Content.Trim(),
@@ -479,7 +478,7 @@ namespace AiDeskApi.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 유사 질문 생성 오류: {ex.Message}");
+                _logger.LogError(ex, "유사 질문 생성 오류");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -491,11 +490,8 @@ namespace AiDeskApi.Controllers
             {
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
                 var source = BuildKeywordGenerationSource(request.Title, request.Content, request.ExpectedQuestions);
-
                 if (string.IsNullOrWhiteSpace(source))
-                {
                     return BadRequest(new { error = "제목 또는 내용을 먼저 입력해주세요" });
-                }
 
                 var count = Math.Clamp(request.Count ?? 5, 1, 5);
                 var generated = await _knowledgeExtractorService.GenerateKeywordsAsync(
@@ -506,15 +502,11 @@ namespace AiDeskApi.Controllers
                     prompts.KeywordRulesPrompt,
                     source: "document");
 
-                return Ok(new 
-                { 
-                    items = generated,
-                    combined = generated
-                });
+                return Ok(new { items = generated, combined = generated });
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 키워드 생성 오류: {ex.Message}");
+                _logger.LogError(ex, "키워드 생성 오류");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -528,7 +520,6 @@ namespace AiDeskApi.Controllers
                     return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
-
                 var refined = await _knowledgeExtractorService.RefineSolutionAsync(
                     request.Title?.Trim() ?? string.Empty,
                     request.Content.Trim(),
@@ -539,7 +530,7 @@ namespace AiDeskApi.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 답변 정리 오류: {ex.Message}");
+                _logger.LogError(ex, "답변 정리 오류");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -1284,16 +1275,8 @@ namespace AiDeskApi.Controllers
                 .Take(10)
                 .ToList();
 
-            if (expected.Count == 0)
-            {
-                return bodySource;
-            }
-
-            if (string.IsNullOrWhiteSpace(bodySource))
-            {
-                return "예상질문: " + string.Join(" | ", expected);
-            }
-
+            if (expected.Count == 0) return bodySource;
+            if (string.IsNullOrWhiteSpace(bodySource)) return "예상질문: " + string.Join(" | ", expected);
             return $"{bodySource}\n예상질문: {string.Join(" | ", expected)}";
         }
 
@@ -1561,8 +1544,8 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
-            public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
-            public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
@@ -1573,11 +1556,12 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
-            public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
-            public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
+        public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
         public string AnswerRefineRulesPrompt { get; set; } = string.Empty;
     }
+
 }

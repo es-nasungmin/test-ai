@@ -550,6 +550,9 @@ onBeforeUnmount(() => {
     <div class="panel detail-panel">
       <div class="panel-head">
         <h3>대화 상세</h3>
+        <div class="detail-head-actions">
+          <slot name="detail-actions" />
+        </div>
       </div>
 
       <div v-if="!selectedSessionId" class="empty">왼쪽에서 세션을 선택하세요.</div>
@@ -733,6 +736,18 @@ onBeforeUnmount(() => {
 .panel-head h3 {
   margin: 0;
   color: #212529;
+}
+
+.detail-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.detail-head-actions:empty {
+  display: none;
 }
 
 .panel-toolbar-wrap {
@@ -1506,6 +1521,11 @@ select {
       "list"
       "detail"
       "summary";
+  }
+
+  .detail-head-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
   
   .toolbar {
