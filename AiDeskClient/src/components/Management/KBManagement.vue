@@ -452,6 +452,7 @@ async function saveKb() {
 
   saving.value = true
   try {
+    const isEdit = !!form.value.id
     const payload = {
       title: form.value.title.trim(),
       content: form.value.content,
@@ -471,6 +472,7 @@ async function saveKb() {
       })
     }
 
+    alert(isEdit ? 'KB가 수정되었습니다.' : 'KB가 저장되었습니다.')
     resetForm()
     kbPage.value = 1
     await fetchKbs()
@@ -650,6 +652,7 @@ async function deleteKb(kb) {
       kbPage.value -= 1
     }
     await fetchKbs()
+    alert('KB가 삭제되었습니다.')
   } catch {
     alert('삭제에 실패했습니다.')
   }

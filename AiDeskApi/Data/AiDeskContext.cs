@@ -46,12 +46,13 @@ namespace AiDeskApi.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Problem).IsRequired().HasColumnName("Problem");
                 entity.Property(e => e.Content).IsRequired();
                 entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.UpdatedBy).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Content).HasColumnName("Content");
+                entity.Property(e => e.Content).HasColumnName("Solution");
                 entity.Property(e => e.Keywords).HasColumnName("Tags").HasMaxLength(500);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
                 entity.HasIndex(e => e.UpdatedAt);

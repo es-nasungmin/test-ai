@@ -117,6 +117,7 @@ async function deleteSession(id) {
 
     await fetchSessions()
     await fetchQuestionSummary()
+    alert('채팅 세션이 삭제되었습니다.')
   } catch {
     alert('세션 삭제에 실패했습니다.')
   } finally {
@@ -354,31 +355,21 @@ async function openKbDetail(id, similarity = null, evidence = null) {
     return
   }
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 10000)
-
   try {
-    const res = await fetch(`${API_URL}/knowledgebase/${kbId}`, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal
-    })
+    const res = await axios.get(`${API_URL}/knowledgebase/${kbId}`, { timeout: 10000 })
 
     if (kbDetailRequestSeq.value !== requestSeq) return
 
-    if (!res.ok) {
-      selectedKbDetail.value = { error: `KB 상세 조회 실패 (${res.status})` }
-      return
+    selectedKbDetail.value = res.data
+  } catch (err) {
+    if (kbDetailRequestSeq.value !== requestSeq) return
+    const status = err?.response?.status
+    if (status === 401) {
+      selectedKbDetail.value = { error: '로그인이 만료되었습니다. 다시 로그인 후 시도해주세요.' }
+    } else {
+      selectedKbDetail.value = { error: `KB 상세를 불러오지 못했습니다.${status ? ` (${status})` : ''}` }
     }
-
-    const data = await res.json()
-    if (kbDetailRequestSeq.value !== requestSeq) return
-    selectedKbDetail.value = data
-  } catch {
-    if (kbDetailRequestSeq.value !== requestSeq) return
-    selectedKbDetail.value = { error: 'KB 상세를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.' }
   } finally {
-    clearTimeout(timeoutId)
     if (kbDetailRequestSeq.value === requestSeq) {
       loadingKbDetail.value = false
     }

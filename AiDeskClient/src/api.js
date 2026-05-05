@@ -8,35 +8,41 @@ const apiClient = axios.create({
   }
 })
 
-// 요청 인터셉터: 토큰 추가
-apiClient.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  error => Promise.reject(error)
-)
+function attachAuthInterceptors(client) {
+  client.interceptors.request.use(
+    config => {
+      const token = localStorage.getItem('token')
+      if (token) {
+        config.headers = config.headers || {}
+        config.headers.Authorization = `Bearer ${token}`
+      }
+      return config
+    },
+    error => Promise.reject(error)
+  )
 
-// 응답 인터셉터: 401 처리
-apiClient.interceptors.response.use(
-  response => response,
-  error => {
-    const status = error.response?.status
-    const requestUrl = String(error.config?.url || '').toLowerCase()
-    const hasToken = !!localStorage.getItem('token')
-    const isAuthEntryRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register')
+  client.interceptors.response.use(
+    response => response,
+    error => {
+      const status = error.response?.status
+      const requestUrl = String(error.config?.url || '').toLowerCase()
+      const hasToken = !!localStorage.getItem('token')
+      const isAuthEntryRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register')
 
-    if (status === 401 && hasToken && !isAuthEntryRequest) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/'
+      if (status === 401 && hasToken && !isAuthEntryRequest) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.location.href = '/'
+      }
+
+      return Promise.reject(error)
     }
-    return Promise.reject(error)
-  }
-)
+  )
+}
+
+// 커스텀 apiClient와 기본 axios 모두에 인증 인터셉터 적용
+attachAuthInterceptors(apiClient)
+attachAuthInterceptors(axios)
 
 export const authApi = {
   login: (loginId, password) => 

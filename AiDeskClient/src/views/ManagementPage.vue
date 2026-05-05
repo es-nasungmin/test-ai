@@ -32,6 +32,37 @@ const displayUserName = computed(() => {
   return String(name).toLowerCase() === 'admin' ? '관리자' : name
 })
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function shouldRetryApiError(err) {
+  const status = err?.response?.status
+  return !status || status >= 500
+}
+
+async function withRetry(requestFn, { retries = 4, initialDelayMs = 300 } = {}) {
+  let attempt = 0
+  let lastError
+
+  while (attempt <= retries) {
+    try {
+      return await requestFn()
+    } catch (err) {
+      lastError = err
+      if (!shouldRetryApiError(err) || attempt === retries) {
+        throw err
+      }
+
+      const delay = initialDelayMs * (attempt + 1)
+      await wait(delay)
+      attempt += 1
+    }
+  }
+
+  throw lastError
+}
+
 
 // 기간별 질문 분석 데이터 로드
 async function fetchQuestionSummary() {
@@ -41,7 +72,7 @@ async function fetchQuestionSummary() {
     if (roleFilter.value !== 'all') params.role = roleFilter.value
     if (platformFilter.value !== 'all') params.platform = platformFilter.value
     
-    const response = await axios.get(`${API_URL}/chat/questions-summary`, { params })
+    const response = await withRetry(() => axios.get(`${API_URL}/chat/questions-summary`, { params }))
     questionSummary.value = response.data || null
   } catch {
     questionSummary.value = null
@@ -71,7 +102,7 @@ function formatDateTime(dateStr) {
 
 const fetchChatbotPromptTemplate = async () => {
   try {
-    const response = await axios.get(`${API_URL}/knowledgebase/chatbot-prompt-template`)
+    const response = await withRetry(() => axios.get(`${API_URL}/knowledgebase/chatbot-prompt-template`))
     chatbotPromptTemplateForm.value = {
       userSystemPrompt: response.data.userSystemPrompt,
       adminSystemPrompt: response.data.adminSystemPrompt,
@@ -81,6 +112,7 @@ const fetchChatbotPromptTemplate = async () => {
       adminLowSimilarityMessage: response.data.adminLowSimilarityMessage,
       similarityThreshold: response.data.similarityThreshold
     }
+    error.value = ''
   } catch (err) {
     error.value = '챗봇 프롬프트 설정을 불러오지 못했습니다.'
     console.error(err)
@@ -165,7 +197,7 @@ const questionSummary = ref(null)
 
 async function fetchSummaryPlatforms() {
   try {
-    const response = await axios.get(`${API_URL}/knowledgebase/platforms`)
+    const response = await withRetry(() => axios.get(`${API_URL}/knowledgebase/platforms`))
     const list = Array.isArray(response.data) ? response.data : []
     const normalized = list
       .map((x) => (typeof x === 'string' ? x.trim() : ''))

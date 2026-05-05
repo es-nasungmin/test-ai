@@ -249,6 +249,7 @@ namespace AiDeskApi.Controllers
                     return BadRequest(validationError);
 
                 var content = ResolveContent(request);
+                var representativeQuestion = ResolveRepresentativeQuestion(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
                 var now = DateTime.Now;
                 var actor = await ResolveActorNameAsync();
@@ -257,6 +258,7 @@ namespace AiDeskApi.Controllers
                 var kb = new KnowledgeBase
                 {
                     Title = request.Title!.Trim(),
+                    Problem = representativeQuestion,
                     Content = content,
                     Visibility = NormalizeVisibility(request.Visibility),
                     Platform = SerializePlatforms(platforms),
@@ -322,11 +324,13 @@ namespace AiDeskApi.Controllers
                 var beforeKeywords = kb.Keywords;
 
                 var content = ResolveContent(request);
+                var representativeQuestion = ResolveRepresentativeQuestion(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
 
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
                 var actor = await ResolveActorNameAsync();
                 kb.Title = request.Title!.Trim();
+                kb.Problem = representativeQuestion;
                 kb.Content = content;
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
@@ -1401,6 +1405,15 @@ namespace AiDeskApi.Controllers
         private static string ResolveContent(UpsertKbRequest request)
         {
             return (request.Content ?? request.Solution ?? string.Empty).Trim();
+        }
+
+        private static string ResolveRepresentativeQuestion(UpsertKbRequest request)
+        {
+            if (!string.IsNullOrWhiteSpace(request.RepresentativeQuestion))
+                return request.RepresentativeQuestion.Trim();
+            if (!string.IsNullOrWhiteSpace(request.Title))
+                return request.Title.Trim();
+            return string.Empty;
         }
 
         private static List<string> ResolveExpectedQuestions(UpsertKbRequest request)
