@@ -535,7 +535,7 @@ onMounted(() => {
    컨테이너
    ===================================================== */
 .crm-container {
-  --content-max-width: 1760px;
+  --content-max-width: 2048px;
   width: 100%;
   padding: 0 16px 40px;
 }
