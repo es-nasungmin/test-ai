@@ -56,6 +56,9 @@ namespace AiDeskApi.Controllers
                 if (string.IsNullOrWhiteSpace(request.Question))
                     return BadRequest("질문을 입력해주세요.");
 
+                if (request.Question.Length > 300)
+                    return BadRequest("질문은 300자 이내로 입력해주세요.");
+
                 var role = string.IsNullOrWhiteSpace(request.Role) ? "user" : request.Role;
                 var platform = NormalizePlatform(request.Platform);
                 _logger.LogInformation($"❓ [{role}] 질문: {request.Question}");

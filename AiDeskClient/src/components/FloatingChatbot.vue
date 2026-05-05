@@ -38,6 +38,7 @@ const userBubbleGradient = computed(() => isAdmin.value
 )
 
 // ---- 상태 ----
+const MAX_QUESTION_LENGTH = 300
 const isOpen = ref(false)
 const question = ref('')
 const loading = ref(false)
@@ -142,6 +143,7 @@ function isNearBottom() {
 async function send() {
   const q = question.value.trim()
   if (!q || loading.value) return
+  if (q.length > MAX_QUESTION_LENGTH) return
 
   messages.value.push({ role: 'user', text: q, time: now() })
   question.value = ''
@@ -314,20 +316,26 @@ function onCompositionEnd() { isComposing.value = false }
 
       <!-- 입력 -->
       <div class="input-row">
-        <textarea
-          v-model="question"
-          @keydown="onKeydown"
-          @compositionstart="onCompositionStart"
-          @compositionend="onCompositionEnd"
-          placeholder="질문 입력... (Shift+Enter 줄바꿈)"
-          :disabled="loading"
-          rows="2"
-          :style="{ '--focus-color': isAdmin ? '#f56565' : '#1f7a6d' }"
-        ></textarea>
+        <div class="textarea-wrap">
+          <textarea
+            v-model="question"
+            @keydown="onKeydown"
+            @compositionstart="onCompositionStart"
+            @compositionend="onCompositionEnd"
+            placeholder="질문 입력... (Shift+Enter 줄바꿈)"
+            :disabled="loading"
+            :maxlength="MAX_QUESTION_LENGTH"
+            rows="2"
+            :style="{ '--focus-color': isAdmin ? '#f56565' : '#1f7a6d' }"
+          ></textarea>
+          <span class="char-counter" :class="{ 'near-limit': question.length >= MAX_QUESTION_LENGTH * 0.9, 'at-limit': question.length >= MAX_QUESTION_LENGTH }">
+            {{ question.length }}/{{ MAX_QUESTION_LENGTH }}
+          </span>
+        </div>
         <button
           class="send-btn"
           @click="send"
-          :disabled="loading || !question.trim()"
+          :disabled="loading || !question.trim() || question.length > MAX_QUESTION_LENGTH"
           :style="{ background: headerGradient }"
         >
           ➤
@@ -741,9 +749,17 @@ function onCompositionEnd() { isComposing.value = false }
   flex-shrink: 0;
 }
 
-.input-row textarea {
+.textarea-wrap {
   flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.input-row textarea {
+  width: 100%;
   padding: 8px 12px;
+  padding-bottom: 20px;
   border: 1px solid #ced4da;
   border-radius: 10px;
   font-size: 0.92em;
@@ -752,7 +768,21 @@ function onCompositionEnd() { isComposing.value = false }
   line-height: 1.4;
   background: #ffffff;
   transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
 }
+
+.char-counter {
+  position: absolute;
+  bottom: 5px;
+  right: 10px;
+  font-size: 0.72em;
+  color: #a0aec0;
+  pointer-events: none;
+  transition: color 0.2s;
+}
+
+.char-counter.near-limit { color: #ed8936; }
+.char-counter.at-limit { color: #e53e3e; font-weight: 600; }
 
 .input-row textarea:focus {
   outline: none;
