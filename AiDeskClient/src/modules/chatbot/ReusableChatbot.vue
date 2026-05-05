@@ -93,6 +93,21 @@ const headerSubText = computed(() => {
   return hasPlatform ? `${p} user 문의를 도와드려요` : '무엇이든 편하게 질문해 주세요'
 })
 
+function linkify(text) {
+  if (!text) return ''
+  const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const parts = text.split(/(https?:\/\/[^\s]+)/)
+  const result = parts.map((part, i) => {
+    if (i % 2 === 1) {
+      return `<a href="${part}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;text-decoration:underline;cursor:pointer;word-break:break-all;">${escapeHtml(part)}</a>`
+    }
+    return escapeHtml(part)
+  }).join('')
+  console.log('[linkify] input:', text.substring(0, 100))
+  console.log('[linkify] output HTML:', result.substring(0, 200))
+  return result
+}
+
 function toDisplayText(value) {
   if (typeof value === 'string') return value
   if (value == null) return ''
@@ -245,7 +260,7 @@ function handleOpenEvent(event) {
           </div>
           <div class="msg-content">
             <div class="bubble" :class="{ error: msg.isError }">
-              <pre>{{ toDisplayText(msg.text) }}</pre>
+              <div class="msg-pre" v-html="linkify(toDisplayText(msg.text))"></div>
             </div>
 
             <div v-if="isAdmin && msg.relatedKBs && msg.relatedKBs.length" class="related">
@@ -617,6 +632,26 @@ function handleOpenEvent(event) {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+
+.bubble .msg-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+.bubble .msg-pre a {
+  color: #3b82f6;
+  text-decoration: underline;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.bubble pre :deep(a) {
+  color: #3b82f6;
+  text-decoration: underline;
+  word-break: break-all;
 }
 
 .bubble.error {

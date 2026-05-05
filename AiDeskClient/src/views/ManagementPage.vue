@@ -5,6 +5,7 @@ import KBManagement from '../components/Management/KBManagement.vue'
 import ChatLogManagement from '../components/Management/ChatLogManagement.vue'
 import UserApproval from '../components/Management/UserApproval.vue'
 import LowSimilarityManagement from '../components/Management/LowSimilarityManagement.vue'
+import InlineChatbot from '../components/Management/InlineChatbot.vue'
 import { API_BASE_URL } from '../config'
 
 const props = defineProps({ user: Object })
@@ -238,10 +239,16 @@ onMounted(() => {
             @click="activePage = 'logs'"
           >채팅관리</button>
           <button
-            class="page-tab"
+            class="page-tab hide-on-mobile"
             :class="{ active: activePage === 'question-analysis' }"
             @click="activePage = 'question-analysis'"
           >질문분석</button>
+
+          <button
+            class="page-tab show-on-mobile"
+            :class="{ active: activePage === 'chat-test' }"
+            @click="activePage = 'chat-test'"
+          >채팅</button>
 
           <button
             v-if="showUserManagement"
@@ -259,11 +266,11 @@ onMounted(() => {
 
     <!-- KB 관리 페이지 -->
     <div v-if="activePage === 'kb'" class="kb-page">
-      <KBManagement />
+      <KBManagement :key="activePage" />
     </div>
 
     <div v-if="activePage === 'logs'" class="kb-page">
-      <ChatLogManagement>
+      <ChatLogManagement :key="activePage">
         <template #detail-actions>
           <button class="btn btn-chat-mgmt" type="button" @click="openChatbotPromptEditor">
             Chat 프롬프트
@@ -461,11 +468,15 @@ onMounted(() => {
       </div>
 
       <div v-if="activeAnalysisTab === 'low-similarity'">
-        <LowSimilarityManagement />
+        <LowSimilarityManagement :key="activeAnalysisTab" />
       </div>
     </div>
+    <div v-if="activePage === 'chat-test'" class="kb-page chat-test-page">
+      <InlineChatbot :key="activePage" role="admin" />
+    </div>
+
     <div v-if="showUserManagement && activePage === 'user-management'" class="kb-page">
-      <UserApproval />
+      <UserApproval :key="activePage" />
     </div>
 
     <div v-if="showChatbotPromptEditor" class="modal-overlay" @click="showChatbotPromptEditor = false">
@@ -654,6 +665,16 @@ onMounted(() => {
   color: #0d6efd;
 }
 
+.show-on-mobile {
+  display: none;
+}
+
+.chat-test-page {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
 /* =====================================================
    본문 공통
    ===================================================== */
@@ -690,7 +711,7 @@ onMounted(() => {
 }
 
 .btn-chat-mgmt {
-  background: #0d6efd;
+  background: #3b82f6;
   color: #fff;
 }
 
@@ -787,17 +808,19 @@ onMounted(() => {
 }
 
 .summary-refresh-btn {
-  padding: 7px 16px;
-  background: #0d6efd;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 10px;
+  font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.15s;
+  background: #ffffff;
+  color: #6c757d;
+  white-space: nowrap;
+  margin-left: auto;
 }
-
+.summary-refresh-btn:hover:not(:disabled) {
+  background: #f1f3f5;
+}
 .summary-refresh-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -1283,21 +1306,79 @@ onMounted(() => {
 
 @media (max-width: 640px) {
   .crm-container {
-    padding: 0 16px 28px;
+    padding: 0 8px 28px;
   }
 
   .crm-header {
-    margin-left: -16px;
-    margin-right: -16px;
+    margin-left: -8px;
+    margin-right: -8px;
   }
 
   .crm-header-shell {
-    padding: 24px 16px 0;
+    padding: 16px 12px 0;
+  }
+
+  .crm-header-topline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .crm-header-badge {
+    font-size: 11px;
+    padding: 2px 8px;
   }
 
   .header-user-info {
-    width: 100%;
-    justify-content: space-between;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .header-username-btn {
+    font-size: 12px;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-logout-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .crm-header-shell h1 {
+    font-size: 18px;
+    margin-bottom: 2px;
+  }
+
+  .crm-header-shell > p {
+    font-size: 12px;
+    margin-bottom: 12px;
+    opacity: 0.75;
+  }
+
+  .page-tabs {
+    gap: 2px;
+  }
+
+  .page-tab {
+    padding: 8px 12px;
+    font-size: 13px;
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+
+  .hide-on-mobile {
+    display: none;
+  }
+
+  .show-on-mobile {
+    display: inline-flex;
+    justify-content: center;
   }
 
   .summary-controls {
@@ -1309,8 +1390,7 @@ onMounted(() => {
     justify-content: space-between;
   }
 
-  .control-input,
-  .summary-refresh-btn {
+  .control-input {
     width: 100%;
   }
 

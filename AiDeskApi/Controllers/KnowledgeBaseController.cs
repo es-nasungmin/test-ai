@@ -948,6 +948,41 @@ namespace AiDeskApi.Controllers
             return Ok(new { item.Id, item.IsResolved, item.ResolvedAt });
         }
 
+        // ─── 전체 재임베딩 ──────────────────────────────────────────────────────
+        [HttpPost("reindex-all")]
+        public async Task<IActionResult> ReindexAll(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var allKbs = await _context.KnowledgeBases
+                    .Include(k => k.SimilarQuestions)
+                    .ToListAsync(cancellationToken);
+
+                int success = 0, failed = 0;
+                foreach (var kb in allKbs)
+                {
+                    if (cancellationToken.IsCancellationRequested) break;
+                    try
+                    {
+                        await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+                        success++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "⚠️ 재임베딩 실패. kbId={KbId}", kb.Id);
+                        failed++;
+                    }
+                }
+
+                return Ok(new { total = allKbs.Count, success, failed, message = $"재임베딩 완료: 성공 {success}, 실패 {failed}" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 전체 재임베딩 오류");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         // ─── CSV 템플릿 다운로드 ──────────────────────────────────────────────
         [HttpGet("bulk-import/template")]
         public IActionResult DownloadBulkImportTemplate()

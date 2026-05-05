@@ -2,7 +2,7 @@
   <div class="user-approval-container">
     <div class="header">
       <h2>사용자 관리</h2>
-      <button @click="loadUsers" class="btn-refresh">
+      <button @click="loadUsers" class="ghost" style="margin-left:auto">
         <span v-if="!loadingUsers">새로고침</span>
         <span v-else>로딩 중...</span>
       </button>
@@ -319,19 +319,20 @@ onMounted(() => {
   color: #333;
 }
 
-.btn-refresh {
-  padding: 8px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 6px;
+.ghost {
+  border: 1px solid #ced4da;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 700;
   cursor: pointer;
-  font-size: 14px;
-  transition: opacity 0.3s;
+  background: #ffffff;
+  color: #6c757d;
+  white-space: nowrap;
+  word-break: keep-all;
+  flex: 0 0 auto;
 }
-
-.btn-refresh:hover {
-  opacity: 0.9;
+.ghost:hover {
+  background: #f1f3f5;
 }
 
 .error-message {
@@ -602,9 +603,8 @@ td {
   }
 
   .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+    flex-direction: row;
+    align-items: center;
   }
 
   table {

@@ -88,17 +88,13 @@ namespace AiDeskApi.Services
 
             var titleText = string.IsNullOrWhiteSpace(title) ? "(없음)" : title.Trim();
             var prompt = $@"아래 KB 답변 초안을 가독성 높은 최종 답변으로 정리하세요.
+제목은 참고용으로만 사용하고 출력에 포함하지 마세요. 본문 내용만 출력합니다.
 
-【제목】
+【제목 (참고용, 출력 제외)】
 {titleText}
 
 【내용 초안】
-{content.Trim()}
-
-【출력 형식】
-- 한국어 마크다운 텍스트
-- 필요 시 번호 목록 사용
-- 원문 의미는 유지";
+{content.Trim()}";
 
             var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.2, 700, "답변 정리 실패");
             if (string.IsNullOrWhiteSpace(responseContent)) throw new Exception("답변 정리 결과가 비어 있습니다.");

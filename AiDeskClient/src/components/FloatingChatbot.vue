@@ -62,6 +62,21 @@ function defaultWelcome() {
   }
 }
 
+function linkify(text) {
+  if (!text) return ''
+  const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const parts = text.split(/(https?:\/\/[^\s]+)/)
+  const result = parts.map((part, i) => {
+    if (i % 2 === 1) {
+      return `<a href="${part}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;text-decoration:underline;cursor:pointer;word-break:break-all;">${escapeHtml(part)}</a>`
+    }
+    return escapeHtml(part)
+  }).join('')
+  console.log('[linkify] input:', text.substring(0, 100))
+  console.log('[linkify] output HTML:', result.substring(0, 200))
+  return result
+}
+
 function now() {
   return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
@@ -249,7 +264,7 @@ function onCompositionEnd() { isComposing.value = false }
           </div>
           <div class="msg-content">
             <div class="bubble" :class="{ error: msg.isError }">
-              <pre>{{ msg.text }}</pre>
+              <div class="msg-pre" v-html="linkify(msg.text)"></div>
             </div>
 
             <!-- 관련 KB (관리자에게는 KB 타입/가시성 표시) -->
@@ -599,6 +614,26 @@ function onCompositionEnd() { isComposing.value = false }
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+
+.bubble .msg-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+.bubble .msg-pre a {
+  color: #3b82f6;
+  text-decoration: underline;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.bubble pre :deep(a) {
+  color: #3b82f6;
+  text-decoration: underline;
+  word-break: break-all;
 }
 
 .bubble.error {

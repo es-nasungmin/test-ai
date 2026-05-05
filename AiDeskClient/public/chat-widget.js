@@ -35,13 +35,27 @@
       + ".crm-chat-dot:nth-child(2){animation-delay:.2s;}"
       + ".crm-chat-dot:nth-child(3){animation-delay:.4s;}"
       + "@keyframes crm-chat-bounce{0%,80%,100%{transform:scale(.6);opacity:.4;}40%{transform:scale(1);opacity:1;}}"
-      + "@media (max-width:480px){.crm-chat-popup{width:calc(100vw - 16px);height:calc(100vh - 120px);}}";
+      + "@media (max-width:480px){.crm-chat-popup{width:calc(100vw - 16px);height:calc(100vh - 120px);}.crm-chat-fab{display:none!important;}.crm-chat-popup{display:none!important;}}";
 
     document.head.appendChild(style);
   }
 
   function now() {
     return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function linkify(text) {
+    if (typeof text !== 'string' || !text) return text;
+    var escapeHtml = function(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
+    var parts = text.split(/(https?:\/\/[^\s]+)/);
+    return parts.map(function(part, i) {
+      if (i % 2 === 1) {
+        return '<a href="' + part + '" target="_blank" rel="noopener noreferrer" style="color:#3b82f6;text-decoration:underline;cursor:pointer;word-break:break-all;">' + escapeHtml(part) + '</a>';
+      }
+      return escapeHtml(part);
+    }).join('');
   }
 
   function platformLabel(platform) {
@@ -296,7 +310,16 @@
     mountRoot.appendChild(fab);
     mountRoot.appendChild(popup);
 
+    function isMobile() {
+      return window.innerWidth <= 480;
+    }
+
     function applyVisibility() {
+      if (isMobile()) {
+        fab.style.display = 'none';
+        popup.style.display = 'none';
+        return;
+      }
       var noBtn = !!opts.hideButton;
       fab.style.display = (noBtn || !state.widgetVisible) ? 'none' : 'flex';
       var popupOn = noBtn ? state.isOpen : (state.widgetVisible && state.isOpen);
@@ -341,7 +364,8 @@
           : theme.avatarUserGradient;
 
         var content = createEl('div', 'crm-chat-content');
-        var bubble = createEl('div', 'crm-chat-bubble', msg.text);
+        var bubble = createEl('div', 'crm-chat-bubble');
+        bubble.innerHTML = linkify(msg.text).replace(/\n/g, '<br>');
         if (msg.role === 'user') {
           bubble.style.background = theme.headerGradient;
         } else {
@@ -496,6 +520,8 @@
 
     setOpen(!!opts.initiallyOpen);
     renderMessages();
+
+    window.addEventListener('resize', applyVisibility);
 
     return {
       showWidget: function () {

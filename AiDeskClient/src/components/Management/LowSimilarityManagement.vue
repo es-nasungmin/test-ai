@@ -150,11 +150,13 @@ onMounted(async () => {
           <option value="all">전체</option>
         </select>
         <button
-          class="ghost refresh-fit"
+          class="ghost"
+          style="margin-left:auto"
           :disabled="loadingLowSimilarity"
           @click="fetchLowSimilarityQuestions"
         >
-          새로고침
+          <span v-if="!loadingLowSimilarity">새로고침</span>
+          <span v-else>로딩 중...</span>
         </button>
       </div>
     </div>

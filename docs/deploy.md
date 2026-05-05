@@ -999,3 +999,50 @@ Get-NetTCPConnection -LocalPort 8080 | Get-Process
 # IIS 완전 재설정 (마지막 수단)
 iisreset /restart
 ```
+
+---
+
+## 14. 개발 → 운영 데이터 이전
+
+개발 환경에서 테스트하며 쌓인 KB 데이터를 운영 서버로 이전하는 방법입니다.
+
+### 이전 순서
+
+1. **DB 이전** (MSSQL/SQLite → 운영 MSSQL)  
+   SSMS 또는 직접 백업/복원으로 KB, 채팅 데이터를 운영 DB에 이전합니다.
+
+2. **벡터 DB 재임베딩** (Qdrant)  
+   DB 이전 후 운영 서버에서 아래 API를 한 번만 호출하면 됩니다.  
+   Qdrant에 모든 KB 임베딩이 자동으로 생성됩니다.
+
+### 재임베딩 API 호출
+
+운영 백엔드가 실행 중인 상태에서 실행합니다.
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method POST -Uri "http://localhost:8080/api/knowledgebase/reindex-all"
+```
+
+**cmd / curl:**
+```cmd
+curl -X POST http://localhost:8080/api/knowledgebase/reindex-all
+```
+
+**성공 응답 예시:**
+```json
+{
+  "total": 165,
+  "success": 165,
+  "failed": 0,
+  "message": "재임베딩 완료: 성공 165, 실패 0"
+}
+```
+
+### 주의사항
+
+- KB 수만큼 **OpenAI Embedding API가 호출**됩니다 (약간의 비용 발생)
+- KB 100개 기준 수초~30초 소요
+- 운영 Qdrant가 실행 중이어야 합니다 (`http://localhost:6333`)
+- 이전 벡터 데이터가 있으면 덮어쓰기(upsert)됩니다
+- 이 API는 인증 없이 호출 가능하므로 **내부 서버에서만 실행**을 권장합니다

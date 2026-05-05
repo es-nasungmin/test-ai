@@ -17,6 +17,7 @@ const keywordFilter = ref('')
 const platformOptions = ref(['공통'])
 const selectedSessionId = ref(null)
 const selectedSession = ref(null)
+const mobileTab = ref('list') // 'list' | 'detail'
 const loadingDetail = ref(false)
 const showKbModal = ref(false)
 const loadingKbDetail = ref(false)
@@ -88,6 +89,7 @@ async function fetchPlatforms() {
 
 async function loadSessionDetail(id) {
   selectedSessionId.value = id
+  mobileTab.value = 'detail'
   loadingDetail.value = true
   try {
     const res = await axios.get(`${API_URL}/chat/sessions/${id}`)
@@ -471,7 +473,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="chat-log-wrap">
-    <div class="panel list-panel">
+    <div class="panel list-panel" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
       <div class="panel-head">
         <h3>채팅 세션</h3>
         <button class="ghost refresh-top" :disabled="loading" @click="fetchSessions">새로고침</button>
@@ -496,7 +498,7 @@ onBeforeUnmount(() => {
             <input
               v-model="keywordFilter"
               type="text"
-              placeholder="채팅자/세션명 키워드"
+              placeholder="채팅자/질문/답변 검색"
               @keyup.enter="applyKeywordFilter"
             >
             <button class="ghost" :disabled="loading" @click="applyKeywordFilter">검색</button>
@@ -547,15 +549,18 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="panel detail-panel">
+    <div class="panel detail-panel" :class="{ 'mobile-hidden': mobileTab !== 'detail' }">
       <div class="panel-head">
         <h3>대화 상세</h3>
         <div class="detail-head-actions">
-          <slot name="detail-actions" />
+          <div class="desktop-slot-actions">
+            <slot name="detail-actions" />
+          </div>
+          <button class="ghost mobile-back-btn" type="button" @click="mobileTab = 'list'">목록으로</button>
         </div>
       </div>
 
-      <div v-if="!selectedSessionId" class="empty">왼쪽에서 세션을 선택하세요.</div>
+      <div v-if="!selectedSessionId" class="empty">위 목록에서 세션을 선택하세요.</div>
       <div v-else-if="loadingDetail" class="empty">세부 내역을 불러오는 중...</div>
       <div v-else-if="!selectedSession" class="empty">세부 내역이 없습니다.</div>
 
@@ -729,7 +734,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-bottom: 10px;
 }
 
@@ -744,6 +749,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex-wrap: wrap;
   margin-left: auto;
+  justify-content: flex-end;
 }
 
 .detail-head-actions:empty {
@@ -1514,6 +1520,16 @@ select {
   color: #495057;
 }
 
+.mobile-back-btn {
+  display: none;
+}
+
+.desktop-slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 1024px) {
   .chat-log-wrap {
     grid-template-columns: 1fr;
@@ -1524,7 +1540,6 @@ select {
   }
 
   .detail-head-actions {
-    width: 100%;
     justify-content: flex-end;
   }
   
@@ -1544,6 +1559,27 @@ select {
 
   .summary-kpi-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+
+  .mobile-back-btn {
+    display: inline-flex;
+  }
+
+  .desktop-slot-actions {
+    display: none;
+  }
+
+  .chat-log-wrap {
+    grid-template-areas:
+      "list"
+      "detail"
+      "summary";
   }
 }
 </style>

@@ -816,8 +816,8 @@ async function onCsvFileSelected(event) {
         </div>
         <div class="panel-head-actions">
           <button class="ghost" @click.stop="resetForm">초기화</button>
-          <button class="ghost" type="button" @click.stop="openBulkModal">CSV 업로드</button>
-          <button class="ghost" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
+          <button class="ghost btn-csv-upload" type="button" @click.stop="openBulkModal">CSV 업로드</button>
+          <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
           <input ref="csvFileInput" type="file" accept=".csv" style="display:none" @change="onBulkModalFileChange" />
         </div>
       </div>
@@ -900,7 +900,7 @@ async function onCsvFileSelected(event) {
           <div class="similar-input-row">
             <input
               v-model="form.expectedInput"
-              placeholder="예) 인증서 경로가 어디에 있나요?"
+              placeholder="예) 인증서 파일 경로 어떻게 찾아요?"
               @keydown.enter.prevent="onSimilarEnter"
               @compositionstart="isComposingSimilar = true"
               @compositionend="isComposingSimilar = false"
@@ -1017,7 +1017,7 @@ async function onCsvFileSelected(event) {
           <option value="user">사용자 공개</option>
           <option value="admin">관리자 전용</option>
         </select>
-        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드/ID(#101) 검색" />
+        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드/KB번호 검색" />
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -2381,6 +2381,32 @@ select:focus {
     width: 140px;
     min-width: 140px;
     flex: 0 0 140px;
+  }
+
+  .writer-toggle-head {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .panel-head-title {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .panel-head-actions {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .panel-head-actions .ghost {
+    font-size: 13px;
+  }
+
+  .guide-trigger,
+  .btn-csv-upload,
+  .btn-prompt-setting {
+    display: none;
   }
 }
 </style>

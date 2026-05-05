@@ -116,8 +116,21 @@ namespace AiDeskApi.Services
 
                 // 1) 사용자 질문 정규화 + 임베딩 생성
                 //    - 표기 흔들림(안됨/불가/안 보여요 등)을 정규화해 임베딩 분산을 줄인다.
+                //    - 후속 질문("그래도 안보여" 등)은 맥락 없이 임베딩하면 유사도가 낮아지므로
+                //      직전 사용자 발화 1~2턴을 앞에 붙여 검색 품질을 높인다.
                 var normalizedQuestion = NormalizeQueryForEmbedding(question);
-                var questionEmbedding = await _embeddingService.EmbedTextAsync(normalizedQuestion);
+                var embeddingInput = normalizedQuestion;
+                if (history != null && history.Count > 0)
+                {
+                    var recentUserTurns = history
+                        .Where(h => h.Role == "user")
+                        .TakeLast(2)
+                        .Select(h => NormalizeQueryForEmbedding(h.Content))
+                        .ToList();
+                    if (recentUserTurns.Count > 0)
+                        embeddingInput = string.Join(" ", recentUserTurns) + " " + normalizedQuestion;
+                }
+                var questionEmbedding = await _embeddingService.EmbedTextAsync(embeddingInput);
                 var normalizedPlatform = NormalizePlatform(platform);
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
