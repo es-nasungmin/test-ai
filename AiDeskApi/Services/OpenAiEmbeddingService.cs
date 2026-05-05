@@ -45,7 +45,7 @@ namespace AiDeskApi.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     var error = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"OpenAI API 오류: {error}");
+                    _logger.LogError("OpenAI API 오류: {Error}", error);
                     throw new Exception($"임베딩 실패: {response.StatusCode}");
                 }
 
@@ -58,17 +58,17 @@ namespace AiDeskApi.Services
                     .Select(x => (float)x.GetDouble())
                     .ToArray();
 
-                _logger.LogInformation($"✓ 임베딩 생성 완료 ({text.Length} chars)");
+                _logger.LogInformation("✓ 임베딩 생성 완료 ({Length} chars)", text.Length);
                 return embedding;
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogError($"❌ 네트워크 오류: {ex.Message}");
+                _logger.LogError(ex, "❌ 네트워크 오류: {Message}", ex.Message);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ 임베딩 오류: {ex.Message}");
+                _logger.LogError(ex, "❌ 임베딩 오류: {Message}", ex.Message);
                 throw;
             }
         }

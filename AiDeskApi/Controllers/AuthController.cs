@@ -119,6 +119,7 @@ namespace AiDeskApi.Controllers
             }
 
             var normalized = loginId.Trim();
+            // EF Core: DB 레벨 콜레이션에 위임해 대소문자 무시 비교 (MSSQL/SQLite 모두 호환)
             var exists = await _context.Users.AnyAsync(u => u.LoginId.ToLower() == normalized.ToLower());
             return Ok(new
             {
@@ -150,6 +151,15 @@ namespace AiDeskApi.Controllers
                 {
                     Success = false,
                     Message = "비밀번호가 일치하지 않습니다."
+                });
+            }
+
+            if (request.Password.Length < 8)
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "비밀번호는 8자 이상이어야 합니다."
                 });
             }
 

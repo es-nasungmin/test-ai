@@ -89,7 +89,7 @@ namespace AiDeskApi.Services
         {
             try
             {
-                _logger.LogInformation($"📝 질문 받음 [{role}/{platform}]: {question}");
+                _logger.LogInformation("📝 질문 받음 [{Role}/{Platform}]: {Question}", role, platform, question);
                 runtimeOptions ??= new RagRuntimeOptions();
 
                 // prompt-only 모드: 검색/판단 로직을 모두 건너뛰고 프롬프트 응답만 생성
@@ -265,7 +265,7 @@ namespace AiDeskApi.Services
                     };
                 }
 
-                _logger.LogInformation($"✓ 검색 완료 (kb={topResults.Count})");
+                _logger.LogInformation("✓ 검색 완료 (kb={Count})", topResults.Count);
 
                 // 답변 생성에 사용하는 FAQ 후보는 임계치 이상 사례로 제한
                 var eligibleResults = topResults
@@ -306,15 +306,18 @@ namespace AiDeskApi.Services
                 };
 
                 // View count 증가 (실제로 사용된 모든 FAQ)
-                _logger.LogInformation($"📊 View count 처리: DisablePersistence={runtimeOptions.DisablePersistence}, selectedResults={selectedResults.Count}");
+                _logger.LogInformation("📊 View count 처리: DisablePersistence={DisablePersistence}, selectedResults={Count}", runtimeOptions.DisablePersistence, selectedResults.Count);
                 if (!runtimeOptions.DisablePersistence && selectedResults.Count > 0)
                 {
                     var kbIds = selectedResults.Select(x => x.kb.Id).ToList();
-                    await _context.Database.ExecuteSqlInterpolatedAsync(
-                        $@"UPDATE KnowledgeBases 
-                           SET ViewCount = ViewCount + 1, UpdatedAt = {DateTime.UtcNow}
-                           WHERE Id IN ({string.Join(",", kbIds.Select(id => id.ToString()))})");
-                    _logger.LogInformation($"✓ View count 증가: {kbIds.Count}개 FAQ 업데이트 완료");
+                    // EF Core ExecuteUpdateAsync: 파라미터 바인딩으로 SQL 인젝션 위험 없이 배치 업데이트
+                    var updatedAt = DateTime.UtcNow;
+                    await _context.KnowledgeBases
+                        .Where(x => kbIds.Contains(x.Id))
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(x => x.ViewCount, x => x.ViewCount + 1)
+                            .SetProperty(x => x.UpdatedAt, updatedAt));
+                    _logger.LogInformation("✓ View count 증가: {Count}개 KB 업데이트 완료", kbIds.Count);
                 }
 
                 // 답변 생성
@@ -362,7 +365,7 @@ namespace AiDeskApi.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"❌ RAG 오류: {ex.Message}");
+                _logger.LogError(ex, "❌ RAG 오류: {Message}", ex.Message);
                 throw;
             }
         }
@@ -475,7 +478,7 @@ namespace AiDeskApi.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     var error = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"답변 생성 실패: {error}");
+                    _logger.LogError("답변 생성 실패: {Error}", error);
                     throw new Exception("GPT 답변 생성 실패");
                 }
 
@@ -487,12 +490,12 @@ namespace AiDeskApi.Services
                     .GetProperty("content")
                     .GetString();
 
-                _logger.LogInformation($"✓ 답변 생성 완료");
+                _logger.LogInformation("✓ 답변 생성 완료");
                 return answer ?? "답변을 생성할 수 없습니다.";
             }
             catch (Exception ex)
             {
-                _logger.LogError($"답변 생성 오류: {ex.Message}");
+                _logger.LogError(ex, "답변 생성 오류: {Message}", ex.Message);
                 throw;
             }
         }

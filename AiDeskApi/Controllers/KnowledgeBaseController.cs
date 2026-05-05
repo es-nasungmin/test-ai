@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -10,6 +11,7 @@ namespace AiDeskApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize] // 기본적으로 모든 엔드포인트는 인증 필요; 공개 엔드포인트는 [AllowAnonymous] 명시
     public class KnowledgeBaseController : ControllerBase
     {
         private const string KbHistoryActionCreate = "create";
@@ -48,6 +50,7 @@ namespace AiDeskApi.Controllers
             _logger = logger;
         }
 
+        [AllowAnonymous] // 챗봇은 비로그인 사용자도 이용 가능
         [HttpPost("ask")]
         public async Task<IActionResult> Ask([FromBody] AskRequest request)
         {
@@ -235,6 +238,7 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [Authorize(Roles = "admin")]
         [HttpPost]
         public async Task<IActionResult> CreateKnowledgeBase([FromBody] UpsertKbRequest request)
         {
@@ -294,6 +298,7 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [Authorize(Roles = "admin")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateKnowledgeBase(int id, [FromBody] UpsertKbRequest request)
         {
@@ -616,6 +621,7 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [Authorize(Roles = "admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteKnowledgeBase(int id)
         {
@@ -777,6 +783,7 @@ namespace AiDeskApi.Controllers
             });
         }
 
+        [Authorize(Roles = "admin")]
         [HttpPut("writer-prompt-template")]
         public async Task<IActionResult> UpdateWriterPromptTemplate([FromBody] UpdateKnowledgeBaseWriterPromptTemplateRequest request)
         {
@@ -817,6 +824,7 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [Authorize(Roles = "admin")]
         [HttpPut("chatbot-prompt-template")]
         public IActionResult UpdateChatbotPromptTemplate([FromBody] UpdateChatbotPromptTemplateRequest request)
         {
@@ -938,6 +946,7 @@ namespace AiDeskApi.Controllers
             return Ok(new { total, page, pageSize, data });
         }
 
+        [Authorize(Roles = "admin")]
         [HttpPut("low-similarity-questions/{id}/resolve")]
         public async Task<IActionResult> ResolveLowSimilarityQuestion(int id)
         {
@@ -952,6 +961,7 @@ namespace AiDeskApi.Controllers
         }
 
         // ─── 전체 재임베딩 ──────────────────────────────────────────────────────
+        [Authorize(Roles = "admin")]
         [HttpPost("reindex-all")]
         public async Task<IActionResult> ReindexAll(CancellationToken cancellationToken)
         {
@@ -998,6 +1008,7 @@ namespace AiDeskApi.Controllers
         }
 
         // ─── CSV 대량 등록 ────────────────────────────────────────────────────
+        [Authorize(Roles = "admin")]
         [HttpPost("bulk-import")]
         [RequestSizeLimit(10 * 1024 * 1024)]
         public async Task<IActionResult> BulkImport(IFormFile file, CancellationToken cancellationToken)
@@ -1206,6 +1217,7 @@ namespace AiDeskApi.Controllers
             return result;
         }
 
+        [AllowAnonymous] // 챗봇 플랫폼 드롭다운에 비로그인 접근 허용
         [HttpGet("platforms")]
         public async Task<IActionResult> GetPlatforms()
         {
