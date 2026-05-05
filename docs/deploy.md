@@ -687,10 +687,29 @@ cd C:\deploy\qdrant
 
 **Windows 서비스로 등록 (부팅 시 자동 시작):**
 
-```powershell
-# NSSM(Non-Sucking Service Manager) 사용
-# https://nssm.cc/download 에서 다운로드 후 PATH에 추가
+먼저 NSSM을 설치합니다.
 
+1. https://nssm.cc/download 에서 최신 zip 다운로드
+2. 압축 해제 후 `win64\nssm.exe` 를 `C:\tools\nssm\nssm.exe` 같은 경로에 복사
+3. 관리자 PowerShell에서 PATH 등록:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable(
+  "Path",
+  $env:Path + ";C:\tools\nssm",
+  "Machine"
+)
+```
+
+4. PowerShell 창을 새로 열고 설치 확인:
+
+```powershell
+nssm version
+```
+
+`nssm version` 이 출력되면 설치 완료입니다.
+
+```powershell
 nssm install qdrant "C:\deploy\qdrant\qdrant.exe"
 nssm set qdrant AppDirectory "C:\deploy\qdrant"
 nssm set qdrant Description "Qdrant Vector DB"

@@ -372,9 +372,11 @@ namespace AiDeskApi.Data
                     Username = adminUsername,
                     PasswordHash = HashPassword(adminPassword),
                     Role = "admin",
+                    Status = "approved",
                     IsActive = true,
                     IsApproved = true,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    ApprovedAt = DateTime.UtcNow
                 };
 
                 db.Users.Add(adminUser);

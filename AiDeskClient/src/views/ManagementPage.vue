@@ -535,6 +535,7 @@ onMounted(() => {
    컨테이너
    ===================================================== */
 .crm-container {
+  --content-max-width: 1760px;
   width: 100%;
   padding: 0 24px 40px;
 }
@@ -658,7 +659,7 @@ onMounted(() => {
    ===================================================== */
 .kb-page {
   margin-top: 0;
-  max-width: 1520px;
+  max-width: var(--content-max-width);
   margin-left: auto;
   margin-right: auto;
 }

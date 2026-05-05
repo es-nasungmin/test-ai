@@ -723,13 +723,15 @@ namespace AiDeskApi.Controllers
         private static string ResolveUserStatus(User user)
         {
             var status = user.Status?.Trim().ToLowerInvariant();
-            if (status == "approved" || status == "pending" || status == "rejected" || status == "deleted")
-            {
-                return status;
-            }
+            // 명시적으로 차단/삭제된 상태는 최우선
+            if (status == "deleted") return "deleted";
+            if (status == "rejected") return "rejected";
 
-            if (!user.IsActive) return "rejected";
+            // IsApproved가 true면 status가 stale(pending)이어도 승인으로 본다.
             if (user.IsApproved) return "approved";
+
+            if (status == "approved") return "approved";
+            if (!user.IsActive) return "rejected";
             return "pending";
         }
 
