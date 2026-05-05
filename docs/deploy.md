@@ -572,15 +572,11 @@ ls C:\deploy\aidesk\frontend
         </rule>
       </rules>
     </rewrite>
-    <staticContent>
-      <mimeMap fileExtension=".js" mimeType="application/javascript" />
-      <mimeMap fileExtension=".mjs" mimeType="application/javascript" />
-      <mimeMap fileExtension=".json" mimeType="application/json" />
-      <mimeMap fileExtension=".woff2" mimeType="font/woff2" />
-    </staticContent>
   </system.webServer>
 </configuration>
 ```
+
+> 💡 `<staticContent>` 는 IIS에 이미 기본 MIME 타입이 등록되어 있으므로 추가하면 중복 오류가 납니다. 넣지 마세요.
 
 ✅ **확인**: 파일이 `C:\deploy\aidesk\frontend\web.config` 에 있으면 OK
 
@@ -647,12 +643,6 @@ IIS 관리자에서:
         </rule>
       </rules>
     </rewrite>
-    <staticContent>
-      <mimeMap fileExtension=".js" mimeType="application/javascript" />
-      <mimeMap fileExtension=".mjs" mimeType="application/javascript" />
-      <mimeMap fileExtension=".json" mimeType="application/json" />
-      <mimeMap fileExtension=".woff2" mimeType="font/woff2" />
-    </staticContent>
   </system.webServer>
 </configuration>
 ```

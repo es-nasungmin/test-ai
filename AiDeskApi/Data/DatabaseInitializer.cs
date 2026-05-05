@@ -23,6 +23,9 @@ namespace AiDeskApi.Data
             {
                 InitializeSqliteDatabase(db);
             }
+
+            // SQLite/MSSQL 공통: 기본 관리자 계정 생성
+            EnsureAdminUserExists(db);
         }
 
         /// <summary>
@@ -33,10 +36,7 @@ namespace AiDeskApi.Data
             // 1. Users 테이블 스키마 정합성 보장 (loginId + username)
             EnsureUsersTableSchema(db);
 
-            // 2. 기본 管理者 사용자가 없으면 생성
-            EnsureAdminUserExists(db);
-
-            // 5. KnowledgeBases 테이블
+            // 2. KnowledgeBases 테이블
             db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS KnowledgeBases (
                 Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBases PRIMARY KEY AUTOINCREMENT,
