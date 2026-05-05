@@ -2,14 +2,14 @@
   "summary": {
     "total": 100,
     "systemSuccessCount": 100,
-    "qualitySuccessCount": 100,
+    "qualitySuccessCount": 99,
     "systemSuccessRate": 1,
-    "qualitySuccessRate": 1,
-    "positiveQualityRate": 1,
+    "qualitySuccessRate": 0.99,
+    "positiveQualityRate": 0.989247311827957,
     "negativeQualityRate": 1,
-    "avgLatencyMs": 3820.15,
-    "p50LatencyMs": 3513,
-    "p95LatencyMs": 6967,
+    "avgLatencyMs": 3592.6,
+    "p50LatencyMs": 3179,
+    "p95LatencyMs": 6530,
     "caseSource": "live",
     "sourceCatalogCount": 43,
     "positiveCount": 93,
@@ -24,10 +24,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4360,
+      "elapsedMs": 1915,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099995
+      "topSimilarity": 1.0100002
     },
     {
       "id": "P-1-2",
@@ -37,10 +37,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2645,
+      "elapsedMs": 2168,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9999993
+      "topSimilarity": 1
     },
     {
       "id": "P-1-3",
@@ -50,10 +50,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3456,
+      "elapsedMs": 2109,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.85493064
+      "topSimilarity": 0.8535969
     },
     {
       "id": "P-2-1",
@@ -63,10 +63,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2583,
+      "elapsedMs": 1992,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-2-2",
@@ -76,10 +76,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1963,
+      "elapsedMs": 1852,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099999
+      "topSimilarity": 1.009972
     },
     {
       "id": "P-2-3",
@@ -89,7 +89,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2031,
+      "elapsedMs": 1919,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.80597866
@@ -102,10 +102,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3376,
+      "elapsedMs": 2867,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0000001
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-3-2",
@@ -115,10 +115,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2254,
+      "elapsedMs": 2006,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099993
+      "topSimilarity": 1.0099999
     },
     {
       "id": "P-3-3",
@@ -128,10 +128,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3065,
+      "elapsedMs": 3024,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.866571
+      "topSimilarity": 0.866642
     },
     {
       "id": "P-4-1",
@@ -141,7 +141,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2151,
+      "elapsedMs": 2540,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.01
@@ -154,7 +154,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2546,
+      "elapsedMs": 2061,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1
@@ -167,10 +167,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1648,
+      "elapsedMs": 3178,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.88458323
+      "topSimilarity": 0.8845508
     },
     {
       "id": "P-5-1",
@@ -180,10 +180,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3495,
+      "elapsedMs": 2932,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topSimilarity": 1.0100001
     },
     {
       "id": "P-5-2",
@@ -193,7 +193,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2343,
+      "elapsedMs": 3002,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0100001
@@ -206,10 +206,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2617,
+      "elapsedMs": 2764,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9157337
+      "topSimilarity": 0.91612184
     },
     {
       "id": "P-6-1",
@@ -219,10 +219,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2095,
+      "elapsedMs": 1749,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topSimilarity": 1.0099993
     },
     {
       "id": "P-6-2",
@@ -232,10 +232,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2352,
+      "elapsedMs": 2185,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.02
+      "topSimilarity": 1.0199991
     },
     {
       "id": "P-6-3",
@@ -245,7 +245,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2867,
+      "elapsedMs": 3123,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.8195268
@@ -258,10 +258,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2459,
+      "elapsedMs": 2200,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topSimilarity": 1.0000001
     },
     {
       "id": "P-7-2",
@@ -271,10 +271,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3275,
+      "elapsedMs": 2465,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999934
+      "topSimilarity": 1
     },
     {
       "id": "P-7-3",
@@ -284,10 +284,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2031,
+      "elapsedMs": 2307,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.8662499
+      "topSimilarity": 0.8663472
     },
     {
       "id": "P-8-1",
@@ -297,10 +297,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3652,
+      "elapsedMs": 3583,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0300001
+      "topSimilarity": 1.0299989
     },
     {
       "id": "P-8-2",
@@ -310,7 +310,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3998,
+      "elapsedMs": 5863,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.01
@@ -323,10 +323,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2496,
+      "elapsedMs": 3453,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.88800234
+      "topSimilarity": 0.8880104
     },
     {
       "id": "P-9-1",
@@ -336,10 +336,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2566,
+      "elapsedMs": 2661,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.02
+      "topSimilarity": 1.0199995
     },
     {
       "id": "P-9-2",
@@ -349,10 +349,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5731,
+      "elapsedMs": 3178,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0000001
+      "topSimilarity": 1
     },
     {
       "id": "P-9-3",
@@ -362,7 +362,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4849,
+      "elapsedMs": 4708,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.7580305
@@ -375,7 +375,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4525,
+      "elapsedMs": 4914,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0099988
@@ -388,7 +388,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5259,
+      "elapsedMs": 4199,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0100003
@@ -401,7 +401,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 10246,
+      "elapsedMs": 18021,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.9189754
@@ -414,7 +414,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4714,
+      "elapsedMs": 3891,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0200001
@@ -427,7 +427,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2556,
+      "elapsedMs": 5694,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.01
@@ -440,10 +440,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3274,
+      "elapsedMs": 3794,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.98154444
+      "topSimilarity": 0.9815272
     },
     {
       "id": "P-12-1",
@@ -453,7 +453,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4813,
+      "elapsedMs": 3925,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0000001
@@ -466,10 +466,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 7695,
+      "elapsedMs": 5636,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9999991
+      "topSimilarity": 1
     },
     {
       "id": "P-12-3",
@@ -479,7 +479,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6318,
+      "elapsedMs": 4945,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.92294556
@@ -492,10 +492,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5661,
+      "elapsedMs": 4873,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9920842
+      "topSimilarity": 0.9920621
     },
     {
       "id": "P-13-2",
@@ -505,10 +505,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6133,
+      "elapsedMs": 5024,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0298064
+      "topSimilarity": 1.03
     },
     {
       "id": "P-13-3",
@@ -518,10 +518,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5117,
+      "elapsedMs": 5121,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9688317
+      "topSimilarity": 0.968892
     },
     {
       "id": "P-14-1",
@@ -531,10 +531,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5250,
+      "elapsedMs": 4101,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999917
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-14-2",
@@ -544,7 +544,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5097,
+      "elapsedMs": 5727,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0300001
@@ -557,7 +557,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4069,
+      "elapsedMs": 5017,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.90552384
@@ -570,7 +570,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4496,
+      "elapsedMs": 4529,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0300001
@@ -583,10 +583,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5558,
+      "elapsedMs": 4590,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0299991
+      "topSimilarity": 1.03
     },
     {
       "id": "P-15-3",
@@ -596,10 +596,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5222,
+      "elapsedMs": 9518,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.94573337
+      "topSimilarity": 0.9456878
     },
     {
       "id": "P-16-1",
@@ -609,10 +609,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6694,
+      "elapsedMs": 5331,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0000001
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-16-2",
@@ -622,10 +622,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2518,
+      "elapsedMs": 3885,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199993
+      "topSimilarity": 1.0200001
     },
     {
       "id": "P-16-3",
@@ -635,10 +635,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3579,
+      "elapsedMs": 3686,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.88070583
+      "topSimilarity": 0.8806615
     },
     {
       "id": "P-17-1",
@@ -648,7 +648,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 7068,
+      "elapsedMs": 6860,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0099992
@@ -661,7 +661,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6967,
+      "elapsedMs": 5018,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0099992
@@ -674,10 +674,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5016,
+      "elapsedMs": 5041,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.8435664
+      "topSimilarity": 0.84338355
     },
     {
       "id": "P-18-1",
@@ -687,10 +687,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5728,
+      "elapsedMs": 6530,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0198903
+      "topSimilarity": 1.0200002
     },
     {
       "id": "P-18-2",
@@ -700,7 +700,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4508,
+      "elapsedMs": 6627,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1
@@ -713,10 +713,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 7375,
+      "elapsedMs": 7706,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.8607764
+      "topSimilarity": 0.8588265
     },
     {
       "id": "P-19-1",
@@ -726,7 +726,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4397,
+      "elapsedMs": 4199,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.02
@@ -739,7 +739,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3059,
+      "elapsedMs": 2863,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0099993
@@ -752,7 +752,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3595,
+      "elapsedMs": 3392,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.8475969
@@ -765,7 +765,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2564,
+      "elapsedMs": 2240,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1
@@ -778,10 +778,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3175,
+      "elapsedMs": 3274,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199993
+      "topSimilarity": 1.0200002
     },
     {
       "id": "P-20-3",
@@ -791,7 +791,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2370,
+      "elapsedMs": 2153,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.8120028
@@ -804,7 +804,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3875,
+      "elapsedMs": 3889,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.999937
@@ -817,10 +817,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6038,
+      "elapsedMs": 3278,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999934
+      "topSimilarity": 1
     },
     {
       "id": "P-21-3",
@@ -830,10 +830,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5428,
+      "elapsedMs": 4406,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.86309326
+      "topSimilarity": 0.863252
     },
     {
       "id": "P-22-1",
@@ -843,7 +843,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2853,
+      "elapsedMs": 2576,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0199986
@@ -856,7 +856,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3664,
+      "elapsedMs": 2539,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1
@@ -869,10 +869,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3618,
+      "elapsedMs": 3583,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.7262925
+      "topSimilarity": 0.7262745
     },
     {
       "id": "P-23-1",
@@ -882,10 +882,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5254,
+      "elapsedMs": 5223,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9999845
+      "topSimilarity": 0.9999999
     },
     {
       "id": "P-23-2",
@@ -895,10 +895,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3806,
+      "elapsedMs": 4420,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0198619
+      "topSimilarity": 1.02
     },
     {
       "id": "P-23-3",
@@ -908,7 +908,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5377,
+      "elapsedMs": 6330,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.78320825
@@ -921,7 +921,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4053,
+      "elapsedMs": 4400,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0100001
@@ -933,11 +933,11 @@
       "expectedTitle": "거래처 대금 이체 등록 방법",
       "status": 200,
       "systemSuccess": true,
-      "qualitySuccess": true,
-      "elapsedMs": 5679,
-      "isLowSimilarity": false,
+      "qualitySuccess": false,
+      "elapsedMs": 249,
+      "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999994
+      "topSimilarity": 0
     },
     {
       "id": "P-24-3",
@@ -947,7 +947,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5391,
+      "elapsedMs": 5287,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.8097142
@@ -960,10 +960,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2793,
+      "elapsedMs": 2556,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.999999
+      "topSimilarity": 0.9999999
     },
     {
       "id": "P-25-2",
@@ -973,10 +973,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3278,
+      "elapsedMs": 2352,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199991
+      "topSimilarity": 1.0199999
     },
     {
       "id": "P-25-3",
@@ -986,7 +986,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2763,
+      "elapsedMs": 3182,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.99115574
@@ -999,7 +999,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3513,
+      "elapsedMs": 4646,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.02
@@ -1012,7 +1012,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3038,
+      "elapsedMs": 3230,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.03
@@ -1025,10 +1025,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 7171,
+      "elapsedMs": 3483,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.82995105
+      "topSimilarity": 0.82995886
     },
     {
       "id": "P-27-1",
@@ -1038,10 +1038,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3989,
+      "elapsedMs": 4196,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0299995
+      "topSimilarity": 1.0300001
     },
     {
       "id": "P-27-2",
@@ -1051,10 +1051,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1944,
+      "elapsedMs": 1465,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099994
+      "topSimilarity": 1.01
     },
     {
       "id": "P-27-3",
@@ -1064,10 +1064,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5013,
+      "elapsedMs": 2557,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.86006445
+      "topSimilarity": 0.86004245
     },
     {
       "id": "P-28-1",
@@ -1077,7 +1077,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1853,
+      "elapsedMs": 3802,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.02
@@ -1090,10 +1090,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1639,
+      "elapsedMs": 1808,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-28-3",
@@ -1103,10 +1103,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2137,
+      "elapsedMs": 1869,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.9543724
+      "topSimilarity": 0.95436364
     },
     {
       "id": "P-29-1",
@@ -1116,7 +1116,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3390,
+      "elapsedMs": 1912,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.01
@@ -1129,7 +1129,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4623,
+      "elapsedMs": 3241,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.0099999
@@ -1142,10 +1142,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5524,
+      "elapsedMs": 2084,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.87631756
+      "topSimilarity": 0.8763089
     },
     {
       "id": "P-30-1",
@@ -1155,7 +1155,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3726,
+      "elapsedMs": 2150,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 1.02
@@ -1168,10 +1168,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4855,
+      "elapsedMs": 3179,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099994
+      "topSimilarity": 1.01
     },
     {
       "id": "P-30-3",
@@ -1181,7 +1181,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3287,
+      "elapsedMs": 2787,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.67771924
@@ -1194,10 +1194,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4390,
+      "elapsedMs": 2531,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.009999
+      "topSimilarity": 1.01
     },
     {
       "id": "P-31-2",
@@ -1207,10 +1207,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3174,
+      "elapsedMs": 2462,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199759
+      "topSimilarity": 1.0200001
     },
     {
       "id": "P-31-3",
@@ -1220,10 +1220,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2350,
+      "elapsedMs": 2760,
       "isLowSimilarity": false,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.8101086
+      "topSimilarity": 0.8101353
     },
     {
       "id": "N-1",
@@ -1233,10 +1233,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1338,
+      "elapsedMs": 1636,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.35340643
+      "topSimilarity": 0.35334635
     },
     {
       "id": "N-2",
@@ -1246,10 +1246,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1334,
+      "elapsedMs": 1233,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.42324245
+      "topSimilarity": 0.42299944
     },
     {
       "id": "N-3",
@@ -1259,10 +1259,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1525,
+      "elapsedMs": 1430,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.4590869
+      "topSimilarity": 0.45913088
     },
     {
       "id": "N-4",
@@ -1272,7 +1272,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1538,
+      "elapsedMs": 1332,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.41011903
@@ -1285,10 +1285,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1435,
+      "elapsedMs": 1228,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.44050652
+      "topSimilarity": 0.4405619
     },
     {
       "id": "N-6",
@@ -1298,7 +1298,7 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 817,
+      "elapsedMs": 923,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
       "topSimilarity": 0.39985865
@@ -1311,10 +1311,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1022,
+      "elapsedMs": 918,
       "isLowSimilarity": true,
       "topMatchedKbTitle": null,
-      "topSimilarity": 0.35518909
+      "topSimilarity": 0.35528404
     }
   ]
 }

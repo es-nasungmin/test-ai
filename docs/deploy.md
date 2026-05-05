@@ -68,7 +68,10 @@ Enable-WindowsOptionalFeature -Online -FeatureName IIS-ASPNET45 -All
 Enable-WindowsOptionalFeature -Online -FeatureName IIS-ApplicationDevelopment -All
 ```
 
-명령 실행 후 컴퓨터 재시작을 요청하면 **Y** 입력해서 재시작하세요.
+설치 완료 후 IIS 재시작 (서버 재부팅 불필요):
+```powershell
+iisreset
+```
 
 **방법 B: GUI (그래픽)**
 
@@ -77,7 +80,7 @@ Enable-WindowsOptionalFeature -Online -FeatureName IIS-ApplicationDevelopment -A
    - ☑ **Internet Information Services**
    - ☑ **Internet Information Services 호스팅 환경**
    - ☑ **Application Development Features** (ASP.NET 관련)
-3. 확인 → 재시작
+3. 확인 → 완료 후 `iisreset` 실행
 
 ✅ **확인 방법**: `Win + R` → `inetmgr` 입력 → IIS 관리자 창 열리면 성공
 
@@ -91,7 +94,10 @@ Enable-WindowsOptionalFeature -Online -FeatureName IIS-ApplicationDevelopment -A
 2. "**ASP.NET Core Runtime 10.x (또는 최신)**" 찾기
 3. **"Hosting Bundle"** 다운로드 (약 100MB)
 4. 설치 프로그램 실행 (관리자 권한)
-5. 설치 완료 후 **컴퓨터 재시작**
+5. 설치 완료 후 IIS 재시작 (`iisreset` — 서버 재부팅 불필요):
+```powershell
+iisreset
+```
 
 설치 후 PowerShell에서 확인:
 ```powershell
@@ -201,7 +207,7 @@ GO
 
 **주의:**
 - `PASSWORD = 'StrongP@ssword123!'` 부분은 **복잡한 비밀번호로 변경하세요**
-- 이 비밀번호는 나중에 백엔드 설정파일(4.2)에서 사용합니다
+- 이 비밀번호는 나중에 백엔드 설정파일(5.2)에서 사용합니다
 
 ### 3.2 데이터베이스 테이블 자동 생성
 
@@ -300,7 +306,7 @@ ls C:\deploy\aidesk\api
 - `web.config` (IIS 설정)
 - `appsettings.*.json` (설정 파일들)
 
-### 4.2 운영 설정 파일 구성
+### 5.2 운영 설정 파일 구성
 
 **설정 파일이 뭔가요?** 앱이 시작할 때 DB 주소, API 키 등을 읽는 파일입니다.
 
@@ -334,7 +340,7 @@ ls C:\deploy\aidesk\api
 
 > ⚠️ **보안 주의**: `OpenAI:ApiKey`, `JwtSettings:SecretKey` 는 **파일에 쓰지 말고** 환경 변수(4.3)로 관리합니다!
 
-### 4.3 환경 변수 설정 (관리자 PowerShell)
+### 5.3 환경 변수 설정 (관리자 PowerShell)
 
 **환경 변수가 뭔가요?**
 - 앱이 시작될 때 필요한 민감 정보(API 키, DB 비밀번호 등)를 파일이 아닌 **시스템 환경 변수**로 관리합니다.
@@ -402,7 +408,7 @@ $env:JwtSettings__SecretKey   # JWT 키가 보이면 OK
 
 ✅ **확인**: 모든 변수가 출력되면 성공
 
-### 4.4 IIS 사이트 생성 (백엔드 API)
+### 5.4 IIS 사이트 생성 (백엔드 API)
 
 **IIS 사이트가 뭔가요?** 웹 서버가 어느 폴더의 파일을 어느 포트로 제공할지 설정하는 것입니다.
 
@@ -474,13 +480,13 @@ Invoke-WebRequest http://127.0.0.1:8080/health
 # Content    : OK
 ```
 
-만약 502 Bad Gateway 등의 오류가 나면 → 섹션 12 트러블슈팅 참고
+만약 502 Bad Gateway 등의 오류가 나면 → 섹션 13 트러블슈팅 참고
 
 ---
 
 ## 6. 프론트엔드 배포
 
-### 5.1 프론트 빌드 (빌드 서버 또는 개발 PC)
+### 6.1 프론트 빌드 (빌드 서버 또는 개발 PC)
 
 **프론트엔드 빌드가 뭔가요?** Vue 코드를 브라우저가 실행할 수 있는 HTML/CSS/JS로 변환하는 과정입니다.
 
@@ -509,7 +515,7 @@ ls .\dist
 
 ✅ **확인**: `dist` 폴더가 생기고 내부에 `index.html` 파일이 있으면 OK
 
-### 5.2 빌드된 파일 배포 폴더로 복사
+### 6.2 빌드된 파일 배포 폴더로 복사
 
 ```powershell
 # 기존 폴더 삭제 (있으면)
@@ -523,7 +529,7 @@ ls C:\deploy\aidesk\frontend
 # 결과: index.html, js/, css/, img/ 등이 보이면 OK
 ```
 
-### 5.3 IIS 사이트 생성 (프론트엔드)
+### 6.3 IIS 사이트 생성 (프론트엔드)
 
 **IIS 사이트 생성:**
 
@@ -539,7 +545,7 @@ ls C:\deploy\aidesk\frontend
 
 ✅ **확인**: IIS 관리자에서 `AiDeskFront` 사이트가 "시작됨" 상태
 
-### 5.4 SPA 라우팅 설정 (매우 중요!)
+### 6.4 SPA 라우팅 설정 (매우 중요!)
 
 **Vue SPA 라우팅이란?** 사용자가 `/dashboard` 같은 URL로 이동할 때, 실제로는 `/index.html`을 로드하고 Vue가 페이지를 그리는 방식입니다.
 
@@ -601,7 +607,7 @@ Invoke-WebRequest http://127.0.0.1
 - 프론트를 포트 80, 백엔드를 포트 8080으로 분리해서 사용
 - 예: `http://myserver:80/` (프론트) + `http://myserver:8080/api/` (백엔드)
 
-### 6.1 ARR 프록시 활성화
+### 7.1 ARR 프록시 활성화
 
 IIS 관리자에서:
 
@@ -611,7 +617,7 @@ IIS 관리자에서:
 4. **"Enable proxy"** ☑ 체크
 5. **적용**
 
-### 6.2 프론트엔드 사이트에 /api 프록시 규칙 추가
+### 7.2 프론트엔드 사이트에 /api 프록시 규칙 추가
 
 프론트엔드 사이트(`AiDeskFront`)의 `web.config` 를 수정합니다:
 
@@ -720,8 +726,7 @@ Docker Desktop이 이미 설치된 환경이라면 이 방법도 가능합니다
 
 1. https://www.docker.com/products/docker-desktop 다운로드
 2. 설치 프로그램 실행 (기본 옵션)
-3. 재시작
-4. PowerShell에서 확인:
+3. PowerShell에서 확인:
    ```powershell
    docker --version
    ```
@@ -771,7 +776,7 @@ iisreset
 
 **위젯이 뭔가요?** 다른 사람의 웹사이트에 AiDesk 챗봇을 임베드하는 기능입니다. 예: WebForms 기반 레거시 시스템에도 추가 가능.
 
-### 8.1 chat-widget.js 위치
+### 9.1 chat-widget.js 위치
 
 빌드 후 `AiDeskClient/public/chat-widget.js` 가 `dist/` 에 그대로 복사됩니다.
 
@@ -782,7 +787,7 @@ http://your-server/chat-widget.js
 http://your-server:80/chat-widget.js
 ```
 
-### 8.2 기존 웹사이트 (ASPX/HTML)에 삽입
+### 9.2 기존 웹사이트 (ASPX/HTML)에 삽입
 
 **예시: 기존 WebForms 페이지**
 
@@ -838,7 +843,7 @@ http://your-server:80/chat-widget.js
 
 **헬스 체크가 뭔가요?** 각 서비스가 정상 작동하는지 확인하는 과정입니다.
 
-### 9.1 각 서비스 생존 확인
+### 10.1 각 서비스 생존 확인
 
 PowerShell에서:
 
@@ -860,7 +865,7 @@ Invoke-WebRequest http://127.0.0.1
 # 예상 결과: StatusCode 200, 내용에 "<!DOCTYPE html>" 보임
 ```
 
-### 9.2 오류 대응
+### 10.2 오류 대응
 
 만약 위의 요청이 실패하면:
 
