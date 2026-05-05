@@ -537,22 +537,22 @@ onMounted(() => {
 .crm-container {
   --content-max-width: 1760px;
   width: 100%;
-  padding: 0 24px 40px;
+  padding: 0 16px 40px;
 }
 
 /* =====================================================
    헤더
    ===================================================== */
 .crm-header {
-  margin-left: -24px;
-  margin-right: -24px;
+  margin-left: -16px;
+  margin-right: -16px;
   margin-bottom: 32px;
 }
 
 .crm-header-shell {
   background: linear-gradient(135deg, #0d6efd 0%, #764ba2 100%);
   border-radius: 0;
-  padding: 28px 24px 0;
+  padding: 28px 16px 0;
   color: #fff;
   box-shadow: 0 4px 24px rgba(13, 110, 253, 0.18);
 }
