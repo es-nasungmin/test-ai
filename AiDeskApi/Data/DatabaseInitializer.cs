@@ -23,6 +23,10 @@ namespace AiDeskApi.Data
             {
                 InitializeSqliteDatabase(db);
             }
+            else if (db.Database.IsSqlServer())
+            {
+                InitializeSqlServerDatabase(db);
+            }
 
             // SQLite/MSSQL 공통: 기본 관리자 계정 생성
             EnsureAdminUserExists(db);
@@ -42,9 +46,6 @@ namespace AiDeskApi.Data
                 Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBases PRIMARY KEY AUTOINCREMENT,
                 Title TEXT NOT NULL,
                 Content TEXT NOT NULL,
-                Problem TEXT NOT NULL,
-                Solution TEXT NOT NULL,
-                ProblemEmbedding TEXT NULL,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL,
                 CreatedBy TEXT NOT NULL DEFAULT '시스템',
@@ -52,14 +53,14 @@ namespace AiDeskApi.Data
                 ViewCount INTEGER NOT NULL DEFAULT 0,
                 Visibility TEXT NOT NULL DEFAULT 'admin',
                 Platform TEXT NOT NULL DEFAULT '공통',
-                Tags TEXT NULL
+                Keywords TEXT NULL
             );");
 
             EnsureColumnExists(db, "KnowledgeBases", "Title", "ALTER TABLE KnowledgeBases ADD COLUMN Title TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "Content", "ALTER TABLE KnowledgeBases ADD COLUMN Content TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "Visibility", "ALTER TABLE KnowledgeBases ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'admin';");
             EnsureColumnExists(db, "KnowledgeBases", "Platform", "ALTER TABLE KnowledgeBases ADD COLUMN Platform TEXT NOT NULL DEFAULT '공통';");
-            EnsureColumnExists(db, "KnowledgeBases", "Tags", "ALTER TABLE KnowledgeBases ADD COLUMN Tags TEXT NULL;");
+            EnsureColumnExists(db, "KnowledgeBases", "Keywords", "ALTER TABLE KnowledgeBases ADD COLUMN Keywords TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "UpdatedAt", "ALTER TABLE KnowledgeBases ADD COLUMN UpdatedAt TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "CreatedBy", "ALTER TABLE KnowledgeBases ADD COLUMN CreatedBy TEXT NOT NULL DEFAULT '시스템';");
             EnsureColumnExists(db, "KnowledgeBases", "UpdatedBy", "ALTER TABLE KnowledgeBases ADD COLUMN UpdatedBy TEXT NOT NULL DEFAULT '시스템';");
@@ -74,10 +75,21 @@ namespace AiDeskApi.Data
             SET Title = COALESCE(NULLIF(TRIM(Title), ''), NULLIF(TRIM(Problem), ''), '제목 없음')
             WHERE Title IS NULL OR TRIM(Title) = '';");
 
-            db.Database.ExecuteSqlRaw(@"
-            UPDATE KnowledgeBases
-            SET Content = COALESCE(NULLIF(TRIM(Content), ''), NULLIF(TRIM(Solution), ''), '')
-            WHERE Content IS NULL OR TRIM(Content) = '';");
+            if (HasColumn(db, "KnowledgeBases", "Solution"))
+            {
+                db.Database.ExecuteSqlRaw(@"
+                UPDATE KnowledgeBases
+                SET Content = COALESCE(NULLIF(TRIM(Content), ''), NULLIF(TRIM(Solution), ''), '')
+                WHERE Content IS NULL OR TRIM(Content) = '';");
+            }
+
+            if (HasColumn(db, "KnowledgeBases", "Tags"))
+            {
+                db.Database.ExecuteSqlRaw(@"
+                UPDATE KnowledgeBases
+                SET Keywords = COALESCE(NULLIF(TRIM(Keywords), ''), NULLIF(TRIM(Tags), ''), '')
+                WHERE Keywords IS NULL OR TRIM(Keywords) = '';");
+            }
 
             db.Database.ExecuteSqlRaw(@"
             UPDATE KnowledgeBases
@@ -350,6 +362,32 @@ namespace AiDeskApi.Data
             SET Platform = '공통'
             WHERE LOWER(TRIM(Platform)) = 'common';");
         }
+        private static void InitializeSqlServerDatabase(AiDeskContext db)
+        {
+            EnsureColumnExists(db, "KnowledgeBases", "Content",
+                "ALTER TABLE [KnowledgeBases] ADD [Content] nvarchar(max) NULL;");
+
+            EnsureColumnExists(db, "KnowledgeBases", "Keywords",
+                "ALTER TABLE [KnowledgeBases] ADD [Keywords] nvarchar(500) NULL;");
+
+            if (HasColumn(db, "KnowledgeBases", "Solution"))
+            {
+                db.Database.ExecuteSqlRaw(@"
+                UPDATE [KnowledgeBases]
+                SET [Content] = COALESCE(NULLIF(LTRIM(RTRIM([Content])), ''), [Solution])
+                WHERE [Solution] IS NOT NULL
+                  AND ( [Content] IS NULL OR LTRIM(RTRIM([Content])) = '' );");
+            }
+
+            if (HasColumn(db, "KnowledgeBases", "Tags"))
+            {
+                db.Database.ExecuteSqlRaw(@"
+                UPDATE [KnowledgeBases]
+                SET [Keywords] = COALESCE(NULLIF(LTRIM(RTRIM([Keywords])), ''), [Tags])
+                WHERE [Tags] IS NOT NULL
+                  AND ( [Keywords] IS NULL OR LTRIM(RTRIM([Keywords])) = '' );");
+            }
+        }
 
         /// <summary>
         /// 기본 관리자 사용자가 없으면 생성
@@ -504,15 +542,31 @@ namespace AiDeskApi.Data
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = $"PRAGMA table_info({tableName});";
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            if (db.Database.IsSqlite())
             {
-                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                command.CommandText = $"PRAGMA table_info({tableName});";
+
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
                 {
-                    return true;
+                    if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
                 }
+
+                return false;
+            }
+
+            if (db.Database.IsSqlServer())
+            {
+                command.CommandText = $@"
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N'[dbo].[{tableName}]')
+                  AND name = N'{columnName}';";
+
+                return command.ExecuteScalar() != null;
             }
 
             return false;
@@ -525,22 +579,9 @@ namespace AiDeskApi.Data
         {
             try
             {
-                var connection = db.Database.GetDbConnection();
-                if (connection.State != ConnectionState.Open)
+                if (HasColumn(db, tableName, columnName))
                 {
-                    connection.Open();
-                }
-
-                using var command = connection.CreateCommand();
-                command.CommandText = $"PRAGMA table_info({tableName});";
-
-                using var reader = command.ExecuteReader();
-                while (reader.Read())
-                {
-                    if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return;
-                    }
+                    return;
                 }
 
                 // 컬럼이 없으면 추가

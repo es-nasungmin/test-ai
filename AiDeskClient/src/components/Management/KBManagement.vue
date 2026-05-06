@@ -396,12 +396,12 @@ function startEdit(kb) {
   showWriter.value = true
   form.value.id = kb.id
   form.value.title = kb.title || ''
-  form.value.content = kb.content || kb.solution || ''
+  form.value.content = kb.content || ''
   form.value.visibility = kb.visibility || 'user'
   form.value.platforms = extractPlatforms(kb)
   form.value.expectedInput = ''
   keywordInput.value = ''
-  keywordDraft.value = normalizeKeywords((kb.keywords || kb.tags || '').split(','))
+  keywordDraft.value = normalizeKeywords((kb.keywords || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
   similarDraft.value = (kb.expectedQuestions || kb.similarQuestions || []).map((item) => item.question)
   generatedCandidates.value = []
@@ -1051,7 +1051,7 @@ async function onCsvFileSelected(event) {
             <div class="kb-row">
               <div class="kb-label">내용</div>
               <div class="kb-value kb-question-row">
-                <span>{{ kb.content || kb.solution || '-' }}</span>
+                <span>{{ kb.content || '-' }}</span>
                 <button class="q-btn" @click="toggleExpanded(kb.id)">
                   {{ expandedId === kb.id ? '예상질문 접기' : '예상질문 보기' }}
                 </button>
