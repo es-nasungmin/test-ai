@@ -14,6 +14,7 @@ namespace AiDeskApi.Services
         Task DeleteKnowledgeBaseAsync(int kbId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<VectorSearchHit>> SearchAsync(float[] queryVector, string role, string platform, int topK, CancellationToken cancellationToken = default);
         Task SyncAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
+        Task RebuildAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
     }
 
     public class VectorSearchHit
@@ -317,6 +318,21 @@ namespace AiDeskApi.Services
             }
 
             _logger.LogInformation("Qdrant 동기화 완료: {Count} KB", kbs.Count);
+        }
+
+        public async Task RebuildAllKnowledgeBasesAsync(CancellationToken cancellationToken = default)
+        {
+            if (!_enabled) return;
+
+            var response = await _httpClient.DeleteAsync($"/collections/{_collectionName}", cancellationToken);
+            if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+            {
+                var message = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Qdrant 컬렉션 초기화 실패: {message}");
+            }
+
+            _collectionEnsured = false;
+            await SyncAllKnowledgeBasesAsync(cancellationToken);
         }
 
         /// <summary>

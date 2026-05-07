@@ -228,24 +228,6 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AiDeskContext>();
     DatabaseInitializer.InitializeDatabase(db);
-
-    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
-    var startupLogger = loggerFactory.CreateLogger("Startup");
-
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            using var syncScope = app.Services.CreateScope();
-            var vector = syncScope.ServiceProvider.GetRequiredService<IVectorSearchService>();
-            await vector.SyncAllKnowledgeBasesAsync();
-            startupLogger.LogInformation("벡터 인덱스 초기 동기화 완료");
-        }
-        catch (Exception ex)
-        {
-            startupLogger.LogWarning(ex, "⚠️ 벡터 인덱스 초기 동기화 실패(비치명)");
-        }
-    });
 }
 
 app.Run();

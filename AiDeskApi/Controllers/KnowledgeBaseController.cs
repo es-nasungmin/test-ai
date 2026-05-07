@@ -68,7 +68,7 @@ namespace AiDeskApi.Controllers
 
                 var noSave = request.NoSave == true;
                 var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync(request.Username, request.UserLoginId);
-                var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 6, 0, 20);
+                var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 2, 0, 2);
                 var runtimeOptions = new RagRuntimeOptions
                 {
                     DisablePersistence = noSave,
@@ -251,7 +251,7 @@ namespace AiDeskApi.Controllers
                 var content = ResolveContent(request);
                 var representativeQuestion = ResolveRepresentativeQuestion(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
-                var now = DateTime.Now;
+                var now = DateTime.UtcNow;
                 var actor = await ResolveActorNameAsync();
                 var platforms = NormalizePlatforms(request.Platforms, request.Platform);
 
@@ -335,7 +335,7 @@ namespace AiDeskApi.Controllers
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
                 kb.Keywords = (request.Keywords ?? request.Tags)?.Trim();
-                kb.UpdatedAt = DateTime.Now;
+                kb.UpdatedAt = DateTime.UtcNow;
                 kb.UpdatedBy = actor;
 
                 var incoming = expectedQuestions;
@@ -755,6 +755,28 @@ namespace AiDeskApi.Controllers
             }
         }
 
+        [Authorize(Roles = "admin")]
+        [HttpPost("rebuild-vector-index")]
+        public async Task<IActionResult> RebuildVectorIndex(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var totalKbCount = await _context.KnowledgeBases.CountAsync(cancellationToken);
+                await _vectorSearchService.RebuildAllKnowledgeBasesAsync(cancellationToken);
+
+                return Ok(new
+                {
+                    message = "벡터 인덱스를 초기화하고 전체 KB를 다시 임베딩했습니다.",
+                    totalKbCount
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 벡터 인덱스 재구축 실패");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         [HttpGet("chatbot-prompt-template")]
         public IActionResult GetChatbotPromptTemplate()
         {
@@ -1025,6 +1047,13 @@ namespace AiDeskApi.Controllers
                 return BadRequest(new { error = "CSV 파일(.csv)만 지원합니다." });
 
             var actor = await ResolveActorNameAsync();
+            
+            // 활성 플랫폼 목록 로드
+            var activePlatforms = await _context.KbPlatforms
+                .Where(x => x.IsActive)
+                .Select(x => x.Name)
+                .ToListAsync(cancellationToken);
+            
             var results = new List<object>();
             var successCount = 0;
             var failCount = 0;
@@ -1080,7 +1109,7 @@ namespace AiDeskApi.Controllers
                     ExpectedQuestions = expectedQuestions
                 };
 
-                var validationError = ValidateRequest(request);
+                var validationError = ValidateRequest(request, activePlatforms);
                 if (!string.IsNullOrWhiteSpace(validationError))
                 {
                     results.Add(new { row = rowIndex, status = "fail", reason = validationError, title });
@@ -1092,7 +1121,7 @@ namespace AiDeskApi.Controllers
                 {
                     var resolvedContent = ResolveContent(request);
                     var resolvedQuestions = ResolveExpectedQuestions(request);
-                    var now = DateTime.Now;
+                    var now = DateTime.UtcNow;
                     var platforms = NormalizePlatforms(request.Platforms, request.Platform);
 
                     var kb = new KnowledgeBase
@@ -1386,6 +1415,11 @@ namespace AiDeskApi.Controllers
 
         private static string? ValidateRequest(UpsertKbRequest request)
         {
+            return ValidateRequest(request, null);
+        }
+
+        private static string? ValidateRequest(UpsertKbRequest request, List<string>? activePlatforms)
+        {
             if (string.IsNullOrWhiteSpace(request.Title))
                 return "제목을 입력해주세요.";
             if (string.IsNullOrWhiteSpace(ResolveContent(request)))
@@ -1397,6 +1431,17 @@ namespace AiDeskApi.Controllers
             var platforms = NormalizePlatforms(request.Platforms, request.Platform);
             if (platforms.Any(x => x.Length < 2 && x != "공통"))
                 return "플랫폼명은 2자 이상이어야 합니다.";
+            
+            // 활성 플랫폼 목록이 제공된 경우 플랫폼 유효성 검사
+            if (activePlatforms != null && activePlatforms.Count > 0)
+            {
+                foreach (var platform in platforms)
+                {
+                    if (!activePlatforms.Contains(platform))
+                        return $"플랫폼 '{platform}'이(가) 존재하지 않습니다. 먼저 플랫폼을 생성해주세요.";
+                }
+            }
+            
             if (ResolveExpectedQuestions(request).Count > 10)
                 return "예상질문은 최대 10개까지 등록 가능합니다.";
             return null;

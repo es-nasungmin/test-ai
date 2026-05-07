@@ -8,6 +8,7 @@ const API_URL = API_BASE_URL
 const kbList = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const rebuildingVectorIndex = ref(false)
 const error = ref('')
 const expandedId = ref(null)
 const showWriter = ref(false)
@@ -130,6 +131,19 @@ const writerPromptTemplateForm = ref({
 })
 const MAX_EXPECTED_QUESTIONS = 10
 
+const isAdminUser = computed(() => {
+  try {
+    const raw = localStorage.getItem('user')
+    if (!raw) return false
+    const user = JSON.parse(raw)
+    const username = typeof user?.username === 'string' ? user.username.trim().toLowerCase() : ''
+    const role = typeof user?.role === 'string' ? user.role.trim().toLowerCase() : ''
+    return username === 'admin' || role === 'admin'
+  } catch {
+    return false
+  }
+})
+
 const kbTotalPages = computed(() => Math.max(1, Math.ceil(kbTotal.value / kbPageSize)))
 const kbPageNumbers = computed(() => {
   const total = kbTotalPages.value
@@ -166,6 +180,29 @@ async function fetchKbs() {
     error.value = 'KB 목록을 불러오지 못했습니다.'
   } finally {
     loading.value = false
+  }
+}
+
+async function rebuildVectorIndex() {
+  if (!isAdminUser.value) return
+  if (!confirm('Qdrant 벡터 인덱스를 초기화하고 전체 KB를 다시 임베딩할까요? 시간이 오래 걸릴 수 있습니다.')) return
+
+  rebuildingVectorIndex.value = true
+  try {
+    const res = await axios.post(
+      `${API_URL}/knowledgebase/rebuild-vector-index`,
+      {},
+      { headers: getActorHeader() }
+    )
+    const totalKbCount = Number(res.data?.totalKbCount || 0)
+    const message = typeof res.data?.message === 'string'
+      ? res.data.message
+      : '벡터 인덱스 재구축이 완료되었습니다.'
+    alert(`${message}\n대상 KB: ${totalKbCount}건`)
+  } catch (err) {
+    alert(err.response?.data?.error || '벡터 인덱스 재구축에 실패했습니다.')
+  } finally {
+    rebuildingVectorIndex.value = false
   }
 }
 
@@ -821,7 +858,6 @@ async function onCsvFileSelected(event) {
           <button class="ghost" @click.stop="resetForm">초기화</button>
           <button class="ghost btn-csv-upload" type="button" @click.stop="openBulkModal">CSV 업로드</button>
           <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
-          <input ref="csvFileInput" type="file" accept=".csv" style="display:none" @change="onBulkModalFileChange" />
         </div>
       </div>
 
@@ -943,6 +979,7 @@ async function onCsvFileSelected(event) {
     <!-- CSV 업로드 통합 팝업 -->
     <div v-if="showBulkModal" class="modal-overlay" @click.self="closeBulkModal">
       <div class="modal-box bulk-modal" @click.stop>
+        <input ref="csvFileInput" type="file" accept=".csv" style="display:none" @change="onBulkModalFileChange" />
 
         <!-- 헤더 -->
         <div class="bulk-modal-head">
@@ -958,7 +995,7 @@ async function onCsvFileSelected(event) {
           </div>
           <div class="bulk-step-section">
             <p class="bulk-step-label">2단계 — 파일 선택</p>
-            <div class="bulk-file-area" @click="csvFileInput.click()">
+            <div class="bulk-file-area" @click.stop="csvFileInput.click()">
               <span v-if="bulkSelectedFile" class="bulk-file-name">
                 📄 {{ bulkSelectedFile.name }}
                 <small>{{ bulkTotalCount }}건 감지됨</small>
@@ -1007,7 +1044,17 @@ async function onCsvFileSelected(event) {
     <div class="panel list-panel">
       <div class="panel-head">
         <h3>KB 목록</h3>
-        <button class="ghost" :disabled="loading" @click="fetchKbs">새로고침</button>
+        <div class="panel-head-actions">
+          <button class="ghost" :disabled="loading || rebuildingVectorIndex" @click="fetchKbs">새로고침</button>
+          <button
+            v-if="isAdminUser"
+            class="ghost"
+            :disabled="loading || rebuildingVectorIndex"
+            @click="rebuildVectorIndex"
+          >
+            {{ rebuildingVectorIndex ? '재임베딩 중...' : '재임베딩' }}
+          </button>
+        </div>
       </div>
 
       <div class="filters">
@@ -1166,31 +1213,57 @@ async function onCsvFileSelected(event) {
           <button class="ghost" type="button" @click="showWriterPromptEditor = false">닫기</button>
         </div>
 
-        <div class="form-grid">
-          <label>
-            내용정리 시스템 프롬프트
-            <textarea v-model="writerPromptTemplateForm.answerRefineSystemPrompt" rows="3" />
-          </label>
-          <label>
-            내용정리 규칙 프롬프트
-            <textarea v-model="writerPromptTemplateForm.answerRefineRulesPrompt" rows="4" />
-          </label>
-          <label>
-            키워드 생성 시스템 프롬프트
-            <textarea v-model="writerPromptTemplateForm.keywordSystemPrompt" rows="3" />
-          </label>
-          <label>
-            키워드 생성 규칙 프롬프트
-            <textarea v-model="writerPromptTemplateForm.keywordRulesPrompt" rows="4" />
-          </label>
-          <label>
-            예상질문 생성 시스템 프롬프트
-            <textarea v-model="writerPromptTemplateForm.similarQuestionSystemPrompt" rows="3" />
-          </label>
-          <label>
-            예상질문 생성 규칙 프롬프트
-            <textarea v-model="writerPromptTemplateForm.similarQuestionRulesPrompt" rows="4" />
-          </label>
+        <div class="writer-prompt-sections">
+          <div class="writer-prompt-section">
+            <div class="writer-prompt-section-header">
+              <span>내용 정리</span>
+              <span class="writer-prompt-section-desc">KB 저장 시 답변 내용을 AI가 정리할 때 사용</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                시스템 프롬프트
+                <textarea v-model="writerPromptTemplateForm.answerRefineSystemPrompt" rows="3" />
+              </label>
+              <label>
+                규칙 프롬프트
+                <textarea v-model="writerPromptTemplateForm.answerRefineRulesPrompt" rows="4" />
+              </label>
+            </div>
+          </div>
+
+          <div class="writer-prompt-section">
+            <div class="writer-prompt-section-header">
+              <span>키워드 생성</span>
+              <span class="writer-prompt-section-desc">KB 저장 시 검색 키워드를 자동 추출할 때 사용</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                시스템 프롬프트
+                <textarea v-model="writerPromptTemplateForm.keywordSystemPrompt" rows="3" />
+              </label>
+              <label>
+                규칙 프롬프트
+                <textarea v-model="writerPromptTemplateForm.keywordRulesPrompt" rows="4" />
+              </label>
+            </div>
+          </div>
+
+          <div class="writer-prompt-section">
+            <div class="writer-prompt-section-header">
+              <span>예상 질문 생성</span>
+              <span class="writer-prompt-section-desc">KB 저장 시 유사 질문을 자동 생성할 때 사용</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                시스템 프롬프트
+                <textarea v-model="writerPromptTemplateForm.similarQuestionSystemPrompt" rows="3" />
+              </label>
+              <label>
+                규칙 프롬프트
+                <textarea v-model="writerPromptTemplateForm.similarQuestionRulesPrompt" rows="4" />
+              </label>
+            </div>
+          </div>
         </div>
 
         <div class="actions">
@@ -1780,6 +1853,56 @@ select:focus {
 
 .info-modal {
   width: min(760px, 100%);
+}
+
+.writer-prompt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.writer-prompt-section {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.writer-prompt-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #eef2ff;
+  border-bottom: 1px solid #dee2e6;
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e3a8a;
+}
+
+.writer-prompt-section:nth-child(1) .writer-prompt-section-header {
+  background: #eef2ff;
+  color: #1e3a8a;
+}
+
+.writer-prompt-section:nth-child(2) .writer-prompt-section-header {
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.writer-prompt-section:nth-child(3) .writer-prompt-section-header {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.writer-prompt-section-desc {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+.writer-prompt-section .form-grid {
+  padding: 14px;
 }
 
 .similarity-guide {

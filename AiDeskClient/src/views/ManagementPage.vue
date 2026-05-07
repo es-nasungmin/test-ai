@@ -518,9 +518,12 @@ onMounted(() => {
           <button class="modal-close-btn" @click="showChatbotPromptEditor = false">✕</button>
         </div>
 
-        <div class="modal-body">
+        <div class="modal-body chatbot-prompt-body">
           <div class="prompt-section">
-            <h4>사용자 챗봇</h4>
+            <div class="prompt-section-header">
+              <h4>사용자 챗봇</h4>
+              <p>일반 사용자에게 보이는 답변 톤, 규칙, 저유사도 안내문을 설정합니다.</p>
+            </div>
             <div class="form-group">
               <label>시스템 프롬프트</label>
               <textarea v-model="chatbotPromptTemplateForm.userSystemPrompt" rows="3" />
@@ -538,7 +541,10 @@ onMounted(() => {
           </div>
 
           <div class="prompt-section">
-            <h4>관리자 챗봇</h4>
+            <div class="prompt-section-header">
+              <h4>관리자 챗봇</h4>
+              <p>관리자 화면에서 사용하는 답변 규칙과 저유사도 응답을 분리해서 설정합니다.</p>
+            </div>
             <div class="form-group">
               <label>시스템 프롬프트</label>
               <textarea v-model="chatbotPromptTemplateForm.adminSystemPrompt" rows="3" />
@@ -555,9 +561,15 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="form-group">
-            <label>유사도 임계치 (0~1)</label>
-            <input v-model.number="chatbotPromptTemplateForm.similarityThreshold" type="number" min="0.1" max="0.95" step="0.01" />
+          <div class="prompt-section prompt-section-compact">
+            <div class="prompt-section-header">
+              <h4>검색 임계치</h4>
+              <p>이 값보다 낮으면 KB 근거가 부족한 것으로 판단하고 저유사도 안내문을 반환합니다.</p>
+            </div>
+            <div class="form-group threshold-group">
+              <label>유사도 임계치 (0~1)</label>
+              <input v-model.number="chatbotPromptTemplateForm.similarityThreshold" type="number" min="0.1" max="0.95" step="0.01" />
+            </div>
           </div>
         </div>
 
@@ -1263,23 +1275,86 @@ onMounted(() => {
 
 .modal-body {
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .prompt-section {
-  margin-bottom: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  background: #fff;
+}
+
+.prompt-section-header {
+  margin: 0 0 14px;
 }
 
 .prompt-section h4 {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   font-size: 14px;
   font-weight: 700;
   color: #1e293b;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #f1f4f8;
+}
+
+.prompt-section-header p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(1) .prompt-section-header {
+  background: #eef2ff;
+  color: #1e3a8a;
+  margin: -16px -16px 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #c7d2fe;
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(1) .prompt-section-header p {
+  color: rgba(30, 58, 138, 0.78);
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(2) .prompt-section-header {
+  background: #ecfdf5;
+  color: #166534;
+  margin: -16px -16px 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #bbf7d0;
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(2) .prompt-section-header p {
+  color: rgba(22, 101, 52, 0.78);
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(3) .prompt-section-header {
+  background: #fff7ed;
+  color: #9a3412;
+  margin: -16px -16px 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #fed7aa;
+}
+
+.chatbot-prompt-body .prompt-section:nth-child(3) .prompt-section-header p {
+  color: rgba(154, 52, 18, 0.78);
 }
 
 .form-group {
   margin-bottom: 14px;
+}
+
+.prompt-section .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.prompt-section-compact {
+  background: #fbfcfe;
+}
+
+.threshold-group {
+  max-width: 220px;
 }
 
 .form-group label {

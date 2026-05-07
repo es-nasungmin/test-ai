@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using AiDeskApi.Models;
 
 namespace AiDeskApi.Data
@@ -30,6 +31,14 @@ namespace AiDeskApi.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            var utcDateTimeConverter = new ValueConverter<DateTime, DateTime>(
+                value => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime(),
+                value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+            var utcNullableDateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
+                value => value.HasValue ? (value.Value.Kind == DateTimeKind.Utc ? value.Value : value.Value.ToUniversalTime()) : value,
+                value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : value);
+
             // User 설정
             modelBuilder.Entity<User>(entity =>
             {
@@ -54,6 +63,8 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Content).HasColumnName("Solution");
                 entity.Property(e => e.Keywords).HasColumnName("Tags").HasMaxLength(500);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
                 entity.HasIndex(e => e.UpdatedAt);
                 entity.HasMany(e => e.SimilarQuestions)
@@ -66,6 +77,7 @@ namespace AiDeskApi.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => e.Name).IsUnique();
             });
 
@@ -82,6 +94,7 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.AfterPlatform).HasMaxLength(200);
                 entity.Property(e => e.BeforeKeywords).HasMaxLength(500);
                 entity.Property(e => e.AfterKeywords).HasMaxLength(500);
+                entity.Property(e => e.ChangedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.KnowledgeBaseId, e.ChangedAt });
             });
 
@@ -92,6 +105,7 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Actor).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.BeforeQuestion).HasMaxLength(500);
                 entity.Property(e => e.AfterQuestion).HasMaxLength(500);
+                entity.Property(e => e.ChangedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.KnowledgeBaseId, e.ChangedAt });
             });
 
@@ -99,6 +113,7 @@ namespace AiDeskApi.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Question).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => e.KnowledgeBaseId);
             });
 
@@ -110,6 +125,8 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.ActorName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.TopMatchedQuestion).HasMaxLength(500);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.ResolvedAt).HasConversion(utcNullableDateTimeConverter);
                 entity.HasIndex(e => new { e.IsResolved, e.CreatedAt });
             });
 
@@ -124,6 +141,8 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.TopicKeywordRulesPrompt).IsRequired();
                 entity.Property(e => e.AnswerRefineSystemPrompt).IsRequired();
                 entity.Property(e => e.AnswerRefineRulesPrompt).IsRequired();
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
             });
 
             modelBuilder.Entity<ChatMessage>(entity =>
@@ -131,6 +150,7 @@ namespace AiDeskApi.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(10);
                 entity.Property(e => e.Content).IsRequired();
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.RelatedKbIds);
                 entity.Property(e => e.RelatedKbMeta);
                 entity.Property(e => e.RelatedDocumentMeta);
@@ -149,6 +169,8 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.UserRole).IsRequired().HasMaxLength(10);
                 entity.Property(e => e.ActorName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
             });
         }
     }

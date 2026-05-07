@@ -24,6 +24,14 @@ namespace AiDeskApi.Services
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
     public class OpenAiRagService : IRagService
     {
+        private const int PromptHistoryMessageLimit = 2;
+        private const int EmbeddingHistoryUserTurnLimit = 1;
+        private static readonly string[] FollowUpQuestionPrefixes =
+        {
+            "그럼", "그러면", "그건", "이건", "저건", "그거", "이거", "저거",
+            "근데", "그런데", "아니", "그리고", "추가로", "이어서", "그다음", "그 다음",
+            "그 말고", "이 말고", "저 말고"
+        };
         // 초기 벡터 검색 후보 수. document/expected를 분리하기 전에 넓게 가져온다.
         private const int RawVectorTopK = 40;
         // KB 본문(document) 포인트에서 유지할 상위 후보 수
@@ -118,13 +126,14 @@ namespace AiDeskApi.Services
                 //    - 표기 흔들림(안됨/불가/안 보여요 등)을 정규화해 임베딩 분산을 줄인다.
                 //    - 후속 질문("그래도 안보여" 등)은 맥락 없이 임베딩하면 유사도가 낮아지므로
                 //      직전 사용자 발화 1~2턴을 앞에 붙여 검색 품질을 높인다.
+                var recentHistory = GetRecentHistory(history);
                 var normalizedQuestion = NormalizeQueryForEmbedding(question);
                 var embeddingInput = normalizedQuestion;
-                if (history != null && history.Count > 0)
+                if (ShouldUseHistoryForEmbedding(question, recentHistory))
                 {
-                    var recentUserTurns = history
+                    var recentUserTurns = recentHistory
                         .Where(h => h.Role == "user")
-                        .TakeLast(2)
+                        .TakeLast(EmbeddingHistoryUserTurnLimit)
                         .Select(h => NormalizeQueryForEmbedding(h.Content))
                         .ToList();
                     if (recentUserTurns.Count > 0)
@@ -332,7 +341,7 @@ namespace AiDeskApi.Services
                 var topMatchedKbTitle = topKb?.Title;
                 var topMatchedKbContent = topKb?.Content;
 
-                var answer = await GenerateAnswerAsync(question, contextText, role, topScore, history, runtimeOptions);
+                var answer = await GenerateAnswerAsync(question, contextText, role, topScore, recentHistory, runtimeOptions);
                 var isLowSimilarity = topScore < similarityThreshold;
 
                 return new RagResponse
@@ -415,7 +424,7 @@ namespace AiDeskApi.Services
                 // 이전 대화 이력 삽입 (user/bot → user/assistant)
                 if (history != null && history.Count > 0)
                 {
-                    foreach (var (histRole, histContent) in history!)
+                    foreach (var (histRole, histContent) in GetRecentHistory(history))
                     {
                         var gptRole = histRole == "bot" ? "assistant" : histRole;
                         messages.Add(new { role = gptRole, content = histContent });
@@ -440,21 +449,10 @@ namespace AiDeskApi.Services
                     }
                     else
                     {
-                        // 규칙을 prompt에 명시적으로 반복 주입해 Hallucination을 억제한다.
                         prompt = $@"{context}
 
 【사용자 질문】
 {question}
-
-위의 내부 참조 정보를 바탕으로 친절하고 정확하게 답변해주세요.
-아래 KB 근거 규칙을 반드시 지키세요.
-
-[KB 근거 규칙]
-1) 내부 참조 정보에 없는 사실/수치/경로/정책/원인/절차는 절대 추가하지 않는다.
-2) 추측, 일반 상식 보완, 다른 사례 끼워넣기를 금지한다.
-3) 답변의 각 핵심 문장은 내부 참조 정보에서 직접 확인 가능한 내용으로만 작성한다.
-4) 질문의 일부가 내부 참조 정보에 없으면, 없는 항목임을 명시하고 확인 필요로 안내한다.
-5) 특히 파일 경로/설정값/기한/금액/조건은 참조 근거가 있을 때만 말한다.
 
 답변 규칙:
 {userRules}";
@@ -491,7 +489,9 @@ namespace AiDeskApi.Services
                     .GetString();
 
                 _logger.LogInformation("✓ 답변 생성 완료");
-                return answer ?? "답변을 생성할 수 없습니다.";
+                return string.IsNullOrWhiteSpace(answer)
+                    ? "답변을 생성할 수 없습니다."
+                    : SanitizeAnswerMarkdown(answer);
             }
             catch (Exception ex)
             {
@@ -509,6 +509,20 @@ namespace AiDeskApi.Services
             }
 
             return _promptTemplates.SimilarityThreshold;
+        }
+
+        private static List<(string Role, string Content)> GetRecentHistory(IList<(string Role, string Content)>? history)
+        {
+            if (history == null || history.Count == 0)
+            {
+                return new List<(string Role, string Content)>();
+            }
+
+            return history
+                .TakeLast(PromptHistoryMessageLimit)
+                .Where(x => !string.IsNullOrWhiteSpace(x.Content))
+                .Select(x => (x.Role, x.Content.Trim()))
+                .ToList();
         }
 
         private string ResolveSystemPrompt(string role, RagRuntimeOptions options)
@@ -651,6 +665,55 @@ namespace AiDeskApi.Services
             normalized = Regex.Replace(normalized, "안\\s*보임|안\\s*보여요|안\\s*보입니다", "안보여");
 
             return normalized;
+        }
+
+        private static string SanitizeAnswerMarkdown(string answer)
+        {
+            if (string.IsNullOrWhiteSpace(answer))
+            {
+                return string.Empty;
+            }
+
+            var sanitized = answer.Replace("**", string.Empty)
+                .Replace("__", string.Empty)
+                .Replace("`", string.Empty);
+
+            sanitized = Regex.Replace(sanitized, @"^#{1,6}\s*", string.Empty, RegexOptions.Multiline);
+            sanitized = Regex.Replace(sanitized, @"\[(.*?)\]\((.*?)\)", "$1");
+
+            return sanitized.Trim();
+        }
+
+        private static bool ShouldUseHistoryForEmbedding(string question, IList<(string Role, string Content)> recentHistory)
+        {
+            if (string.IsNullOrWhiteSpace(question) || recentHistory.Count == 0)
+            {
+                return false;
+            }
+
+            var normalizedQuestion = NormalizeQueryForEmbedding(question);
+            if (string.IsNullOrWhiteSpace(normalizedQuestion))
+            {
+                return false;
+            }
+
+            if (FollowUpQuestionPrefixes.Any(prefix => normalizedQuestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            var hasReferencePronoun = Regex.IsMatch(normalizedQuestion, "(그거|이거|저거|그건|이건|저건|그렇다면|이렇다면)");
+            var keywordTokens = ExtractKeywordTokens(normalizedQuestion);
+            if (hasReferencePronoun && keywordTokens.Count <= 2)
+            {
+                return true;
+            }
+
+            var looksLikeShortEllipticQuestion = normalizedQuestion.Length <= 14
+                && keywordTokens.Count <= 2
+                && Regex.IsMatch(normalizedQuestion, "(어떻게|어떡해|가능|불가|안돼|안보여|돼|되나|되요|되나요|취소|변경|수정|언제|왜|맞아|맞나요)");
+
+            return looksLikeShortEllipticQuestion;
         }
 
         private float CosineSimilarity(float[] vec1, float[] vec2)
