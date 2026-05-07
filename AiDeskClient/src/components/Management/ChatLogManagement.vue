@@ -418,7 +418,7 @@ function getKbPlatforms(detail) {
 }
 
 function getKbTags(detail) {
-  const keywords = detail?.keywords || detail?.Keywords || detail?.tags || detail?.Tags
+  const keywords = detail?.keywords || detail?.Keywords
   if (typeof keywords !== 'string') return []
   return keywords.split(',').map((x) => x.trim()).filter(Boolean)
 }
@@ -654,7 +654,7 @@ onBeforeUnmount(() => {
 
           <div class="kb-section">
             <div class="kb-section-label">내용</div>
-            <div class="kb-q">{{ selectedKbDetail.content || selectedKbDetail.Content || selectedKbDetail.solution || selectedKbDetail.Solution || '-' }}</div>
+            <div class="kb-q">{{ selectedKbDetail.content || selectedKbDetail.Content || '-' }}</div>
           </div>
 
           <div class="kb-meta-grid">
