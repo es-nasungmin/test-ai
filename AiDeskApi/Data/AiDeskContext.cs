@@ -48,6 +48,9 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.PasswordHash).IsRequired();
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Status).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.ApprovedAt).HasConversion(utcNullableDateTimeConverter);
+                entity.Property(e => e.LastLoginAt).HasConversion(utcNullableDateTimeConverter);
                 entity.HasIndex(e => e.LoginId).IsUnique();
             });
 
