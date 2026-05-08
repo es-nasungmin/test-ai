@@ -11,7 +11,7 @@ namespace AiDeskApi.Services
     public interface IRagService
     {
         // role: "admin" = 전체 KB 조회, "user" = visibility='user'만 조회
-        // history: 이전 대화 [(role, content)] 최근 순 (오래된 것부터)
+        // history: 이전 대화 메시지 [(role, content)] 최근 순 (오래된 것부터)
         // platform: 공통이면 전체 플랫폼 조회, 특정값이면 공통 + 해당 플랫폼 조회
         Task<RagResponse> SearchAndGenerateAsync(
             string question,
@@ -25,7 +25,7 @@ namespace AiDeskApi.Services
     public class OpenAiRagService : IRagService
     {
         private const int PromptHistoryMessageLimit = 2;
-        private const int EmbeddingHistoryUserTurnLimit = 1;
+        private const int EmbeddingHistoryUserMessageLimit = 1;
         private static readonly string[] FollowUpQuestionPrefixes =
         {
             "그럼", "그러면", "그건", "이건", "저건", "그거", "이거", "저거",
@@ -44,6 +44,8 @@ namespace AiDeskApi.Services
         private const int ReRankTopK = 8;
         // 최종 답변 컨텍스트에 사용할 최대 후보 수
         private const int FinalTopK = 5;
+        // 실제 답변 생성 프롬프트에는 선택된 해법만 소수로 압축해 전달한다.
+        private const int AnswerContextTopK = 3;
         private const float ReRankSkipScoreThreshold = 0.82f;   // 상위 후보가 이 이상이면 rerank 스킵
         private const float ReRankSkipGapThreshold = 0.15f;    // 1위~2위 점수 차가 이 이상이면 rerank 스킵
         private const float KeywordBoostPerMatch = 0.01f;
@@ -126,14 +128,14 @@ namespace AiDeskApi.Services
                 //    - 표기 흔들림(안됨/불가/안 보여요 등)을 정규화해 임베딩 분산을 줄인다.
                 //    - 후속 질문("그래도 안보여" 등)은 맥락 없이 임베딩하면 유사도가 낮아지므로
                 //      직전 사용자 발화 1~2턴을 앞에 붙여 검색 품질을 높인다.
-                var recentHistory = GetRecentHistory(history);
+                var recentHistory = GetRecentHistoryMessages(history);
                 var normalizedQuestion = NormalizeQueryForEmbedding(question);
                 var embeddingInput = normalizedQuestion;
                 if (ShouldUseHistoryForEmbedding(question, recentHistory))
                 {
                     var recentUserTurns = recentHistory
                         .Where(h => h.Role == "user")
-                        .TakeLast(EmbeddingHistoryUserTurnLimit)
+                        .TakeLast(EmbeddingHistoryUserMessageLimit)
                         .Select(h => NormalizeQueryForEmbedding(h.Content))
                         .ToList();
                     if (recentUserTurns.Count > 0)
@@ -281,10 +283,14 @@ namespace AiDeskApi.Services
                     .Where(x => x.Item2 >= similarityThreshold)
                     .ToList();
 
-                // 임계치 이상 FAQ 후보만 충돌 감지/우선안 선택 수행
-                // (노이즈 후보는 다수결/충돌판단에서 제외)
-                var voteResult = BuildResolutionVote(eligibleResults);
-                var selectedResults = voteResult.SelectedCases;
+                // 단순 정책: 임계치 통과 후보 중 점수 상위 3개를 선택
+                var selectedResults = eligibleResults
+                    .Take(AnswerContextTopK)
+                    .Select(x => (kb: x.Item1, similarity: x.Item2))
+                    .ToList();
+                var decisionRule = selectedResults.Count > 0
+                    ? $"eligible 상위 {AnswerContextTopK}개 점수순 선택"
+                    : "임계치 통과 후보 없음";
                 var topResultSet = topResults.Select(x => x.Item1.Id).ToHashSet();
                 var eligibleSet = eligibleResults.Select(x => x.Item1.Id).ToHashSet();
                 var selectedSet = selectedResults.Select(x => x.kb.Id).ToHashSet();
@@ -331,7 +337,11 @@ namespace AiDeskApi.Services
 
                 // 답변 생성
                 // 관리자/사용자 role에 따라 BuildContext에서 노출 정보 레벨이 달라진다.
-                var faqContext = BuildContext(eligibleResults, voteResult, role);
+                var answerContextResults = selectedResults
+                    .Select(x => (x.kb, x.similarity, topResults.FirstOrDefault(r => r.Item1.Id == x.kb.Id).Item3 ?? x.kb.Title, topResults.FirstOrDefault(r => r.Item1.Id == x.kb.Id).Item4))
+                    .ToList();
+
+                var faqContext = BuildContext(answerContextResults, role);
                 var contextText = faqContext;
 
                 var topKbScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
@@ -352,8 +362,8 @@ namespace AiDeskApi.Services
                     TopMatchedQuestion = topMatchedQuestion,
                     TopMatchedKbTitle = topMatchedKbTitle,
                     TopMatchedKbContent = topMatchedKbContent,
-                    ConflictDetected = voteResult.ConflictDetected,
-                    DecisionRule = voteResult.DecisionRule,
+                    ConflictDetected = false,
+                    DecisionRule = decisionRule,
                     RetrievalDiagnostics = retrievalDiagnostics,
                     RelatedKBs = isLowSimilarity
                         ? new List<KBSummary>()
@@ -365,7 +375,7 @@ namespace AiDeskApi.Services
                             Content = x.Item1.Content,
                             Similarity = x.Item2,
                             MatchedQuestion = x.Item3,
-                            IsSelected = selectedResults.Any(s => s.kb.Id == x.Item1.Id)
+                            IsSelected = selectedSet.Contains(x.Item1.Id)
                         }).ToList(),
                     RelatedDocuments = isLowSimilarity
                         ? new List<DocumentReferenceSummary>()
@@ -424,7 +434,7 @@ namespace AiDeskApi.Services
                 // 이전 대화 이력 삽입 (user/bot → user/assistant)
                 if (history != null && history.Count > 0)
                 {
-                    foreach (var (histRole, histContent) in GetRecentHistory(history))
+                    foreach (var (histRole, histContent) in GetRecentHistoryMessages(history))
                     {
                         var gptRole = histRole == "bot" ? "assistant" : histRole;
                         messages.Add(new { role = gptRole, content = histContent });
@@ -511,7 +521,7 @@ namespace AiDeskApi.Services
             return _promptTemplates.SimilarityThreshold;
         }
 
-        private static List<(string Role, string Content)> GetRecentHistory(IList<(string Role, string Content)>? history)
+        private static List<(string Role, string Content)> GetRecentHistoryMessages(IList<(string Role, string Content)>? history)
         {
             if (history == null || history.Count == 0)
             {
@@ -546,7 +556,7 @@ namespace AiDeskApi.Services
                 : options.LowSimilarityMessageOverride;
         }
 
-        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results, ResolutionVoteResult voteResult, string role)
+        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results, string role)
         {
             if (role != "admin")
             {
@@ -562,17 +572,6 @@ namespace AiDeskApi.Services
                 sb.AppendLine($"   매칭 근거: {matchedQuestion} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
                 sb.AppendLine($"   제목: {kb.Title}");
                 sb.AppendLine($"   해결: {kb.Content}");
-            }
-
-            sb.AppendLine("\n【충돌 분석 결과】");
-            sb.AppendLine($"- 충돌 감지: {(voteResult.ConflictDetected ? "예" : "아니오")}");
-            sb.AppendLine($"- 선택 규칙: {voteResult.DecisionRule}");
-
-            if (voteResult.SelectedCases.Count > 0)
-            {
-                var top = voteResult.SelectedCases[0];
-                sb.AppendLine($"- 우선 선택 사례: KB#{top.kb.Id} (유사도 {top.similarity:P0})");
-                sb.AppendLine($"- 우선 해결안: {top.kb.Content}");
             }
 
             return sb.ToString();
@@ -602,54 +601,6 @@ namespace AiDeskApi.Services
             var text = value.Trim();
             if (text.Length <= maxLength) return text;
             return text[..maxLength] + "...";
-        }
-
-        private ResolutionVoteResult BuildResolutionVote(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results)
-        {
-            if (results.Count == 0)
-            {
-                return new ResolutionVoteResult
-                {
-                    ConflictDetected = false,
-                    DecisionRule = "후보 없음",
-                    SelectedCases = new List<(KnowledgeBase kb, float similarity)>()
-                };
-            }
-
-            var grouped = results
-                .GroupBy(x => NormalizeSolutionForVote(x.kb.Content))
-                .Select(g => new
-                {
-                    Key = g.Key,
-                    Count = g.Count(),
-                    SimilaritySum = g.Sum(x => x.similarity),
-                    Cases = g.ToList()
-                })
-                .OrderByDescending(x => x.Count)
-                .ThenByDescending(x => x.SimilaritySum)
-                .ToList();
-
-            var winner = grouped.First();
-            var conflictDetected = grouped.Count > 1;
-            var rule = conflictDetected
-                ? "상위 3개 기준 다수결(동률 시 유사도 합계 우선)"
-                : "단일 해법";
-
-            return new ResolutionVoteResult
-            {
-                ConflictDetected = conflictDetected,
-                DecisionRule = rule,
-                SelectedCases = winner.Cases.Select(c => (c.kb, c.similarity)).ToList()
-            };
-        }
-
-        private string NormalizeSolutionForVote(string? solution)
-        {
-            if (string.IsNullOrWhiteSpace(solution))
-                return "";
-
-            // 공백/기호를 제거해 유사한 표현을 같은 해법 후보로 본다.
-            return Regex.Replace(solution, "[\\s\\p{P}\\p{S}]", "").Trim().ToLowerInvariant();
         }
 
         private static string NormalizeQueryForEmbedding(string raw)
@@ -1073,13 +1024,6 @@ namespace AiDeskApi.Services
         public float Similarity { get; set; }
         public string? MatchedQuestion { get; set; }
         public bool IsSelected { get; set; }
-    }
-
-    public class ResolutionVoteResult
-    {
-        public bool ConflictDetected { get; set; }
-        public string DecisionRule { get; set; } = string.Empty;
-        public List<(KnowledgeBase kb, float similarity)> SelectedCases { get; set; } = new();
     }
 
     public class DocumentReferenceSummary

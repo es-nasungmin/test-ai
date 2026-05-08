@@ -4,13 +4,36 @@ const { kbCatalog } = require('./demo-kb-catalog')
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080/api'
 const RESET_BEFORE_SEED = (process.env.RESET_BEFORE_SEED || 'true').toLowerCase() !== 'false'
+const BENCH_AUTH_TOKEN = process.env.BENCH_AUTH_TOKEN || ''
+
+function buildHeaders() {
+  const headers = {
+    'Content-Type': 'application/json'
+  }
+
+  if (BENCH_AUTH_TOKEN) {
+    headers.Authorization = BENCH_AUTH_TOKEN.startsWith('Bearer ')
+      ? BENCH_AUTH_TOKEN
+      : `Bearer ${BENCH_AUTH_TOKEN}`
+  }
+
+  return headers
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options)
+  const mergedHeaders = {
+    ...buildHeaders(),
+    ...(options.headers || {})
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: mergedHeaders
+  })
   const text = await response.text()
   let data = null
   try {
@@ -83,9 +106,6 @@ async function createKnowledgeBase(item) {
 
   return requestJson(`${API_BASE_URL}/knowledgebase`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
     body: JSON.stringify(payload)
   })
 }
@@ -124,5 +144,8 @@ async function main() {
 
 main().catch((err) => {
   console.error('[seed] fatal', err)
+  if (err?.status === 401 && !BENCH_AUTH_TOKEN) {
+    console.error('[seed] hint: BENCH_AUTH_TOKEN 환경변수에 관리자 JWT를 설정해 다시 실행하세요.')
+  }
   process.exit(1)
 })

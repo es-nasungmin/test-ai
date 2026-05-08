@@ -14,6 +14,11 @@ const emit = defineEmits(['openMyPage', 'logout'])
 const API_URL = API_BASE_URL
 
 const error = ref('')
+const ACTIVE_PAGE_STORAGE_KEY = 'aidesk.management.activePage'
+const ACTIVE_ANALYSIS_TAB_STORAGE_KEY = 'aidesk.management.activeAnalysisTab'
+const ALLOWED_ACTIVE_PAGES = ['kb', 'logs', 'question-analysis', 'chat-test', 'user-management']
+const ALLOWED_ANALYSIS_TABS = ['report', 'low-similarity']
+
 const showChatbotPromptEditor = ref(false)
 const savingChatbotPromptTemplate = ref(false)
 const chatbotPromptTemplateForm = ref({
@@ -170,9 +175,19 @@ const saveChatbotPromptTemplate = async () => {
   }
 }
 
+function loadStoredValue(key, fallback, allowedValues) {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    return allowedValues.includes(raw) ? raw : fallback
+  } catch {
+    return fallback
+  }
+}
+
 // ---- 페이지 탭 ----
-const activePage = ref('kb')  // 'kb' | 'logs' | 'question-analysis' | 'prompt-test' | 'crm' | 'user-management'
-const activeAnalysisTab = ref('report')  // 'report' | 'low-similarity'
+const activePage = ref(loadStoredValue(ACTIVE_PAGE_STORAGE_KEY, 'kb', ALLOWED_ACTIVE_PAGES))
+const activeAnalysisTab = ref(loadStoredValue(ACTIVE_ANALYSIS_TAB_STORAGE_KEY, 'report', ALLOWED_ANALYSIS_TABS))
 const showUserManagement = computed(() => {
   try {
     const raw = localStorage.getItem('user')
@@ -235,6 +250,22 @@ watch([activePage, activeAnalysisTab], async ([page, tab]) => {
 watch(showUserManagement, (canManageUsers) => {
   if (!canManageUsers && activePage.value === 'user-management') {
     activePage.value = 'kb'
+  }
+})
+
+watch(activePage, (page) => {
+  try {
+    localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, page)
+  } catch {
+    // no-op when storage is unavailable
+  }
+})
+
+watch(activeAnalysisTab, (tab) => {
+  try {
+    localStorage.setItem(ACTIVE_ANALYSIS_TAB_STORAGE_KEY, tab)
+  } catch {
+    // no-op when storage is unavailable
   }
 })
 
@@ -364,14 +395,6 @@ onMounted(() => {
               <option v-for="p in summaryPlatformOptions" :key="`summary-platform-${p}`" :value="p">{{ p }}</option>
             </select>
           </div>
-          <button
-            class="summary-refresh-btn"
-            type="button"
-            :disabled="loadingSummary"
-            @click="fetchQuestionSummary"
-          >
-            {{ loadingSummary ? '새로고침 중...' : '새로고침' }}
-          </button>
         </div>
 
         <div v-if="loadingSummary" class="loading">
@@ -755,12 +778,34 @@ onMounted(() => {
 }
 
 .btn-chat-mgmt {
-  background: #3b82f6;
-  color: #fff;
+  color: #1f5aa8;
+  border: 1px solid #a9c6f3;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  background: #ffffff;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease;
 }
 
 .btn-chat-mgmt:hover:not(:disabled) {
-  opacity: 0.88;
+  border-color: #8db4eb;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.btn-chat-mgmt:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.btn-chat-mgmt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
 }
 
 .btn-primary {
@@ -849,25 +894,6 @@ onMounted(() => {
   border-radius: 7px;
   font-size: 14px;
   background: #f8fafc;
-}
-
-.summary-refresh-btn {
-  padding: 8px 12px;
-  border: 1px solid #ced4da;
-  border-radius: 10px;
-  font-weight: 700;
-  cursor: pointer;
-  background: #ffffff;
-  color: #6c757d;
-  white-space: nowrap;
-  margin-left: auto;
-}
-.summary-refresh-btn:hover:not(:disabled) {
-  background: #f1f3f5;
-}
-.summary-refresh-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .loading {

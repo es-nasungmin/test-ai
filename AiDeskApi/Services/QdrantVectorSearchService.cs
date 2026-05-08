@@ -309,7 +309,7 @@ namespace AiDeskApi.Services
 
             var kbs = await _context.KnowledgeBases
                 .AsNoTracking()
-                .Include(x => x.SimilarQuestions)
+                .Include(x => x.ExpectedQuestions)
                 .ToListAsync(cancellationToken);
 
             foreach (var kb in kbs)
@@ -391,7 +391,7 @@ namespace AiDeskApi.Services
                 }
             }
 
-            var expectedQuestions = (kb.SimilarQuestions ?? new List<KnowledgeBaseSimilarQuestion>())
+            var expectedQuestions = (kb.ExpectedQuestions ?? new List<KnowledgeBaseExpectedQuestion>())
                 .Where(x => !string.IsNullOrWhiteSpace(x.Question))
                 .Select(x => new
                 {

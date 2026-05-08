@@ -5,7 +5,7 @@ namespace AiDeskApi.Services
 {
     public interface IKnowledgeExtractorService
     {
-        Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
+        Task<List<string>> GenerateExpectedQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
         Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt);
     }
@@ -29,7 +29,7 @@ namespace AiDeskApi.Services
             _chatModel = configuration["OpenAI:Model"] ?? "gpt-4o-mini";
         }
 
-        public async Task<List<string>> GenerateSimilarQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt)
+        public async Task<List<string>> GenerateExpectedQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt)
         {
             if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("내용이 필요합니다.");
             if (string.IsNullOrWhiteSpace(systemPrompt)) throw new ArgumentException("예상질문 시스템 프롬프트가 필요합니다.");
@@ -47,7 +47,7 @@ namespace AiDeskApi.Services
 【내용】
 {content.Trim()}";
 
-            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.5, 300, "유사 질문 생성 실패");
+            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.5, 300, "예상 질문 생성 실패");
             return ParseTextList(responseContent, limitedCount, titleText);
         }
 

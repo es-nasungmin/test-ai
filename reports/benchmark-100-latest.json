@@ -2,14 +2,14 @@
   "summary": {
     "total": 100,
     "systemSuccessCount": 100,
-    "qualitySuccessCount": 99,
+    "qualitySuccessCount": 100,
     "systemSuccessRate": 1,
-    "qualitySuccessRate": 0.99,
-    "positiveQualityRate": 0.989247311827957,
+    "qualitySuccessRate": 1,
+    "positiveQualityRate": 1,
     "negativeQualityRate": 1,
-    "avgLatencyMs": 3592.6,
-    "p50LatencyMs": 3179,
-    "p95LatencyMs": 6530,
+    "avgLatencyMs": 1733.83,
+    "p50LatencyMs": 339,
+    "p95LatencyMs": 6693,
     "caseSource": "live",
     "sourceCatalogCount": 43,
     "positiveCount": 93,
@@ -19,41 +19,41 @@
     {
       "id": "P-1-1",
       "type": "positive",
-      "question": "인증서가 안 보여서 찾아봤는데, 저장 위치가 어디야?",
+      "question": "인증서가 어디에 저장되어 있는지 확인하려면 어떻게 해야 하나요?",
       "expectedTitle": "인증서 저장위치",
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1915,
+      "elapsedMs": 585,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0100002
+      "topMatchedKbTitle": "인증서 저장위치",
+      "topSimilarity": 1
     },
     {
       "id": "P-1-2",
       "type": "positive",
-      "question": "인증서를 찾으려면 어떤 폴더를 확인해야 해?",
+      "question": "내 인증서 저장 위치가 궁금한데, 경로를 알려줄 수 있나요?",
       "expectedTitle": "인증서 저장위치",
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2168,
+      "elapsedMs": 140,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "인증서 저장위치",
+      "topSimilarity": 1.0199788
     },
     {
       "id": "P-1-3",
       "type": "positive",
-      "question": "인증서 저장위치 인증서가 조회가 안돼",
+      "question": "인증서 저장위치 윈도우에서 인증서가 있는 폴더는 어디인가요?",
       "expectedTitle": "인증서 저장위치",
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2109,
+      "elapsedMs": 3222,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8535969
+      "topMatchedKbTitle": "인증서 저장위치",
+      "topSimilarity": 0.83360136
     },
     {
       "id": "P-2-1",
@@ -63,9 +63,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1992,
+      "elapsedMs": 203,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "상담 연결 안내사항",
       "topSimilarity": 0.99999994
     },
     {
@@ -76,10 +76,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1852,
+      "elapsedMs": 421,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.009972
+      "topMatchedKbTitle": "상담 연결 안내사항",
+      "topSimilarity": 1.0100001
     },
     {
       "id": "P-2-3",
@@ -89,10 +89,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1919,
+      "elapsedMs": 1933,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.80597866
+      "topMatchedKbTitle": "상담 연결 안내사항",
+      "topSimilarity": 0.80601496
     },
     {
       "id": "P-3-1",
@@ -102,9 +102,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2867,
+      "elapsedMs": 976,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "해외 관련 문의 분기 안내",
       "topSimilarity": 0.99999994
     },
     {
@@ -115,9 +115,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2006,
+      "elapsedMs": 157,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "해외 관련 문의 분기 안내",
       "topSimilarity": 1.0099999
     },
     {
@@ -128,10 +128,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3024,
+      "elapsedMs": 3477,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.866642
+      "topMatchedKbTitle": "해외 관련 문의 분기 안내",
+      "topSimilarity": 0.8665918
     },
     {
       "id": "P-4-1",
@@ -141,10 +141,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2540,
+      "elapsedMs": 315,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topMatchedKbTitle": "이체 후 확인 절차",
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-4-2",
@@ -154,10 +154,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2061,
+      "elapsedMs": 129,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "이체 후 확인 절차",
+      "topSimilarity": 0.9999985
     },
     {
       "id": "P-4-3",
@@ -167,9 +167,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3178,
+      "elapsedMs": 3504,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체 후 확인 절차",
       "topSimilarity": 0.8845508
     },
     {
@@ -180,10 +180,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2932,
+      "elapsedMs": 135,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0100001
+      "topMatchedKbTitle": "인증서 사용 안내",
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-5-2",
@@ -193,10 +193,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3002,
+      "elapsedMs": 382,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0100001
+      "topMatchedKbTitle": "인증서 사용 안내",
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-5-3",
@@ -206,9 +206,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2764,
+      "elapsedMs": 4643,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "인증서 사용 안내",
       "topSimilarity": 0.91612184
     },
     {
@@ -219,9 +219,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1749,
+      "elapsedMs": 161,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체승인 요청 사유 작성 안내",
       "topSimilarity": 1.0099993
     },
     {
@@ -232,9 +232,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2185,
+      "elapsedMs": 274,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체승인 요청 사유 작성 안내",
       "topSimilarity": 1.0199991
     },
     {
@@ -245,10 +245,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3123,
+      "elapsedMs": 4583,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8195268
+      "topMatchedKbTitle": "이체승인 요청 사유 작성 안내",
+      "topSimilarity": 0.81945294
     },
     {
       "id": "P-7-1",
@@ -258,10 +258,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2200,
+      "elapsedMs": 254,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0000001
+      "topMatchedKbTitle": "증빙서류 면제 불가 안내",
+      "topSimilarity": 0.99999917
     },
     {
       "id": "P-7-2",
@@ -271,9 +271,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2465,
+      "elapsedMs": 183,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "증빙서류 면제 불가 안내",
       "topSimilarity": 1
     },
     {
@@ -284,10 +284,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2307,
+      "elapsedMs": 2739,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8663472
+      "topMatchedKbTitle": "증빙서류 면제 불가 안내",
+      "topSimilarity": 0.86633086
     },
     {
       "id": "P-8-1",
@@ -297,10 +297,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3583,
+      "elapsedMs": 399,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0299989
+      "topMatchedKbTitle": "해외법인설립 추가 점검",
+      "topSimilarity": 1.03
     },
     {
       "id": "P-8-2",
@@ -310,10 +310,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5863,
+      "elapsedMs": 427,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topMatchedKbTitle": "해외법인설립 추가 점검",
+      "topSimilarity": 1.0099992
     },
     {
       "id": "P-8-3",
@@ -323,10 +323,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3453,
+      "elapsedMs": 3286,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8880104
+      "topMatchedKbTitle": "해외법인설립 추가 점검",
+      "topSimilarity": 0.88800234
     },
     {
       "id": "P-9-1",
@@ -336,9 +336,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2661,
+      "elapsedMs": 190,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "해외 송금 요청 서류",
       "topSimilarity": 1.0199995
     },
     {
@@ -349,10 +349,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3178,
+      "elapsedMs": 134,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "해외 송금 요청 서류",
+      "topSimilarity": 0.9999993
     },
     {
       "id": "P-9-3",
@@ -362,10 +362,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4708,
+      "elapsedMs": 9591,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.7580305
+      "topMatchedKbTitle": "해외 송금 요청 서류",
+      "topSimilarity": 0.75802225
     },
     {
       "id": "P-10-1",
@@ -375,10 +375,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4914,
+      "elapsedMs": 153,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099988
+      "topMatchedKbTitle": "해외법인설립 절차",
+      "topSimilarity": 1.01
     },
     {
       "id": "P-10-2",
@@ -388,10 +388,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4199,
+      "elapsedMs": 369,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0100003
+      "topMatchedKbTitle": "해외법인설립 절차",
+      "topSimilarity": 1.01
     },
     {
       "id": "P-10-3",
@@ -401,10 +401,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 18021,
+      "elapsedMs": 8283,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.9189754
+      "topMatchedKbTitle": "해외법인설립 절차",
+      "topSimilarity": 0.91931105
     },
     {
       "id": "P-11-1",
@@ -414,10 +414,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3891,
+      "elapsedMs": 136,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0200001
+      "topMatchedKbTitle": "융자 오입금 처리 절차",
+      "topSimilarity": 1.0199993
     },
     {
       "id": "P-11-2",
@@ -427,9 +427,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5694,
+      "elapsedMs": 283,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "융자 오입금 처리 절차",
       "topSimilarity": 1.01
     },
     {
@@ -440,10 +440,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3794,
+      "elapsedMs": 307,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.9815272
+      "topMatchedKbTitle": "융자 오입금 처리 절차",
+      "topSimilarity": 0.98151743
     },
     {
       "id": "P-12-1",
@@ -453,10 +453,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3925,
+      "elapsedMs": 247,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0000001
+      "topMatchedKbTitle": "사업자전환 절차 안내",
+      "topSimilarity": 1
     },
     {
       "id": "P-12-2",
@@ -466,10 +466,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5636,
+      "elapsedMs": 239,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "사업자전환 절차 안내",
+      "topSimilarity": 0.9999991
     },
     {
       "id": "P-12-3",
@@ -479,10 +479,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4945,
+      "elapsedMs": 5722,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.92294556
+      "topMatchedKbTitle": "사업자전환 절차 안내",
+      "topSimilarity": 0.9229934
     },
     {
       "id": "P-13-1",
@@ -492,9 +492,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4873,
+      "elapsedMs": 170,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "스크랩결제 등록 절차",
       "topSimilarity": 0.9920621
     },
     {
@@ -505,9 +505,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5024,
+      "elapsedMs": 339,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "스크랩결제 등록 절차",
       "topSimilarity": 1.03
     },
     {
@@ -518,10 +518,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5121,
+      "elapsedMs": 352,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.968892
+      "topMatchedKbTitle": "스크랩결제 등록 절차",
+      "topSimilarity": 0.96879935
     },
     {
       "id": "P-14-1",
@@ -531,10 +531,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4101,
+      "elapsedMs": 306,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999994
+      "topMatchedKbTitle": "스크랩결제 이용 안내",
+      "topSimilarity": 0.99999917
     },
     {
       "id": "P-14-2",
@@ -544,10 +544,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5727,
+      "elapsedMs": 303,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0300001
+      "topMatchedKbTitle": "스크랩결제 이용 안내",
+      "topSimilarity": 1.03
     },
     {
       "id": "P-14-3",
@@ -557,10 +557,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5017,
+      "elapsedMs": 4749,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.90552384
+      "topMatchedKbTitle": "스크랩결제 이용 안내",
+      "topSimilarity": 0.9055053
     },
     {
       "id": "P-15-1",
@@ -570,10 +570,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4529,
+      "elapsedMs": 371,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0300001
+      "topMatchedKbTitle": "해외송금 점검 절차",
+      "topSimilarity": 1.0299617
     },
     {
       "id": "P-15-2",
@@ -583,10 +583,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4590,
+      "elapsedMs": 409,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.03
+      "topMatchedKbTitle": "해외송금 점검 절차",
+      "topSimilarity": 1.0299991
     },
     {
       "id": "P-15-3",
@@ -596,9 +596,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 9518,
+      "elapsedMs": 5827,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "해외송금 점검 절차",
       "topSimilarity": 0.9456878
     },
     {
@@ -609,10 +609,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5331,
+      "elapsedMs": 319,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.99999994
+      "topMatchedKbTitle": "해외송금 절차 안내",
+      "topSimilarity": 1.0000001
     },
     {
       "id": "P-16-2",
@@ -622,10 +622,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3885,
+      "elapsedMs": 408,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0200001
+      "topMatchedKbTitle": "해외송금 절차 안내",
+      "topSimilarity": 1.0199993
     },
     {
       "id": "P-16-3",
@@ -635,9 +635,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3686,
+      "elapsedMs": 9409,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "해외송금 절차 안내",
       "topSimilarity": 0.8806615
     },
     {
@@ -648,10 +648,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6860,
+      "elapsedMs": 318,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099992
+      "topMatchedKbTitle": "조기상환 절차 안내",
+      "topSimilarity": 1.0100001
     },
     {
       "id": "P-17-2",
@@ -661,10 +661,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5018,
+      "elapsedMs": 270,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099992
+      "topMatchedKbTitle": "조기상환 절차 안내",
+      "topSimilarity": 1.0100001
     },
     {
       "id": "P-17-3",
@@ -674,10 +674,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5041,
+      "elapsedMs": 5761,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.84338355
+      "topMatchedKbTitle": "조기상환 절차 안내",
+      "topSimilarity": 0.8435875
     },
     {
       "id": "P-18-1",
@@ -687,10 +687,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6530,
+      "elapsedMs": 438,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0200002
+      "topMatchedKbTitle": "임차보증금 이체 절차",
+      "topSimilarity": 1.0198903
     },
     {
       "id": "P-18-2",
@@ -700,9 +700,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6627,
+      "elapsedMs": 136,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "임차보증금 이체 절차",
       "topSimilarity": 1
     },
     {
@@ -713,10 +713,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 7706,
+      "elapsedMs": 8897,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8588265
+      "topMatchedKbTitle": "임차보증금 이체 절차",
+      "topSimilarity": 0.8607764
     },
     {
       "id": "P-19-1",
@@ -726,10 +726,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4199,
+      "elapsedMs": 254,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.02
+      "topMatchedKbTitle": "이체승인 요청 절차",
+      "topSimilarity": 1.0199999
     },
     {
       "id": "P-19-2",
@@ -739,9 +739,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2863,
+      "elapsedMs": 249,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체승인 요청 절차",
       "topSimilarity": 1.0099993
     },
     {
@@ -752,10 +752,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3392,
+      "elapsedMs": 3861,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8475969
+      "topMatchedKbTitle": "이체승인 요청 절차",
+      "topSimilarity": 0.8475859
     },
     {
       "id": "P-20-1",
@@ -765,10 +765,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2240,
+      "elapsedMs": 404,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "이체 및 입출금 내역 출력",
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-20-2",
@@ -778,10 +778,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3274,
+      "elapsedMs": 311,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0200002
+      "topMatchedKbTitle": "이체 및 입출금 내역 출력",
+      "topSimilarity": 1.02
     },
     {
       "id": "P-20-3",
@@ -791,10 +791,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2153,
+      "elapsedMs": 6846,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8120028
+      "topMatchedKbTitle": "이체 및 입출금 내역 출력",
+      "topSimilarity": 0.81188965
     },
     {
       "id": "P-21-1",
@@ -804,9 +804,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3889,
+      "elapsedMs": 130,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체 결과 조회 방법",
       "topSimilarity": 0.999937
     },
     {
@@ -817,9 +817,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3278,
+      "elapsedMs": 497,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체 결과 조회 방법",
       "topSimilarity": 1
     },
     {
@@ -830,9 +830,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4406,
+      "elapsedMs": 6643,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체 결과 조회 방법",
       "topSimilarity": 0.863252
     },
     {
@@ -843,10 +843,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2576,
+      "elapsedMs": 148,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199986
+      "topMatchedKbTitle": "거래처대금 이체 안내",
+      "topSimilarity": 1.0199999
     },
     {
       "id": "P-22-2",
@@ -856,10 +856,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2539,
+      "elapsedMs": 332,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1
+      "topMatchedKbTitle": "거래처대금 이체 안내",
+      "topSimilarity": 0.99999905
     },
     {
       "id": "P-22-3",
@@ -869,10 +869,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3583,
+      "elapsedMs": 3449,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.7262745
+      "topMatchedKbTitle": "거래처대금 이체 안내",
+      "topSimilarity": 0.7262583
     },
     {
       "id": "P-23-1",
@@ -882,10 +882,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5223,
+      "elapsedMs": 164,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.9999999
+      "topMatchedKbTitle": "전자세금계산서 등록 절차",
+      "topSimilarity": 0.9999845
     },
     {
       "id": "P-23-2",
@@ -895,10 +895,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4420,
+      "elapsedMs": 295,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.02
+      "topMatchedKbTitle": "전자세금계산서 등록 절차",
+      "topSimilarity": 1.0198619
     },
     {
       "id": "P-23-3",
@@ -908,10 +908,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 6330,
+      "elapsedMs": 6527,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.78320825
+      "topMatchedKbTitle": "전자세금계산서 등록 절차",
+      "topSimilarity": 0.7831668
     },
     {
       "id": "P-24-1",
@@ -921,10 +921,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4400,
+      "elapsedMs": 279,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0100001
+      "topMatchedKbTitle": "거래처 대금 이체 등록 방법",
+      "topSimilarity": 1.01
     },
     {
       "id": "P-24-2",
@@ -933,11 +933,11 @@
       "expectedTitle": "거래처 대금 이체 등록 방법",
       "status": 200,
       "systemSuccess": true,
-      "qualitySuccess": false,
-      "elapsedMs": 249,
-      "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0
+      "qualitySuccess": true,
+      "elapsedMs": 132,
+      "isLowSimilarity": false,
+      "topMatchedKbTitle": "거래처 대금 이체 등록 방법",
+      "topSimilarity": 0.99999994
     },
     {
       "id": "P-24-3",
@@ -947,10 +947,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 5287,
+      "elapsedMs": 6693,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8097142
+      "topMatchedKbTitle": "거래처 대금 이체 등록 방법",
+      "topSimilarity": 0.809677
     },
     {
       "id": "P-25-1",
@@ -960,10 +960,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2556,
+      "elapsedMs": 356,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.9999999
+      "topMatchedKbTitle": "개인사업자 거래처 등록",
+      "topSimilarity": 0.999999
     },
     {
       "id": "P-25-2",
@@ -973,10 +973,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2352,
+      "elapsedMs": 273,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0199999
+      "topMatchedKbTitle": "개인사업자 거래처 등록",
+      "topSimilarity": 1.0200001
     },
     {
       "id": "P-25-3",
@@ -986,9 +986,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3182,
+      "elapsedMs": 150,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "개인사업자 거래처 등록",
       "topSimilarity": 0.99115574
     },
     {
@@ -999,10 +999,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4646,
+      "elapsedMs": 152,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.02
+      "topMatchedKbTitle": "거래처 등록 및 대금 지급",
+      "topSimilarity": 1.0199993
     },
     {
       "id": "P-26-2",
@@ -1012,9 +1012,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3230,
+      "elapsedMs": 3610,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "거래처 등록 및 대금 지급",
       "topSimilarity": 1.03
     },
     {
@@ -1025,10 +1025,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3483,
+      "elapsedMs": 4264,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.82995886
+      "topMatchedKbTitle": "거래처 등록 및 대금 지급",
+      "topSimilarity": 0.83006227
     },
     {
       "id": "P-27-1",
@@ -1038,10 +1038,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 4196,
+      "elapsedMs": 321,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0300001
+      "topMatchedKbTitle": "이체 완료 후 주의사항",
+      "topSimilarity": 1.0299995
     },
     {
       "id": "P-27-2",
@@ -1051,10 +1051,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1465,
+      "elapsedMs": 127,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topMatchedKbTitle": "이체 완료 후 주의사항",
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-27-3",
@@ -1064,9 +1064,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2557,
+      "elapsedMs": 2422,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "이체 완료 후 주의사항",
       "topSimilarity": 0.86004245
     },
     {
@@ -1077,9 +1077,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3802,
+      "elapsedMs": 177,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "급여 이체 인증서 안내",
       "topSimilarity": 1.02
     },
     {
@@ -1090,9 +1090,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1808,
+      "elapsedMs": 307,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "급여 이체 인증서 안내",
       "topSimilarity": 1.0099994
     },
     {
@@ -1103,10 +1103,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1869,
+      "elapsedMs": 165,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.95436364
+      "topMatchedKbTitle": "급여 이체 인증서 안내",
+      "topSimilarity": 0.95434165
     },
     {
       "id": "P-29-1",
@@ -1116,9 +1116,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1912,
+      "elapsedMs": 277,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "급여 이체 등록 방법",
       "topSimilarity": 1.01
     },
     {
@@ -1129,10 +1129,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3241,
+      "elapsedMs": 162,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0099999
+      "topMatchedKbTitle": "급여 이체 등록 방법",
+      "topSimilarity": 1.0099995
     },
     {
       "id": "P-29-3",
@@ -1142,10 +1142,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2084,
+      "elapsedMs": 4897,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8763089
+      "topMatchedKbTitle": "급여 이체 등록 방법",
+      "topSimilarity": 0.8762502
     },
     {
       "id": "P-30-1",
@@ -1155,9 +1155,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2150,
+      "elapsedMs": 160,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "급여 지급 관련 규정",
       "topSimilarity": 1.02
     },
     {
@@ -1168,10 +1168,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 3179,
+      "elapsedMs": 132,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.01
+      "topMatchedKbTitle": "급여 지급 관련 규정",
+      "topSimilarity": 1.0099994
     },
     {
       "id": "P-30-3",
@@ -1181,9 +1181,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2787,
+      "elapsedMs": 4058,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "급여 지급 관련 규정",
       "topSimilarity": 0.67771924
     },
     {
@@ -1194,9 +1194,9 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2531,
+      "elapsedMs": 125,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
+      "topMatchedKbTitle": "외국인 근로자 급여 이체 안내",
       "topSimilarity": 1.01
     },
     {
@@ -1207,10 +1207,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2462,
+      "elapsedMs": 239,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 1.0200001
+      "topMatchedKbTitle": "외국인 근로자 급여 이체 안내",
+      "topSimilarity": 1.0199759
     },
     {
       "id": "P-31-3",
@@ -1220,10 +1220,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 2760,
+      "elapsedMs": 3027,
       "isLowSimilarity": false,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.8101353
+      "topMatchedKbTitle": "외국인 근로자 급여 이체 안내",
+      "topSimilarity": 0.81026214
     },
     {
       "id": "N-1",
@@ -1233,10 +1233,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1636,
+      "elapsedMs": 1306,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.35334635
+      "topMatchedKbTitle": "이체 및 입출금 내역 출력",
+      "topSimilarity": 0.35340643
     },
     {
       "id": "N-2",
@@ -1246,10 +1246,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1233,
+      "elapsedMs": 1241,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.42299944
+      "topMatchedKbTitle": "중진공 정책자금 계좌 등록",
+      "topSimilarity": 0.4184005
     },
     {
       "id": "N-3",
@@ -1259,10 +1259,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1430,
+      "elapsedMs": 4406,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.45913088
+      "topMatchedKbTitle": "거래처 등록 및 대금 지급",
+      "topSimilarity": 0.45911404
     },
     {
       "id": "N-4",
@@ -1272,10 +1272,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1332,
+      "elapsedMs": 891,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.41011903
+      "topMatchedKbTitle": "사업자전환 절차 안내",
+      "topSimilarity": 0.41007048
     },
     {
       "id": "N-5",
@@ -1285,10 +1285,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 1228,
+      "elapsedMs": 3924,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.4405619
+      "topMatchedKbTitle": "이체승인 요청 절차",
+      "topSimilarity": 0.4402945
     },
     {
       "id": "N-6",
@@ -1298,10 +1298,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 923,
+      "elapsedMs": 970,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.39985865
+      "topMatchedKbTitle": "인증서 저장위치",
+      "topSimilarity": 0.49420455
     },
     {
       "id": "N-7",
@@ -1311,10 +1311,10 @@
       "status": 200,
       "systemSuccess": true,
       "qualitySuccess": true,
-      "elapsedMs": 918,
+      "elapsedMs": 1066,
       "isLowSimilarity": true,
-      "topMatchedKbTitle": null,
-      "topSimilarity": 0.35528404
+      "topMatchedKbTitle": "인증서 저장위치",
+      "topSimilarity": 0.36963636
     }
   ]
 }

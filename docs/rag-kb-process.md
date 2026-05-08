@@ -90,8 +90,8 @@ payload 주요 필드:
                 고신뢰 조건 해당 시: 점수 내림차순 정렬만 (LLM 호출 없음)
                 일반 조건 시: GPT에 10개 → 상위 8개로 재정렬 (ReRankTopK)
     ↓ [6단계] FinalTopK 5개 → 유사도 임계치(0.5) 필터링
-    ↓ [7단계] 충돌 감지 + 투표 → selectedResults 확정
-    ↓ [8단계] 답변 생성 (GPT 1회 호출)
+   ↓ [7단계] eligible 상위 3개 점수순 선택 → selectedResults 확정
+   ↓ [8단계] 답변 생성 (GPT 1회 호출)
     ↓ 최종 응답
 ```
 
@@ -169,15 +169,13 @@ payload 주요 필드:
 - topResults 중 FinalScore ≥ 0.5 인 것만 eligibleResults (답변 근거 대상)
 - topResults가 0개이거나 1위 점수가 0.5 미만이면 저유사도 안내문 반환
 
-### 3.7 충돌 감지 + 투표 — selectedResults 확정
+### 3.7 상위 3개 점수순 선택 — selectedResults 확정
 
-eligibleResults 내 해법(Solution)을 정규화 후 다수결 처리합니다.
+충돌 투표/다수결은 사용하지 않습니다.
 
-1. 단일 해법: 그대로 채택
-2. 복수 해법(충돌): 동일 해법 그룹별 케이스 수 비교 → 최다 그룹 채택
-3. 동률: 유사도 합계가 높은 그룹 채택
-
-채택된 `selectedResults`만 ViewCount 증가, 답변 근거, 집계 대상으로 사용됩니다.
+1. `eligibleResults`를 FinalScore 내림차순으로 정렬
+2. 상위 3개(`AnswerContextTopK`)를 `selectedResults`로 확정
+3. `selectedResults`만 ViewCount 증가, 답변 근거, 집계 대상으로 사용
 
 ### 3.8 답변 생성 (GPT 1회 호출)
 
@@ -202,11 +200,11 @@ eligibleResults 내 해법(Solution)을 정규화 후 다수결 처리합니다.
 
 ### 5.1 채팅 메시지 저장
 
-`relatedKbMeta`에 후보 메타를 저장하며, `isSelected=true`인 KB만 최종 참조 ID로 반영됩니다.
+`relatedKbMeta`에 후보 메타를 저장하며, `isSelected=true`인 KB(최대 3개)만 최종 참조 ID로 반영됩니다.
 
 ### 5.2 참조수 (ViewCount)
 
-`selectedResults` 기준으로만 ViewCount를 증가시킵니다.
+`selectedResults`(eligible 상위 3개) 기준으로만 ViewCount를 증가시킵니다.
 
 ### 5.3 질문 분석 리포트
 
@@ -224,6 +222,7 @@ eligibleResults 내 해법(Solution)을 정규화 후 다수결 처리합니다.
 | MergeTopK | 10 | OpenAiRagService.cs |
 | ReRankTopK | 8 | OpenAiRagService.cs |
 | FinalTopK | 5 | OpenAiRagService.cs |
+| AnswerContextTopK | 3 | OpenAiRagService.cs |
 | ReRankSkipScoreThreshold | 0.82 | OpenAiRagService.cs |
 | ReRankSkipGapThreshold | 0.15 | OpenAiRagService.cs |
 | KeywordBoostPerMatch | 0.01 | OpenAiRagService.cs |
@@ -256,8 +255,8 @@ eligibleResults 내 해법(Solution)을 정규화 후 다수결 처리합니다.
 12. 유사도 임계치(0.5) 필터 → eligibleResults
     ├─ 0개 또는 임계치 미달 → 저유사도 안내문 반환 (LLM 없음)
     └─ 1개 이상 → 다음 단계
-13. 충돌 감지 + 다수결 → selectedResults
-14. 컨텍스트 구성 + GPT 답변 생성
+13. eligible 상위 3개 점수순 선택 → selectedResults
+14. 컨텍스트 구성(최대 3개) + GPT 답변 생성
 15. selectedResults 기준 ViewCount 증가 + 집계 반영
 16. 클라이언트에 응답 반환
 ```

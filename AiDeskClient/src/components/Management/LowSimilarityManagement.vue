@@ -149,15 +149,6 @@ onMounted(async () => {
           <option value="resolved">처리완료</option>
           <option value="all">전체</option>
         </select>
-        <button
-          class="ghost"
-          style="margin-left:auto"
-          :disabled="loadingLowSimilarity"
-          @click="fetchLowSimilarityQuestions"
-        >
-          <span v-if="!loadingLowSimilarity">새로고침</span>
-          <span v-else>로딩 중...</span>
-        </button>
       </div>
     </div>
 

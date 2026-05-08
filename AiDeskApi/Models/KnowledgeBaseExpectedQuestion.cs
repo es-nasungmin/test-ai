@@ -1,6 +1,6 @@
 namespace AiDeskApi.Models
 {
-    public class KnowledgeBaseSimilarQuestion
+    public class KnowledgeBaseExpectedQuestion
     {
         public int Id { get; set; }
         public int KnowledgeBaseId { get; set; }

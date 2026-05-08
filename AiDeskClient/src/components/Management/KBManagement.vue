@@ -104,10 +104,10 @@ function extractPlatforms(kb) {
   return ['공통']
 }
 
-const similarDraft = ref([])
-const isComposingSimilar = ref(false)
+const expectedQuestionDraft = ref([])
+const isComposingExpectedQuestion = ref(false)
 const lastAdded = ref({ text: '', at: 0 })
-const generatingSimilar = ref(false)
+const generatingExpected = ref(false)
 const generatingKeywords = ref(false)
 const refiningSolution = ref(false)
 const generatedCandidates = ref([])
@@ -126,8 +126,8 @@ const writerPromptTemplateForm = ref({
   answerRefineRulesPrompt: '',
   keywordSystemPrompt: '',
   keywordRulesPrompt: '',
-  similarQuestionSystemPrompt: '',
-  similarQuestionRulesPrompt: ''
+  expectedQuestionSystemPrompt: '',
+  expectedQuestionRulesPrompt: ''
 })
 const MAX_EXPECTED_QUESTIONS = 10
 
@@ -342,11 +342,11 @@ async function fetchLowSimilarityQuestions() {
   }
 }
 
-function addSimilarFromInput() {
+function addExpectedQuestionFromInput() {
   const value = form.value.expectedInput.trim()
   if (!value) return
 
-  if (similarDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
+  if (expectedQuestionDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
     alert(`예상질문은 최대 ${MAX_EXPECTED_QUESTIONS}개까지 등록 가능합니다.`)
     form.value.expectedInput = ''
     return
@@ -359,32 +359,32 @@ function addSimilarFromInput() {
     return
   }
 
-  const exists = similarDraft.value.some((x) => x.toLowerCase() === value.toLowerCase())
+  const exists = expectedQuestionDraft.value.some((x) => x.toLowerCase() === value.toLowerCase())
   if (!exists) {
-    similarDraft.value.push(value)
+    expectedQuestionDraft.value.push(value)
     lastAdded.value = { text: value, at: now }
   }
   form.value.expectedInput = ''
 }
 
-function onSimilarEnter() {
-  if (isComposingSimilar.value) return
-  addSimilarFromInput()
+function onExpectedQuestionEnter() {
+  if (isComposingExpectedQuestion.value) return
+  addExpectedQuestionFromInput()
 }
 
-function removeSimilar(index) {
-  similarDraft.value.splice(index, 1)
+function removeExpectedQuestion(index) {
+  expectedQuestionDraft.value.splice(index, 1)
 }
 
-async function generateSimilarQuestions() {
+async function generateExpectedQuestions() {
   if (!form.value.content.trim()) {
     alert('내용을 먼저 작성해주세요.')
     return
   }
 
-  generatingSimilar.value = true
+  generatingExpected.value = true
   try {
-    const res = await axios.post(`${API_URL}/knowledgebase/generate-similar-questions`, {
+    const res = await axios.post(`${API_URL}/knowledgebase/generate-expected-questions`, {
       title: form.value.title,
       content: form.value.content,
       count: 5
@@ -407,7 +407,7 @@ async function generateSimilarQuestions() {
       alert(`예상 질문 생성 실패: ${err.message || '알 수 없는 오류'}`)
     }
   } finally {
-    generatingSimilar.value = false
+    generatingExpected.value = false
   }
 }
 
@@ -423,7 +423,7 @@ function resetForm() {
   keywordInput.value = ''
   keywordDraft.value = []
   platformInput.value = '공통'
-  similarDraft.value = []
+  expectedQuestionDraft.value = []
   generatedCandidates.value = []
   refinedSolutionPreview.value = ''
   showRefinePreview.value = false
@@ -440,7 +440,7 @@ function startEdit(kb) {
   keywordInput.value = ''
   keywordDraft.value = normalizeKeywords((kb.keywords || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
-  similarDraft.value = (kb.expectedQuestions || kb.similarQuestions || []).map((item) => item.question)
+  expectedQuestionDraft.value = (kb.expectedQuestions || []).map((item) => item.question)
   generatedCandidates.value = []
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -496,7 +496,7 @@ async function saveKb() {
       keywords: normalizeKeywords(keywordDraft.value).join(', '),
       visibility: form.value.visibility,
       platforms: normalizeSelectedPlatforms(form.value.platforms),
-      expectedQuestions: similarDraft.value
+      expectedQuestions: expectedQuestionDraft.value
     }
 
     if (form.value.id) {
@@ -520,17 +520,17 @@ async function saveKb() {
   }
 }
 
-function addGeneratedAsSimilar(candidate) {
+function addGeneratedAsExpectedQuestion(candidate) {
   const text = typeof candidate === 'string' ? candidate.trim() : ''
   if (!text) return
-  if (similarDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
+  if (expectedQuestionDraft.value.length >= MAX_EXPECTED_QUESTIONS) {
     alert(`예상질문은 최대 ${MAX_EXPECTED_QUESTIONS}개까지 등록 가능합니다.`)
     return
   }
 
-  const exists = similarDraft.value.some((x) => x.toLowerCase() === text.toLowerCase())
+  const exists = expectedQuestionDraft.value.some((x) => x.toLowerCase() === text.toLowerCase())
   if (exists) return
-  similarDraft.value.push(text)
+  expectedQuestionDraft.value.push(text)
 }
 
 async function generateKeywords() {
@@ -544,7 +544,7 @@ async function generateKeywords() {
     const res = await axios.post(`${API_URL}/knowledgebase/generate-keywords`, {
       title: form.value.title,
       content: form.value.content,
-      expectedQuestions: similarDraft.value,
+      expectedQuestions: expectedQuestionDraft.value,
       count: 5
     })
 
@@ -623,8 +623,8 @@ async function fetchWriterPromptTemplate() {
     answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt),
     keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
     keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
-    similarQuestionSystemPrompt: normalizeLineBreaks(response.data.similarQuestionSystemPrompt),
-    similarQuestionRulesPrompt: normalizeLineBreaks(response.data.similarQuestionRulesPrompt)
+    expectedQuestionSystemPrompt: normalizeLineBreaks(response.data.expectedQuestionSystemPrompt),
+    expectedQuestionRulesPrompt: normalizeLineBreaks(response.data.expectedQuestionRulesPrompt)
   }
 }
 
@@ -644,8 +644,8 @@ async function saveWriterPromptTemplate() {
     !formData.answerRefineRulesPrompt.trim() ||
     !formData.keywordSystemPrompt.trim() ||
     !formData.keywordRulesPrompt.trim() ||
-    !formData.similarQuestionSystemPrompt.trim() ||
-    !formData.similarQuestionRulesPrompt.trim()
+    !formData.expectedQuestionSystemPrompt.trim() ||
+    !formData.expectedQuestionRulesPrompt.trim()
   ) {
     alert('KB 작성 프롬프트 항목을 모두 입력해주세요.')
     return
@@ -658,8 +658,8 @@ async function saveWriterPromptTemplate() {
       answerRefineRulesPrompt: formData.answerRefineRulesPrompt,
       keywordSystemPrompt: formData.keywordSystemPrompt,
       keywordRulesPrompt: formData.keywordRulesPrompt,
-      similarQuestionSystemPrompt: formData.similarQuestionSystemPrompt,
-      similarQuestionRulesPrompt: formData.similarQuestionRulesPrompt
+      expectedQuestionSystemPrompt: formData.expectedQuestionSystemPrompt,
+      expectedQuestionRulesPrompt: formData.expectedQuestionRulesPrompt
     })
 
     writerPromptTemplateForm.value = {
@@ -667,8 +667,8 @@ async function saveWriterPromptTemplate() {
       answerRefineRulesPrompt: normalizeLineBreaks(response.data.answerRefineRulesPrompt),
       keywordSystemPrompt: normalizeLineBreaks(response.data.keywordSystemPrompt),
       keywordRulesPrompt: normalizeLineBreaks(response.data.keywordRulesPrompt),
-      similarQuestionSystemPrompt: normalizeLineBreaks(response.data.similarQuestionSystemPrompt),
-      similarQuestionRulesPrompt: normalizeLineBreaks(response.data.similarQuestionRulesPrompt)
+      expectedQuestionSystemPrompt: normalizeLineBreaks(response.data.expectedQuestionSystemPrompt),
+      expectedQuestionRulesPrompt: normalizeLineBreaks(response.data.expectedQuestionRulesPrompt)
     }
 
     alert('KB 작성 프롬프트가 저장되었습니다. 다음 생성부터 반영됩니다.')
@@ -855,9 +855,8 @@ async function onCsvFileSelected(event) {
           <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드KB 작성 방법</button>
         </div>
         <div class="panel-head-actions">
-          <button class="ghost" @click.stop="resetForm">초기화</button>
           <button class="ghost btn-csv-upload" type="button" @click.stop="openBulkModal">CSV 업로드</button>
-          <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">프롬프트 설정</button>
+          <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">KB 프롬프트</button>
         </div>
       </div>
 
@@ -932,19 +931,19 @@ async function onCsvFileSelected(event) {
         <div class="field-block">
           <div class="label-head-inline">
             <span class="field-title">예상질문</span>
-            <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingSimilar" @click="generateSimilarQuestions">
-              {{ generatingSimilar ? '생성 중...' : '예상질문 생성하기' }}
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingExpected" @click="generateExpectedQuestions">
+              {{ generatingExpected ? '생성 중...' : '예상질문 생성하기' }}
             </button>
           </div>
           <div class="similar-input-row">
             <input
               v-model="form.expectedInput"
               placeholder="예) 인증서 파일 경로 어떻게 찾아요?"
-              @keydown.enter.prevent="onSimilarEnter"
-              @compositionstart="isComposingSimilar = true"
-              @compositionend="isComposingSimilar = false"
+              @keydown.enter.prevent="onExpectedQuestionEnter"
+              @compositionstart="isComposingExpectedQuestion = true"
+              @compositionend="isComposingExpectedQuestion = false"
             />
-            <button class="secondary" @click="addSimilarFromInput">추가</button>
+            <button class="secondary" @click="addExpectedQuestionFromInput">추가</button>
           </div>
           <small class="hint">예상질문은 최대 10개까지 등록 가능합니다.</small>
         </div>
@@ -955,24 +954,25 @@ async function onCsvFileSelected(event) {
             <div v-for="(item, idx) in generatedCandidates" :key="`generated-${idx}-${item}`" class="generated-item">
               <span>{{ item }}</span>
               <div class="generated-actions">
-                <button class="ghost" type="button" @click="addGeneratedAsSimilar(item)">예상질문 추가하기</button>
+                <button class="ghost" type="button" @click="addGeneratedAsExpectedQuestion(item)">예상질문 추가하기</button>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="chips" v-if="similarDraft.length > 0">
-          <span v-for="(item, idx) in similarDraft" :key="`${item}-${idx}`" class="chip">
+        <div class="chips" v-if="expectedQuestionDraft.length > 0">
+          <span v-for="(item, idx) in expectedQuestionDraft" :key="`${item}-${idx}`" class="chip">
             {{ item }}
-            <button @click="removeSimilar(idx)">×</button>
+            <button @click="removeExpectedQuestion(idx)">×</button>
           </span>
         </div>
       </div>
 
       <div v-if="showWriter" class="actions">
-        <button class="primary" :disabled="saving" @click="saveKb">
-          {{ saving ? '저장 중...' : form.id ? '수정 저장' : 'KB 저장' }}
+        <button class="primary" type="button" :disabled="saving" @click="saveKb">
+          {{ saving ? '저장 중...' : '저장' }}
         </button>
+        <button class="ghost" type="button" :disabled="saving" @click="resetForm">취소</button>
       </div>
     </div>
 
@@ -1012,9 +1012,34 @@ async function onCsvFileSelected(event) {
         <!-- ② 업로드 중 -->
         <template v-if="bulkImporting">
           <div class="bulk-progress-wrap">
-            <div class="bulk-spinner"></div>
-            <p class="bulk-loading-title">KB 등록 중입니다…</p>
-            <p class="bulk-loading-sub">총 <strong>{{ bulkTotalCount }}</strong>건 처리 중 &nbsp;·&nbsp; 임베딩 생성 중이니 잠시만 기다려 주세요.</p>
+            <div class="bulk-loading-hero">
+              <div class="bulk-spinner" aria-hidden="true"></div>
+              <div class="bulk-loading-copy">
+                <p class="bulk-loading-title">KB 등록 중입니다…</p>
+                <p class="bulk-loading-sub">총 <strong>{{ bulkTotalCount }}</strong>건 처리 중 &nbsp;·&nbsp; 임베딩 생성 중이니 잠시만 기다려 주세요.</p>
+              </div>
+            </div>
+
+            <div class="bulk-progress-card">
+              <div class="bulk-progress-row">
+                <span>CSV 검증</span>
+                <strong>완료</strong>
+              </div>
+              <div class="bulk-progress-row">
+                <span>KB 저장 및 임베딩</span>
+                <strong>진행 중</strong>
+              </div>
+              <div class="bulk-progress-row">
+                <span>결과 집계</span>
+                <strong>대기</strong>
+              </div>
+
+              <div class="bulk-progress-track" role="progressbar" aria-valuemin="0" :aria-valuemax="bulkTotalCount || 1" aria-busy="true">
+                <div class="bulk-progress-indeterminate"></div>
+              </div>
+
+              <p class="bulk-progress-hint">업로드가 끝나면 성공/실패 목록이 자동으로 표시됩니다.</p>
+            </div>
           </div>
         </template>
 
@@ -1045,10 +1070,9 @@ async function onCsvFileSelected(event) {
       <div class="panel-head">
         <h3>KB 목록</h3>
         <div class="panel-head-actions">
-          <button class="ghost" :disabled="loading || rebuildingVectorIndex" @click="fetchKbs">새로고침</button>
           <button
             v-if="isAdminUser"
-            class="ghost"
+            class="ghost btn-reembed"
             :disabled="loading || rebuildingVectorIndex"
             @click="rebuildVectorIndex"
           >
@@ -1209,7 +1233,7 @@ async function onCsvFileSelected(event) {
     <div v-if="showWriterPromptEditor" class="modal-overlay" @click="showWriterPromptEditor = false">
       <div class="modal info-modal" @click.stop>
         <div class="modal-head">
-          <h4>KB 작성 AI 프롬프트 설정</h4>
+          <h4>KB 프롬프트 설정</h4>
           <button class="ghost" type="button" @click="showWriterPromptEditor = false">닫기</button>
         </div>
 
@@ -1251,16 +1275,16 @@ async function onCsvFileSelected(event) {
           <div class="writer-prompt-section">
             <div class="writer-prompt-section-header">
               <span>예상 질문 생성</span>
-              <span class="writer-prompt-section-desc">KB 저장 시 유사 질문을 자동 생성할 때 사용</span>
+              <span class="writer-prompt-section-desc">KB 저장 시 예상 질문을 자동 생성할 때 사용</span>
             </div>
             <div class="form-grid">
               <label>
                 시스템 프롬프트
-                <textarea v-model="writerPromptTemplateForm.similarQuestionSystemPrompt" rows="3" />
+                <textarea v-model="writerPromptTemplateForm.expectedQuestionSystemPrompt" rows="3" />
               </label>
               <label>
                 규칙 프롬프트
-                <textarea v-model="writerPromptTemplateForm.similarQuestionRulesPrompt" rows="4" />
+                <textarea v-model="writerPromptTemplateForm.expectedQuestionRulesPrompt" rows="4" />
               </label>
             </div>
           </div>
@@ -1720,13 +1744,30 @@ select:focus {
 }
 
 .guide-trigger {
-  border-color: #7c3aed;
-  color: #5b21b6;
-  background: #f3e8ff;
+  color: #1f5aa8;
+  border-color: #a9c6f3;
+  background: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease;
 }
 
-.guide-trigger:hover {
-  background: #ede9fe;
+.guide-trigger:hover:not(:disabled) {
+  border-color: #8db4eb;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.guide-trigger:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.guide-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
 }
 
 .field-actions {
@@ -2114,10 +2155,77 @@ select:focus {
 .bulk-progress-wrap {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 14px;
-  padding: 24px 0;
-  text-align: center;
+  padding: 18px 0 8px;
+}
+
+.bulk-loading-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bulk-loading-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.bulk-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #dbe6ff;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+  flex: 0 0 auto;
+}
+
+.bulk-progress-card {
+  border: 1px solid #dbe6f2;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f6f9ff 100%);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.bulk-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.bulk-progress-row strong {
+  color: #2563eb;
+  font-size: 12px;
+}
+
+.bulk-progress-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #e8eef7;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.bulk-progress-indeterminate {
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8eb8ff 0%, #3b82f6 55%, #8eb8ff 100%);
+  animation: bulk-indeterminate 1.2s ease-in-out infinite;
+}
+
+.bulk-progress-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .bulk-result-summary-bar {
@@ -2145,6 +2253,11 @@ select:focus {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes bulk-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(280%); }
 }
 
 .bulk-loading-title {
@@ -2211,6 +2324,87 @@ select:focus {
 
 .ghost:hover {
   background: #f8f9fa;
+}
+
+.ghost.btn-prompt-setting {
+  color: #1f5aa8;
+  border-color: #a9c6f3;
+  background: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease;
+}
+
+.ghost.btn-prompt-setting:hover:not(:disabled) {
+  border-color: #8db4eb;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.ghost.btn-prompt-setting:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.ghost.btn-prompt-setting:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
+}
+
+.ghost.btn-reembed {
+  color: #93420f;
+  border-color: #efc293;
+  background: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.14px;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease;
+}
+
+.ghost.btn-reembed:hover:not(:disabled) {
+  border-color: #e0ab72;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.ghost.btn-reembed:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.ghost.btn-reembed:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.ghost.btn-csv-upload {
+  color: #1f744d;
+  border-color: #9dceaf;
+  background: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease;
+}
+
+.ghost.btn-csv-upload:hover:not(:disabled) {
+  border-color: #7eba95;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.ghost.btn-csv-upload:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.ghost.btn-csv-upload:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
 }
 
 .danger {

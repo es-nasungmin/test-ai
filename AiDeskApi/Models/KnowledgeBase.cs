@@ -17,6 +17,6 @@ namespace AiDeskApi.Models
         public string Platform { get; set; } = "공통";
         public string? Keywords { get; set; }
 
-        public ICollection<KnowledgeBaseSimilarQuestion> SimilarQuestions { get; set; } = new List<KnowledgeBaseSimilarQuestion>();
+        public ICollection<KnowledgeBaseExpectedQuestion> ExpectedQuestions { get; set; } = new List<KnowledgeBaseExpectedQuestion>();
     }
 }

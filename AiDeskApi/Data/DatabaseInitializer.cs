@@ -56,6 +56,8 @@ namespace AiDeskApi.Data
                 Keywords TEXT NULL
             );");
 
+            EnsureKnowledgeBasesTableSchema(db);
+
             EnsureColumnExists(db, "KnowledgeBases", "Title", "ALTER TABLE KnowledgeBases ADD COLUMN Title TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "Content", "ALTER TABLE KnowledgeBases ADD COLUMN Content TEXT NULL;");
             EnsureColumnExists(db, "KnowledgeBases", "Visibility", "ALTER TABLE KnowledgeBases ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'admin';");
@@ -72,7 +74,7 @@ namespace AiDeskApi.Data
 
             db.Database.ExecuteSqlRaw(@"
             UPDATE KnowledgeBases
-            SET Title = COALESCE(NULLIF(TRIM(Title), ''), NULLIF(TRIM(Problem), ''), '제목 없음')
+            SET Title = COALESCE(NULLIF(TRIM(Title), ''), '제목 없음')
             WHERE Title IS NULL OR TRIM(Title) = '';");
 
             if (HasColumn(db, "KnowledgeBases", "Solution"))
@@ -176,21 +178,8 @@ namespace AiDeskApi.Data
             SELECT '공통', 1, datetime('now')
             WHERE NOT EXISTS (SELECT 1 FROM KbPlatforms WHERE Name = '공통');");
 
-            // 7. KnowledgeBaseSimilarQuestions 테이블
-            db.Database.ExecuteSqlRaw(@"
-            CREATE TABLE IF NOT EXISTS KnowledgeBaseSimilarQuestions (
-                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseSimilarQuestions PRIMARY KEY AUTOINCREMENT,
-                KnowledgeBaseId INTEGER NOT NULL,
-                Question TEXT NOT NULL,
-                QuestionEmbedding TEXT NULL,
-                CreatedAt TEXT NOT NULL,
-                CONSTRAINT FK_KnowledgeBaseSimilarQuestions_KnowledgeBases_KnowledgeBaseId
-                    FOREIGN KEY (KnowledgeBaseId) REFERENCES KnowledgeBases (Id) ON DELETE CASCADE
-            );");
-
-            db.Database.ExecuteSqlRaw(@"
-            CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseSimilarQuestions_KnowledgeBaseId
-            ON KnowledgeBaseSimilarQuestions (KnowledgeBaseId);");
+            // 7. KnowledgeBaseExpectedQuestions 테이블
+            EnsureKnowledgeBaseExpectedQuestionsSchema(db);
 
             // 8. LowSimilarityQuestions 테이블
             db.Database.ExecuteSqlRaw(@"
@@ -284,20 +273,7 @@ namespace AiDeskApi.Data
             CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseExpectedQuestionHistories_KnowledgeBaseId_ChangedAt
             ON KnowledgeBaseExpectedQuestionHistories (KnowledgeBaseId, ChangedAt DESC);");
 
-            db.Database.ExecuteSqlRaw(@"
-            CREATE TABLE IF NOT EXISTS KnowledgeBaseWriterPromptTemplates (
-                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseWriterPromptTemplates PRIMARY KEY AUTOINCREMENT,
-                KeywordSystemPrompt TEXT NOT NULL,
-                KeywordRulesPrompt TEXT NOT NULL,
-                SimilarQuestionSystemPrompt TEXT NOT NULL,
-                SimilarQuestionRulesPrompt TEXT NOT NULL,
-                TopicKeywordSystemPrompt TEXT NOT NULL,
-                TopicKeywordRulesPrompt TEXT NOT NULL,
-                AnswerRefineSystemPrompt TEXT NOT NULL,
-                AnswerRefineRulesPrompt TEXT NOT NULL,
-                CreatedAt TEXT NOT NULL,
-                UpdatedAt TEXT NOT NULL
-            );");
+            EnsureKnowledgeBaseWriterPromptTemplateSchema(db);
 
             // ChatSessions 테이블 (다양한 필드 포함)
             db.Database.ExecuteSqlRaw(@"
@@ -566,6 +542,312 @@ namespace AiDeskApi.Data
                 WHERE object_id = OBJECT_ID(N'[dbo].[{tableName}]')
                   AND name = N'{columnName}';";
 
+                return command.ExecuteScalar() != null;
+            }
+
+            return false;
+        }
+
+        private static void EnsureKnowledgeBasesTableSchema(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlite())
+            {
+                return;
+            }
+
+            var hasProblem = HasColumn(db, "KnowledgeBases", "Problem");
+            var hasSolution = HasColumn(db, "KnowledgeBases", "Solution");
+            var hasTags = HasColumn(db, "KnowledgeBases", "Tags");
+
+            if (!hasProblem && !hasSolution && !hasTags)
+            {
+                return;
+            }
+
+            var titleSource = hasProblem
+                ? "COALESCE(NULLIF(TRIM(Title), ''), NULLIF(TRIM(Problem), ''), '제목 없음')"
+                : "COALESCE(NULLIF(TRIM(Title), ''), '제목 없음')";
+
+            var contentSource = hasSolution
+                ? "COALESCE(NULLIF(TRIM(Content), ''), NULLIF(TRIM(Solution), ''), '')"
+                : "COALESCE(NULLIF(TRIM(Content), ''), '')";
+
+            var keywordSource = hasTags
+                ? "COALESCE(NULLIF(TRIM(Keywords), ''), NULLIF(TRIM(Tags), ''), NULL)"
+                : "COALESCE(NULLIF(TRIM(Keywords), ''), NULL)";
+
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+            db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBases RENAME TO KnowledgeBases_Legacy;");
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE KnowledgeBases (
+                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBases PRIMARY KEY AUTOINCREMENT,
+                Title TEXT NOT NULL,
+                Content TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL,
+                CreatedBy TEXT NOT NULL DEFAULT '시스템',
+                UpdatedBy TEXT NOT NULL DEFAULT '시스템',
+                ViewCount INTEGER NOT NULL DEFAULT 0,
+                Visibility TEXT NOT NULL DEFAULT 'admin',
+                Platform TEXT NOT NULL DEFAULT '공통',
+                Keywords TEXT NULL
+            );");
+
+            var migrateSql = @"
+            INSERT INTO KnowledgeBases (Id, Title, Content, CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, ViewCount, Visibility, Platform, Keywords)
+            SELECT
+                Id,
+                " + titleSource + @",
+                " + contentSource + @",
+                COALESCE(CreatedAt, datetime('now')),
+                COALESCE(UpdatedAt, CreatedAt, datetime('now')),
+                COALESCE(NULLIF(TRIM(CreatedBy), ''), '시스템'),
+                COALESCE(NULLIF(TRIM(UpdatedBy), ''), COALESCE(NULLIF(TRIM(CreatedBy), ''), '시스템')),
+                COALESCE(ViewCount, 0),
+                CASE
+                    WHEN Visibility IN ('common', 'user') THEN 'user'
+                    ELSE 'admin'
+                END,
+                CASE
+                    WHEN Platform IS NULL OR TRIM(Platform) = '' THEN '공통'
+                    WHEN LOWER(TRIM(Platform)) = 'common' THEN '공통'
+                    ELSE TRIM(Platform)
+                END,
+                " + keywordSource + @"
+            FROM KnowledgeBases_Legacy;";
+            db.Database.ExecuteSqlRaw(migrateSql);
+
+            db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBases_Legacy;");
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+        }
+
+        private static void EnsureKnowledgeBaseExpectedQuestionsSchema(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlite())
+            {
+                return;
+            }
+
+            if (!HasTable(db, "KnowledgeBaseExpectedQuestions"))
+            {
+                CreateKnowledgeBaseExpectedQuestionsTable(db);
+            }
+
+            if (HasTable(db, "KnowledgeBaseSimilarQuestions"))
+            {
+                db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+                db.Database.ExecuteSqlRaw(@"
+                INSERT INTO KnowledgeBaseExpectedQuestions (KnowledgeBaseId, Question, QuestionEmbedding, CreatedAt)
+                SELECT
+                    sq.KnowledgeBaseId,
+                    sq.Question,
+                    sq.QuestionEmbedding,
+                    COALESCE(sq.CreatedAt, datetime('now'))
+                FROM KnowledgeBaseSimilarQuestions sq
+                WHERE EXISTS (
+                    SELECT 1 FROM KnowledgeBases kb WHERE kb.Id = sq.KnowledgeBaseId
+                );");
+                db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBaseSimilarQuestions;");
+                db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+            }
+
+            if (!IsKnowledgeBaseExpectedQuestionsFkValid(db))
+            {
+                db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+                db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBaseExpectedQuestions RENAME TO KnowledgeBaseExpectedQuestions_Legacy;");
+
+                CreateKnowledgeBaseExpectedQuestionsTable(db);
+
+                db.Database.ExecuteSqlRaw(@"
+                INSERT INTO KnowledgeBaseExpectedQuestions (Id, KnowledgeBaseId, Question, QuestionEmbedding, CreatedAt)
+                SELECT
+                    eq.Id,
+                    eq.KnowledgeBaseId,
+                    eq.Question,
+                    eq.QuestionEmbedding,
+                    COALESCE(eq.CreatedAt, datetime('now'))
+                FROM KnowledgeBaseExpectedQuestions_Legacy eq
+                WHERE EXISTS (
+                    SELECT 1 FROM KnowledgeBases kb WHERE kb.Id = eq.KnowledgeBaseId
+                );");
+
+                db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBaseExpectedQuestions_Legacy;");
+                db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+            }
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseExpectedQuestions_KnowledgeBaseId
+            ON KnowledgeBaseExpectedQuestions (KnowledgeBaseId);");
+
+            if (HasTable(db, "KnowledgeBaseSimilarQuestions_Legacy"))
+            {
+                db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBaseSimilarQuestions_Legacy;");
+            }
+        }
+
+        private static void CreateKnowledgeBaseExpectedQuestionsTable(AiDeskContext db)
+        {
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS KnowledgeBaseExpectedQuestions (
+                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseExpectedQuestions PRIMARY KEY AUTOINCREMENT,
+                KnowledgeBaseId INTEGER NOT NULL,
+                Question TEXT NOT NULL,
+                QuestionEmbedding TEXT NULL,
+                CreatedAt TEXT NOT NULL,
+                CONSTRAINT FK_KnowledgeBaseExpectedQuestions_KnowledgeBases_KnowledgeBaseId
+                    FOREIGN KEY (KnowledgeBaseId) REFERENCES KnowledgeBases (Id) ON DELETE CASCADE
+            );");
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS IX_KnowledgeBaseExpectedQuestions_KnowledgeBaseId
+            ON KnowledgeBaseExpectedQuestions (KnowledgeBaseId);");
+        }
+
+        private static bool IsKnowledgeBaseExpectedQuestionsFkValid(AiDeskContext db)
+        {
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != ConnectionState.Open)
+            {
+                connection.Open();
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA foreign_key_list(KnowledgeBaseExpectedQuestions);";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var referencedTable = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                if (string.Equals(referencedTable, "KnowledgeBases", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void EnsureKnowledgeBaseWriterPromptTemplateSchema(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlite())
+            {
+                return;
+            }
+
+            if (!HasTable(db, "KnowledgeBaseWriterPromptTemplates"))
+            {
+                CreateKnowledgeBaseWriterPromptTemplateTable(db);
+                return;
+            }
+
+            var hasOldSystem = HasColumn(db, "KnowledgeBaseWriterPromptTemplates", "SimilarQuestionSystemPrompt");
+            var hasOldRules = HasColumn(db, "KnowledgeBaseWriterPromptTemplates", "SimilarQuestionRulesPrompt");
+            var hasNewSystem = HasColumn(db, "KnowledgeBaseWriterPromptTemplates", "ExpectedQuestionSystemPrompt");
+            var hasNewRules = HasColumn(db, "KnowledgeBaseWriterPromptTemplates", "ExpectedQuestionRulesPrompt");
+
+            if (hasNewSystem && hasNewRules && !hasOldSystem && !hasOldRules)
+            {
+                return;
+            }
+
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+            db.Database.ExecuteSqlRaw("ALTER TABLE KnowledgeBaseWriterPromptTemplates RENAME TO KnowledgeBaseWriterPromptTemplates_Legacy;");
+
+            CreateKnowledgeBaseWriterPromptTemplateTable(db);
+
+            var expectedSystemSource = hasNewSystem
+                ? "ExpectedQuestionSystemPrompt"
+                : hasOldSystem
+                    ? "SimilarQuestionSystemPrompt"
+                    : "''";
+
+            var expectedRulesSource = hasNewRules
+                ? "ExpectedQuestionRulesPrompt"
+                : hasOldRules
+                    ? "SimilarQuestionRulesPrompt"
+                    : "''";
+
+            var migrateSql = @"
+            INSERT INTO KnowledgeBaseWriterPromptTemplates (
+                Id,
+                KeywordSystemPrompt,
+                KeywordRulesPrompt,
+                ExpectedQuestionSystemPrompt,
+                ExpectedQuestionRulesPrompt,
+                TopicKeywordSystemPrompt,
+                TopicKeywordRulesPrompt,
+                AnswerRefineSystemPrompt,
+                AnswerRefineRulesPrompt,
+                CreatedAt,
+                UpdatedAt)
+            SELECT
+                Id,
+                COALESCE(KeywordSystemPrompt, ''),
+                COALESCE(KeywordRulesPrompt, ''),
+                COALESCE(" + expectedSystemSource + @", ''),
+                COALESCE(" + expectedRulesSource + @", ''),
+                COALESCE(TopicKeywordSystemPrompt, ''),
+                COALESCE(TopicKeywordRulesPrompt, ''),
+                COALESCE(AnswerRefineSystemPrompt, ''),
+                COALESCE(AnswerRefineRulesPrompt, ''),
+                COALESCE(CreatedAt, datetime('now')),
+                COALESCE(UpdatedAt, datetime('now'))
+            FROM KnowledgeBaseWriterPromptTemplates_Legacy;";
+            db.Database.ExecuteSqlRaw(migrateSql);
+
+            db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBaseWriterPromptTemplates_Legacy;");
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+        }
+
+        private static void CreateKnowledgeBaseWriterPromptTemplateTable(AiDeskContext db)
+        {
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS KnowledgeBaseWriterPromptTemplates (
+                Id INTEGER NOT NULL CONSTRAINT PK_KnowledgeBaseWriterPromptTemplates PRIMARY KEY AUTOINCREMENT,
+                KeywordSystemPrompt TEXT NOT NULL,
+                KeywordRulesPrompt TEXT NOT NULL,
+                ExpectedQuestionSystemPrompt TEXT NOT NULL,
+                ExpectedQuestionRulesPrompt TEXT NOT NULL,
+                TopicKeywordSystemPrompt TEXT NOT NULL,
+                TopicKeywordRulesPrompt TEXT NOT NULL,
+                AnswerRefineSystemPrompt TEXT NOT NULL,
+                AnswerRefineRulesPrompt TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL
+            );");
+        }
+
+        private static bool HasTable(AiDeskContext db, string tableName)
+        {
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != ConnectionState.Open)
+            {
+                connection.Open();
+            }
+
+            using var command = connection.CreateCommand();
+            if (db.Database.IsSqlite())
+            {
+                command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = @tableName LIMIT 1;";
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = "@tableName";
+                parameter.Value = tableName;
+                command.Parameters.Add(parameter);
+                return command.ExecuteScalar() != null;
+            }
+
+            if (db.Database.IsSqlServer())
+            {
+                command.CommandText = @"
+                SELECT 1
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = 'dbo'
+                  AND TABLE_NAME = @tableName;";
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = "@tableName";
+                parameter.Value = tableName;
+                command.Parameters.Add(parameter);
                 return command.ExecuteScalar() != null;
             }
 

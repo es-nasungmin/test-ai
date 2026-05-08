@@ -19,7 +19,7 @@ namespace AiDeskApi.Data
         public DbSet<KnowledgeBaseHistory> KnowledgeBaseHistories { get; set; } = null!;
         public DbSet<KnowledgeBaseExpectedQuestionHistory> KnowledgeBaseExpectedQuestionHistories { get; set; } = null!;
         public DbSet<KbPlatform> KbPlatforms { get; set; } = null!;
-        public DbSet<KnowledgeBaseSimilarQuestion> KnowledgeBaseSimilarQuestions { get; set; } = null!;
+        public DbSet<KnowledgeBaseExpectedQuestion> KnowledgeBaseExpectedQuestions { get; set; } = null!;
         public DbSet<LowSimilarityQuestion> LowSimilarityQuestions { get; set; } = null!;
         public DbSet<KnowledgeBaseWriterPromptTemplate> KnowledgeBaseWriterPromptTemplates { get; set; } = null!;
 
@@ -68,7 +68,7 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
                 entity.HasIndex(e => e.UpdatedAt);
-                entity.HasMany(e => e.SimilarQuestions)
+                entity.HasMany(e => e.ExpectedQuestions)
                     .WithOne(x => x.KnowledgeBase)
                     .HasForeignKey(x => x.KnowledgeBaseId)
                     .OnDelete(DeleteBehavior.Cascade);
@@ -110,7 +110,7 @@ namespace AiDeskApi.Data
                 entity.HasIndex(e => new { e.KnowledgeBaseId, e.ChangedAt });
             });
 
-            modelBuilder.Entity<KnowledgeBaseSimilarQuestion>(entity =>
+            modelBuilder.Entity<KnowledgeBaseExpectedQuestion>(entity =>
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Question).IsRequired().HasMaxLength(500);
@@ -136,8 +136,8 @@ namespace AiDeskApi.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.KeywordSystemPrompt).IsRequired();
                 entity.Property(e => e.KeywordRulesPrompt).IsRequired();
-                entity.Property(e => e.SimilarQuestionSystemPrompt).IsRequired();
-                entity.Property(e => e.SimilarQuestionRulesPrompt).IsRequired();
+                entity.Property(e => e.ExpectedQuestionSystemPrompt).IsRequired();
+                entity.Property(e => e.ExpectedQuestionRulesPrompt).IsRequired();
                 entity.Property(e => e.TopicKeywordSystemPrompt).IsRequired();
                 entity.Property(e => e.TopicKeywordRulesPrompt).IsRequired();
                 entity.Property(e => e.AnswerRefineSystemPrompt).IsRequired();

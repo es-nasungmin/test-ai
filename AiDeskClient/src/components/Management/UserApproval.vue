@@ -2,10 +2,6 @@
   <div class="user-approval-container">
     <div class="header">
       <h2>사용자 관리</h2>
-      <button @click="loadUsers" class="ghost" style="margin-left:auto">
-        <span v-if="!loadingUsers">새로고침</span>
-        <span v-else>로딩 중...</span>
-      </button>
     </div>
 
     <div v-if="error" class="error-message">
@@ -56,13 +52,6 @@
                 :disabled="savingEditUserId === user.id"
               >
                 {{ savingEditUserId === user.id ? '저장 중...' : '수정' }}
-              </button>
-              <button
-                @click="deleteUser(user)"
-                class="btn btn-delete"
-                :disabled="deletingUserId === user.id || user.role === 'admin'"
-              >
-                {{ deletingUserId === user.id ? '삭제 중...' : '삭제' }}
               </button>
             </td>
           </tr>
@@ -128,7 +117,6 @@ const loadingUsers = ref(false)
 const error = ref(null)
 const approvalMessage = ref(null)
 const savingEditUserId = ref(null)
-const deletingUserId = ref(null)
 const editUserModalVisible = ref(false)
 const editForm = ref({
   id: null,
@@ -245,30 +233,6 @@ const submitEditUser = async () => {
     console.error(err)
   } finally {
     savingEditUserId.value = null
-  }
-}
-
-const deleteUser = async (user) => {
-  if (!user?.id) return
-  if (!confirm(`정말로 ${formatDisplayName(user)} 계정을 삭제하시겠습니까?`)) {
-    return
-  }
-
-  deletingUserId.value = user.id
-  error.value = null
-
-  try {
-    await authApi.deleteUser(user.id)
-    approvalMessage.value = '사용자가 삭제되었습니다.'
-    await loadUsers()
-    setTimeout(() => {
-      approvalMessage.value = null
-    }, 3000)
-  } catch (err) {
-    error.value = err?.response?.data?.message || '사용자 삭제에 실패했습니다.'
-    console.error(err)
-  } finally {
-    deletingUserId.value = null
   }
 }
 
@@ -463,12 +427,15 @@ td {
 }
 
 .btn-edit {
-  background: #4c6ef5;
-  color: white;
+  background: #ffffff;
+  color: #4c6ef5;
+  border: 1px solid #4c6ef5;
 }
 
 .btn-edit:hover:not(:disabled) {
-  background: #3b5bdb;
+  background: #ffffff;
+  color: #3b5bdb;
+  border-color: #3b5bdb;
 }
 
 .btn-approve:hover:not(:disabled) {
@@ -480,16 +447,7 @@ td {
   color: white;
 }
 
-.btn-delete {
-  background: #f44336;
-  color: white;
-}
-
 .btn-reject:hover:not(:disabled) {
-  background: #da190b;
-}
-
-.btn-delete:hover:not(:disabled) {
   background: #da190b;
 }
 

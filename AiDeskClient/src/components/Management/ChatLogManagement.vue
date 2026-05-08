@@ -467,7 +467,6 @@ onBeforeUnmount(() => {
     <div class="panel list-panel" :class="{ 'mobile-hidden': mobileTab !== 'list' }">
       <div class="panel-head">
         <h3>채팅 세션</h3>
-        <button class="ghost refresh-top" :disabled="loading" @click="fetchSessions">새로고침</button>
       </div>
       <div class="panel-toolbar-wrap">
         <div class="toolbar">
@@ -678,10 +677,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="(selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions || selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)?.length" class="kb-section">
+          <div v-if="(selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions)?.length" class="kb-section">
             <div class="kb-section-label">예상질문</div>
             <ul class="kb-similar-list">
-              <li v-for="sq in (selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions || selectedKbDetail.similarQuestions || selectedKbDetail.SimilarQuestions)" :key="sq.id || sq.Id">{{ sq.question || sq.Question }}</li>
+              <li v-for="sq in (selectedKbDetail.expectedQuestions || selectedKbDetail.ExpectedQuestions)" :key="sq.id || sq.Id">{{ sq.question || sq.Question }}</li>
             </ul>
           </div>
         </div>
@@ -815,10 +814,6 @@ select {
 .ghost:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.refresh-top {
-  min-width: 88px;
 }
 
 .pager {

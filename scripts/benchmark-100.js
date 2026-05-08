@@ -5,10 +5,25 @@ const path = require('path')
 const { kbCatalog, negativeQuestions } = require('./demo-kb-catalog')
 
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080/api'
+const BENCH_AUTH_TOKEN = process.env.BENCH_AUTH_TOKEN || ''
 const OUTPUT_DIR = path.resolve(process.cwd(), 'reports')
 const BENCH_CASESET = String(process.env.BENCH_CASESET || 'demo').trim().toLowerCase()
 const POSITIVE_TARGET = 93
 const NEGATIVE_TARGET = 7
+
+function buildHeaders() {
+  const headers = {
+    'Content-Type': 'application/json'
+  }
+
+  if (BENCH_AUTH_TOKEN) {
+    headers.Authorization = BENCH_AUTH_TOKEN.startsWith('Bearer ')
+      ? BENCH_AUTH_TOKEN
+      : `Bearer ${BENCH_AUTH_TOKEN}`
+  }
+
+  return headers
+}
 
 function normalizeText(value) {
   return String(value || '')
@@ -30,7 +45,9 @@ async function listAllKnowledgeBases() {
   const rows = []
 
   while (true) {
-    const response = await fetch(`${API_BASE_URL}/knowledgebase/list?page=${page}&pageSize=${pageSize}`)
+    const response = await fetch(`${API_BASE_URL}/knowledgebase/list?page=${page}&pageSize=${pageSize}`, {
+      headers: buildHeaders()
+    })
     if (!response.ok) {
       throw new Error(`KB 목록 조회 실패: ${response.status}`)
     }
@@ -143,9 +160,7 @@ async function ask(question) {
 
   const response = await fetch(`${API_BASE_URL}/knowledgebase/ask`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: buildHeaders(),
     body: JSON.stringify({
       question,
       role: 'user',
@@ -173,6 +188,21 @@ async function ask(question) {
   }
 }
 
+function resolveTopMatchedKbTitle(body) {
+  const direct = body?.topMatchedKbTitle
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim()
+  }
+
+  const firstRelated = Array.isArray(body?.relatedKBs) ? body.relatedKBs[0] : null
+  const fromRelated = firstRelated?.title || firstRelated?.Title
+  if (typeof fromRelated === 'string' && fromRelated.trim()) {
+    return fromRelated.trim()
+  }
+
+  return null
+}
+
 function evaluateQuality(testCase, result) {
   if (!result.ok) return false
 
@@ -189,7 +219,7 @@ function evaluateQuality(testCase, result) {
     return false
   }
 
-  const topTitle = normalizeText(result.body?.topMatchedKbTitle)
+  const topTitle = normalizeText(resolveTopMatchedKbTitle(result.body))
   const expected = normalizeText(testCase.expectedTitle)
   return topTitle.includes(expected) || expected.includes(topTitle)
 }
@@ -272,7 +302,7 @@ async function main() {
       qualitySuccess,
       elapsedMs: result.elapsedMs,
       isLowSimilarity,
-      topMatchedKbTitle: result.body?.topMatchedKbTitle || null,
+      topMatchedKbTitle: resolveTopMatchedKbTitle(result.body),
       topSimilarity: result.body?.topSimilarity ?? null
     })
 

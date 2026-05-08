@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Security.Claims;
 using AiDeskApi.Data;
 using AiDeskApi.Models;
@@ -68,7 +69,9 @@ namespace AiDeskApi.Controllers
 
                 var noSave = request.NoSave == true;
                 var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync(request.Username, request.UserLoginId);
-                var historyTurnCount = Math.Clamp(request.HistoryTurnCount ?? 2, 0, 2);
+                // 현재 Ask API의 history 카운트는 '턴'이 아니라 '메시지 수' 기준으로 동작한다.
+                // 신규 필드(HistoryMessageCount)를 우선 사용하고, 레거시 필드(HistoryTurnCount)는 호환용으로 유지한다.
+                var historyMessageCount = Math.Clamp(request.HistoryMessageCount ?? request.HistoryTurnCount ?? 2, 0, 2);
                 var runtimeOptions = new RagRuntimeOptions
                 {
                     DisablePersistence = noSave,
@@ -89,13 +92,13 @@ namespace AiDeskApi.Controllers
                     if (session == null)
                         return NotFound("세션을 찾을 수 없습니다.");
 
-                    if (historyTurnCount > 0)
+                        if (historyMessageCount > 0)
                     {
                         history = await _context.ChatMessages
                             .AsNoTracking()
                             .Where(x => x.SessionId == request.SessionId.Value)
                             .OrderByDescending(x => x.CreatedAt)
-                            .Take(historyTurnCount)
+                            .Take(historyMessageCount)
                             .OrderBy(x => x.CreatedAt)
                             .Select(x => new ValueTuple<string, string>(x.Role, x.Content))
                             .ToListAsync();
@@ -213,6 +216,9 @@ namespace AiDeskApi.Controllers
                     result.Answer,
                     result.TopSimilarity,
                     result.IsLowSimilarity,
+                    result.TopMatchedQuestion,
+                    result.TopMatchedKbTitle,
+                    result.TopMatchedKbContent,
                     result.RelatedKBs,
                     result.RelatedDocuments,
                     result.ConflictDetected,
@@ -269,7 +275,7 @@ namespace AiDeskApi.Controllers
 
                 foreach (var q in expectedQuestions)
                 {
-                    kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
+                    kb.ExpectedQuestions.Add(await BuildExpectedQuestionAsync(q));
                 }
 
                 _context.KnowledgeBases.Add(kb);
@@ -277,7 +283,7 @@ namespace AiDeskApi.Controllers
 
                 _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionCreate));
                 _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
-                    kb.SimilarQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
+                    kb.ExpectedQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
                 await _context.SaveChangesAsync();
 
                 try
@@ -309,7 +315,7 @@ namespace AiDeskApi.Controllers
                     return BadRequest(validationError);
 
                 var kb = await _context.KnowledgeBases
-                    .Include(x => x.SimilarQuestions)
+                    .Include(x => x.ExpectedQuestions)
                     .FirstOrDefaultAsync(x => x.Id == id);
 
                 if (kb == null)
@@ -336,7 +342,7 @@ namespace AiDeskApi.Controllers
 
                 var incoming = expectedQuestions;
 
-                var existingByKey = kb.SimilarQuestions
+                var existingByKey = kb.ExpectedQuestions
                     .GroupBy(x => NormalizeQuestionKey(x.Question))
                     .ToDictionary(g => g.Key, g => g.First());
 
@@ -363,13 +369,13 @@ namespace AiDeskApi.Controllers
                         continue;
                     }
 
-                    var newItem = await BuildSimilarQuestionAsync(q);
-                    kb.SimilarQuestions.Add(newItem);
+                    var newItem = await BuildExpectedQuestionAsync(q);
+                    kb.ExpectedQuestions.Add(newItem);
                     _context.KnowledgeBaseExpectedQuestionHistories.Add(
                         BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, newItem.Question));
                 }
 
-                var toRemove = kb.SimilarQuestions
+                var toRemove = kb.ExpectedQuestions
                     .Where(x => !incomingKeys.Contains(NormalizeQuestionKey(x.Question)))
                     .ToList();
 
@@ -377,7 +383,7 @@ namespace AiDeskApi.Controllers
                 {
                     _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
                         toRemove.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionRemove, x.Question, null)));
-                    _context.KnowledgeBaseSimilarQuestions.RemoveRange(toRemove);
+                    _context.KnowledgeBaseExpectedQuestions.RemoveRange(toRemove);
                 }
 
                 if (HasKbMetaChanges(
@@ -435,7 +441,7 @@ namespace AiDeskApi.Controllers
                 pageSize = Math.Clamp(pageSize, 1, 100);
 
                 var query = _context.KnowledgeBases
-                    .Include(x => x.SimilarQuestions)
+                    .Include(x => x.ExpectedQuestions)
                     .AsQueryable();
 
                 if (!string.IsNullOrWhiteSpace(visibility))
@@ -468,7 +474,7 @@ namespace AiDeskApi.Controllers
                             (x.Title != null && EF.Functions.Like(x.Title, $"%{q}%")) ||
                             EF.Functions.Like(x.Content, $"%{q}%") ||
                             (x.Keywords != null && EF.Functions.Like(x.Keywords, $"%{q}%")) ||
-                            x.SimilarQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
+                            x.ExpectedQuestions.Any(s => EF.Functions.Like(s.Question, $"%{q}%")));
                     }
                 }
 
@@ -491,7 +497,7 @@ namespace AiDeskApi.Controllers
                         x.Platform,
                         platforms = SplitPlatforms(x.Platform),
                         keywords = x.Keywords,
-                        expectedQuestions = x.SimilarQuestions
+                        expectedQuestions = x.ExpectedQuestions
                             .OrderBy(s => s.Id)
                             .Select(s => new { s.Id, s.Question })
                             .ToList()
@@ -506,8 +512,8 @@ namespace AiDeskApi.Controllers
             }
         }
 
-        [HttpPost("generate-similar-questions")]
-        public async Task<IActionResult> GenerateSimilarQuestions([FromBody] GenerateSimilarQuestionsRequest request)
+        [HttpPost("generate-expected-questions")]
+        public async Task<IActionResult> GenerateExpectedQuestions([FromBody] GenerateExpectedQuestionsRequest request)
         {
             try
             {
@@ -515,18 +521,18 @@ namespace AiDeskApi.Controllers
                     return BadRequest(new { error = "내용을 먼저 작성해주세요." });
 
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
-                var generated = await _knowledgeExtractorService.GenerateSimilarQuestionsAsync(
+                var generated = await _knowledgeExtractorService.GenerateExpectedQuestionsAsync(
                     request.Title?.Trim() ?? string.Empty,
                     request.Content.Trim(),
                     Math.Clamp(request.Count ?? 5, 1, 5),
-                    prompts.SimilarQuestionSystemPrompt,
-                    prompts.SimilarQuestionRulesPrompt);
+                    prompts.ExpectedQuestionSystemPrompt,
+                    prompts.ExpectedQuestionRulesPrompt);
 
                 return Ok(new { items = generated });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "유사 질문 생성 오류");
+                _logger.LogError(ex, "예상 질문 생성 오류");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -589,7 +595,7 @@ namespace AiDeskApi.Controllers
             try
             {
                 var kb = await _context.KnowledgeBases
-                    .Include(x => x.SimilarQuestions)
+                    .Include(x => x.ExpectedQuestions)
                     .FirstOrDefaultAsync(x => x.Id == id);
 
                 if (kb == null)
@@ -609,7 +615,7 @@ namespace AiDeskApi.Controllers
                     kb.Platform,
                     platforms = SplitPlatforms(kb.Platform),
                     keywords = kb.Keywords,
-                    expectedQuestions = kb.SimilarQuestions
+                    expectedQuestions = kb.ExpectedQuestions
                         .OrderBy(s => s.Id)
                         .Select(s => new { s.Id, s.Question })
                         .ToList()
@@ -634,7 +640,7 @@ namespace AiDeskApi.Controllers
                 var actor = await ResolveActorNameAsync();
 
                 _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionDelete));
-                var questions = await _context.KnowledgeBaseSimilarQuestions
+                var questions = await _context.KnowledgeBaseExpectedQuestions
                     .Where(x => x.KnowledgeBaseId == id)
                     .Select(x => x.Question)
                     .ToListAsync();
@@ -796,8 +802,8 @@ namespace AiDeskApi.Controllers
             {
                 KeywordSystemPrompt = template.KeywordSystemPrompt,
                 KeywordRulesPrompt = template.KeywordRulesPrompt,
-                SimilarQuestionSystemPrompt = template.SimilarQuestionSystemPrompt,
-                SimilarQuestionRulesPrompt = template.SimilarQuestionRulesPrompt,
+                ExpectedQuestionSystemPrompt = template.ExpectedQuestionSystemPrompt,
+                ExpectedQuestionRulesPrompt = template.ExpectedQuestionRulesPrompt,
                 TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
                 TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
                 AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
@@ -821,8 +827,8 @@ namespace AiDeskApi.Controllers
                 var template = await _kbWriterPromptTemplates.UpdateAsync(
                     request.KeywordSystemPrompt,
                     request.KeywordRulesPrompt,
-                    request.SimilarQuestionSystemPrompt,
-                    request.SimilarQuestionRulesPrompt,
+                    request.ExpectedQuestionSystemPrompt,
+                    request.ExpectedQuestionRulesPrompt,
                     topicSystemPrompt,
                     topicRulesPrompt,
                     request.AnswerRefineSystemPrompt,
@@ -832,8 +838,8 @@ namespace AiDeskApi.Controllers
                 {
                     KeywordSystemPrompt = template.KeywordSystemPrompt,
                     KeywordRulesPrompt = template.KeywordRulesPrompt,
-                    SimilarQuestionSystemPrompt = template.SimilarQuestionSystemPrompt,
-                    SimilarQuestionRulesPrompt = template.SimilarQuestionRulesPrompt,
+                    ExpectedQuestionSystemPrompt = template.ExpectedQuestionSystemPrompt,
+                    ExpectedQuestionRulesPrompt = template.ExpectedQuestionRulesPrompt,
                     TopicKeywordSystemPrompt = template.TopicKeywordSystemPrompt,
                     TopicKeywordRulesPrompt = template.TopicKeywordRulesPrompt,
                     AnswerRefineSystemPrompt = template.AnswerRefineSystemPrompt,
@@ -990,7 +996,7 @@ namespace AiDeskApi.Controllers
             try
             {
                 var allKbs = await _context.KnowledgeBases
-                    .Include(k => k.SimilarQuestions)
+                    .Include(k => k.ExpectedQuestions)
                     .ToListAsync(cancellationToken);
 
                 int success = 0, failed = 0;
@@ -1134,14 +1140,14 @@ namespace AiDeskApi.Controllers
                     };
 
                     foreach (var q in resolvedQuestions)
-                        kb.SimilarQuestions.Add(await BuildSimilarQuestionAsync(q));
+                        kb.ExpectedQuestions.Add(await BuildExpectedQuestionAsync(q));
 
                     _context.KnowledgeBases.Add(kb);
                     await _context.SaveChangesAsync();
 
                     _context.KnowledgeBaseHistories.Add(BuildKbHistory(kb, actor, KbHistoryActionCreate));
                     _context.KnowledgeBaseExpectedQuestionHistories.AddRange(
-                        kb.SimilarQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
+                        kb.ExpectedQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
                     await _context.SaveChangesAsync();
 
                     try { await _vectorSearchService.UpsertKnowledgeBaseAsync(kb); }
@@ -1418,6 +1424,8 @@ namespace AiDeskApi.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.Title))
                 return "제목을 입력해주세요.";
+            if (request.Title.Trim().Length > 200)
+                return "제목은 최대 200자까지 입력 가능합니다.";
             if (string.IsNullOrWhiteSpace(ResolveContent(request)))
                 return "내용을 입력해주세요.";
             if (!string.IsNullOrWhiteSpace(request.Visibility)
@@ -1427,6 +1435,17 @@ namespace AiDeskApi.Controllers
             var platforms = NormalizePlatforms(request.Platforms, request.Platform);
             if (platforms.Any(x => x.Length < 2 && x != "공통"))
                 return "플랫폼명은 2자 이상이어야 합니다.";
+
+            var serializedPlatforms = SerializePlatforms(platforms);
+            if (serializedPlatforms.Length > 50)
+                return "플랫폼 값이 너무 깁니다. 플랫폼 선택 수를 줄이거나 이름을 짧게 해주세요.";
+
+            if (!string.IsNullOrWhiteSpace(request.Keywords) && request.Keywords.Trim().Length > 500)
+                return "키워드는 최대 500자까지 입력 가능합니다.";
+
+            var expectedQuestions = ResolveExpectedQuestions(request);
+            if (expectedQuestions.Any(x => x.Length > 500))
+                return "예상질문 항목은 각각 최대 500자까지 입력 가능합니다.";
             
             // 활성 플랫폼 목록이 제공된 경우 플랫폼 유효성 검사
             if (activePlatforms != null && activePlatforms.Count > 0)
@@ -1438,7 +1457,7 @@ namespace AiDeskApi.Controllers
                 }
             }
             
-            if (ResolveExpectedQuestions(request).Count > 10)
+            if (expectedQuestions.Count > 10)
                 return "예상질문은 최대 10개까지 등록 가능합니다.";
             return null;
         }
@@ -1450,7 +1469,7 @@ namespace AiDeskApi.Controllers
 
         private static List<string> ResolveExpectedQuestions(UpsertKbRequest request)
         {
-            var source = request.ExpectedQuestions ?? request.SimilarQuestions;
+            var source = request.ExpectedQuestions;
             return (source ?? new List<string>())
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
@@ -1491,11 +1510,11 @@ namespace AiDeskApi.Controllers
             return $"{bodySource}\n예상질문: {string.Join(" | ", expected)}";
         }
 
-        private async Task<KnowledgeBaseSimilarQuestion> BuildSimilarQuestionAsync(string question)
+        private async Task<KnowledgeBaseExpectedQuestion> BuildExpectedQuestionAsync(string question)
         {
             var trimmed = question.Trim();
 
-            return new KnowledgeBaseSimilarQuestion
+            return new KnowledgeBaseExpectedQuestion
             {
                 Question = trimmed,
                 CreatedAt = DateTime.UtcNow
@@ -1506,11 +1525,16 @@ namespace AiDeskApi.Controllers
         {
             name = name?.Trim();
             loginId = loginId?.Trim();
+            string value;
             if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(loginId))
-                return $"{name}({loginId})";
-            return !string.IsNullOrEmpty(name) ? name
+                value = $"{name}({loginId})";
+            else
+                value = !string.IsNullOrEmpty(name) ? name
                 : !string.IsNullOrEmpty(loginId) ? loginId
                 : "알 수 없음";
+
+            // KnowledgeBase.CreatedBy/UpdatedBy, ChatSession.ActorName 최대 길이(100)에 맞춤
+            return value.Length > 100 ? value[..100] : value;
         }
 
         private async Task<string> ResolveActorNameAsync(string? bodyUsername = null, string? bodyLoginId = null)
@@ -1540,7 +1564,10 @@ namespace AiDeskApi.Controllers
             // 3. X-Actor-Name 헤더 fallback
             if (Request.Headers.TryGetValue("X-Actor-Name", out var headerActor)
                 && !string.IsNullOrWhiteSpace(headerActor.ToString()))
-                return headerActor.ToString().Trim();
+            {
+                var actor = headerActor.ToString().Trim();
+                return actor.Length > 100 ? actor[..100] : actor;
+            }
 
             return "알 수 없음";
         }
@@ -1729,6 +1756,9 @@ namespace AiDeskApi.Controllers
         public int? SessionId { get; set; }
         public bool? CreateSession { get; set; }
         public bool? NoSave { get; set; }
+        /// <summary>최근 대화 이력을 메시지 개수 기준으로 지정 (기본 2, 최대 2)</summary>
+        public int? HistoryMessageCount { get; set; }
+        /// <summary>레거시 호환용 별칭. 실제 동작은 메시지 개수 기준으로 처리됨</summary>
         public int? HistoryTurnCount { get; set; }
         public AskPromptOverrideRequest? PromptOverride { get; set; }
         /// <summary>외부 위젯에서 전달하는 사용자 표시명 (예: 나성민)</summary>
@@ -1755,7 +1785,6 @@ namespace AiDeskApi.Controllers
         public string? Platform { get; set; }
         public string? Keywords { get; set; }
         public List<string>? ExpectedQuestions { get; set; }
-        public List<string>? SimilarQuestions { get; set; }
     }
 
     public class AddPlatformRequest
@@ -1763,7 +1792,7 @@ namespace AiDeskApi.Controllers
         public string? Name { get; set; }
     }
 
-    public class GenerateSimilarQuestionsRequest
+    public class GenerateExpectedQuestionsRequest
     {
         public string? Title { get; set; }
         public string? Content { get; set; }
@@ -1815,8 +1844,8 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
-        public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
-        public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
+        public string ExpectedQuestionSystemPrompt { get; set; } = string.Empty;
+        public string ExpectedQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
@@ -1827,8 +1856,8 @@ namespace AiDeskApi.Controllers
     {
         public string KeywordSystemPrompt { get; set; } = string.Empty;
         public string KeywordRulesPrompt { get; set; } = string.Empty;
-        public string SimilarQuestionSystemPrompt { get; set; } = string.Empty;
-        public string SimilarQuestionRulesPrompt { get; set; } = string.Empty;
+        public string ExpectedQuestionSystemPrompt { get; set; } = string.Empty;
+        public string ExpectedQuestionRulesPrompt { get; set; } = string.Empty;
         public string TopicKeywordSystemPrompt { get; set; } = string.Empty;
         public string TopicKeywordRulesPrompt { get; set; } = string.Empty;
         public string AnswerRefineSystemPrompt { get; set; } = string.Empty;
