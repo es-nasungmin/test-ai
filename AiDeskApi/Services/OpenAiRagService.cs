@@ -271,8 +271,7 @@ namespace AiDeskApi.Services
                         TopSimilarity = 0f,
                         IsLowSimilarity = true,
                         DecisionRule = "후보 없음",
-                        RelatedKBs = new List<KBSummary>(),
-                        RelatedDocuments = new List<DocumentReferenceSummary>()
+                        RelatedKBs = new List<KBSummary>()
                     };
                 }
 
@@ -376,10 +375,7 @@ namespace AiDeskApi.Services
                             Similarity = x.Item2,
                             MatchedQuestion = x.Item3,
                             IsSelected = selectedSet.Contains(x.Item1.Id)
-                        }).ToList(),
-                    RelatedDocuments = isLowSimilarity
-                        ? new List<DocumentReferenceSummary>()
-                        : new List<DocumentReferenceSummary>()
+                        }).ToList()
                 };
             }
             catch (Exception ex)
@@ -1015,7 +1011,6 @@ namespace AiDeskApi.Services
         public string? DecisionRule { get; set; }
         public RetrievalDiagnostics? RetrievalDiagnostics { get; set; }
         public List<KBSummary> RelatedKBs { get; set; } = new();
-        public List<DocumentReferenceSummary> RelatedDocuments { get; set; } = new();
     }
 
     public class RetrievalDiagnostics
@@ -1049,16 +1044,6 @@ namespace AiDeskApi.Services
         public float Similarity { get; set; }
         public string? MatchedQuestion { get; set; }
         public bool IsSelected { get; set; }
-    }
-
-    public class DocumentReferenceSummary
-    {
-        public int DocumentId { get; set; }
-        public int ChunkId { get; set; }
-        public string DocumentName { get; set; } = string.Empty;
-        public int PageNumber { get; set; }
-        public string Excerpt { get; set; } = string.Empty;
-        public float Similarity { get; set; }
     }
 
     public class RagRuntimeOptions

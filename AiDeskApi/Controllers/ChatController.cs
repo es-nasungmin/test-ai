@@ -259,15 +259,6 @@ namespace AiDeskApi.Controllers
                     .Take(clampedTop)
                     .ToList();
 
-                var topKeywords = normalized
-                    .SelectMany(x => ExtractKeywords(x.Original))
-                    .GroupBy(x => x)
-                    .Select(g => new { Keyword = g.Key, Count = g.Count() })
-                    .OrderByDescending(x => x.Count)
-                    .ThenBy(x => x.Keyword)
-                    .Take(12)
-                    .ToList();
-
                 var botQuery = _context.ChatMessages
                     .AsNoTracking()
                     .Where(m => m.Role == "bot" && m.CreatedAt >= fromUtc)
@@ -297,6 +288,16 @@ namespace AiDeskApi.Controllers
                 }
 
                 var botRows = await botQuery.ToListAsync();
+
+                // 주요 키워드는 "질문 문장 토큰"이 아니라 실제 매칭된 KB 메타의 matchedKeywords를 기준으로 집계
+                var topKeywords = botRows
+                    .SelectMany(x => ParseMatchedKeywords(x.RelatedKbMeta))
+                    .GroupBy(x => x)
+                    .Select(g => new { Keyword = g.Key, Count = g.Count() })
+                    .OrderByDescending(x => x.Count)
+                    .ThenBy(x => x.Keyword)
+                    .Take(12)
+                    .ToList();
 
                 // 답변 품질 지표 집계 (TopSimilarity / IsLowSimilarity 기반)
                 var qualityQuery = _context.ChatMessages
@@ -484,6 +485,65 @@ namespace AiDeskApi.Controllers
                 {
                     // ignore malformed json
                 }
+            }
+
+            return result;
+        }
+
+        private static IReadOnlyCollection<string> ParseMatchedKeywords(string? relatedKbMeta)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (string.IsNullOrWhiteSpace(relatedKbMeta))
+            {
+                return result;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(relatedKbMeta);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    return result;
+                }
+
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    if (item.TryGetProperty("isSelected", out var selectedProp)
+                        && selectedProp.ValueKind == JsonValueKind.False)
+                    {
+                        continue;
+                    }
+
+                    if (!item.TryGetProperty("matchedKeywords", out var keywordsProp)
+                        || keywordsProp.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var keyword in keywordsProp.EnumerateArray())
+                    {
+                        if (keyword.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
+                        var value = keyword.GetString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            result.Add(value.ToLowerInvariant());
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore malformed json
             }
 
             return result;

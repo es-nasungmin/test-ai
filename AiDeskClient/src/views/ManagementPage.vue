@@ -12,6 +12,7 @@ const props = defineProps({ user: Object })
 const emit = defineEmits(['openMyPage', 'logout'])
 
 const API_URL = API_BASE_URL
+const KB_FOCUS_STORAGE_KEY = 'aidesk.management.focusKbId'
 
 const error = ref('')
 const ACTIVE_PAGE_STORAGE_KEY = 'aidesk.management.activePage'
@@ -209,6 +210,63 @@ const loadingSummary = ref(false)
 const summaryDays = ref(7)
 const summaryTop = ref(10)
 const questionSummary = ref(null)
+const maxDailyQuestionCount = computed(() => {
+  const items = Array.isArray(questionSummary.value?.dailyCounts)
+    ? questionSummary.value.dailyCounts
+    : []
+
+  if (items.length === 0) return 1
+
+  return Math.max(
+    1,
+    ...items.map((item) => Number(item?.count ?? item?.Count ?? 0))
+  )
+})
+
+const dailyTrendSeries = computed(() => {
+  const items = Array.isArray(questionSummary.value?.dailyCounts)
+    ? questionSummary.value.dailyCounts
+    : []
+
+  return items
+    .map((item) => ({
+      date: item?.date ?? item?.Date,
+      count: Number(item?.count ?? item?.Count ?? 0)
+    }))
+    .filter((item) => !!item.date)
+})
+
+const dailyTrendPolyline = computed(() => {
+  const items = dailyTrendSeries.value
+  if (items.length === 0) return ''
+
+  const maxCount = Math.max(1, ...items.map((item) => item.count))
+  const w = 100
+  const h = 44
+
+  return items
+    .map((item, idx) => {
+      const x = items.length === 1 ? w / 2 : (idx / (items.length - 1)) * w
+      const y = h - (item.count / maxCount) * h
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    })
+    .join(' ')
+})
+
+const dailyTrendPoints = computed(() => {
+  const items = dailyTrendSeries.value
+  if (items.length === 0) return []
+
+  const maxCount = Math.max(1, ...items.map((item) => item.count))
+  const w = 100
+  const h = 44
+
+  return items.map((item, idx) => ({
+    ...item,
+    x: items.length === 1 ? w / 2 : (idx / (items.length - 1)) * w,
+    y: h - (item.count / maxCount) * h
+  }))
+})
 
 async function fetchSummaryPlatforms() {
   try {
@@ -231,6 +289,19 @@ async function fetchSummaryPlatforms() {
 
 const openChatWidgetHtmlExample = () => {
   window.open('/chat-widget-example.html', '_blank', 'noopener,noreferrer')
+}
+
+function openKbFromSummary(kb) {
+  const kbId = Number(kb?.kbId ?? kb?.KbId ?? 0)
+  if (!kbId || Number.isNaN(kbId)) return
+
+  try {
+    localStorage.setItem(KB_FOCUS_STORAGE_KEY, String(kbId))
+  } catch {
+    // ignore storage errors
+  }
+
+  activePage.value = 'kb'
 }
 
 watch([summaryDays, summaryTop], () => {
@@ -405,6 +476,10 @@ onMounted(() => {
           <div class="analysis-title-row">
             <h3>질문 분석 리포트</h3>
             <p>조회기간 {{ summaryDays }}일 기준 집계</p>
+            <div class="analysis-meta-chips">
+              <span class="analysis-meta-chip">총 질문 {{ questionSummary.totalQuestions || 0 }}건</span>
+              <span class="analysis-meta-chip">참조 KB {{ questionSummary.uniqueReferencedKbs || 0 }}건</span>
+            </div>
           </div>
 
           <!-- 답변 품질 대시보드 -->
@@ -463,55 +538,84 @@ onMounted(() => {
               <div class="kpi-label">참조 KB 수</div>
               <div class="kpi-value">{{ questionSummary.uniqueReferencedKbs || 0 }}</div>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card" :class="{ 'kpi-warn': (questionSummary.avgSimilarity ?? 0) < 0.7, 'kpi-good': (questionSummary.avgSimilarity ?? 0) >= 0.82 }">
               <div class="kpi-label">요청 상위 기준</div>
-              <div class="kpi-value">KB 참조 TOP {{ summaryTop }}</div>
+              <div class="kpi-value">{{ (questionSummary.avgSimilarity ?? 0).toFixed(3) }}</div>
+              <div class="kpi-sub">평균 유사도</div>
             </div>
-            <div class="kpi-card">
+            <div class="kpi-card" :class="{ 'kpi-warn': (questionSummary.lowSimilarityRate ?? 0) > 0.15, 'kpi-good': (questionSummary.lowSimilarityRate ?? 0) <= 0.08 }">
               <div class="kpi-label">집계 일수</div>
-              <div class="kpi-value">{{ questionSummary.dailyCounts?.length || 0 }}일</div>
+              <div class="kpi-value">{{ ((questionSummary.lowSimilarityRate ?? 0) * 100).toFixed(1) }}%</div>
+              <div class="kpi-sub">미매칭 비율</div>
             </div>
           </div>
 
-          <!-- 상위 참조 KB 섹션 -->
-          <div class="top-questions-section">
-            <h3>상위 {{ summaryTop }} 참조 KB</h3>
-            <div v-if="questionSummary.topReferencedKbs && questionSummary.topReferencedKbs.length > 0" class="questions-list">
-              <div v-for="(kb, idx) in questionSummary.topReferencedKbs" :key="`kb-${kb.kbId || kb.KbId || idx}`" class="question-item">
-                <div class="question-rank">{{ idx + 1 }}</div>
-                <div class="question-info">
-                  <div class="question-text">{{ kb.title || kb.Title || '제목 없음' }}</div>
-                  <div class="question-meta">
-                    <span class="meta-item">KB ID: #{{ kb.kbId || kb.KbId || '-' }}</span>
-                    <span class="meta-item">참조 수: {{ kb.count || kb.Count || 0 }}</span>
-                    <span class="meta-item">최근 참조: {{ formatDateTime(kb.lastReferencedAt || kb.LastReferencedAt) }}</span>
+          <div class="insight-grid">
+            <!-- 상위 참조 KB 섹션 -->
+            <div class="top-questions-section">
+              <h3>상위 {{ summaryTop }} 참조 KB</h3>
+              <div v-if="questionSummary.topReferencedKbs && questionSummary.topReferencedKbs.length > 0" class="questions-list">
+                <div v-for="(kb, idx) in questionSummary.topReferencedKbs" :key="`kb-${kb.kbId || kb.KbId || idx}`" class="question-item">
+                  <div class="question-rank">{{ idx + 1 }}</div>
+                  <div class="question-info">
+                    <div class="question-text">{{ kb.title || kb.Title || '제목 없음' }}</div>
+                    <div class="question-meta">
+                      <span class="meta-item">KB ID: #{{ kb.kbId || kb.KbId || '-' }}</span>
+                      <span class="meta-item">참조 수: {{ kb.count || kb.Count || 0 }}</span>
+                      <span class="meta-item">최근 참조: {{ formatDateTime(kb.lastReferencedAt || kb.LastReferencedAt) }}</span>
+                    </div>
+                    <div class="question-actions">
+                      <button class="open-kb-btn" type="button" @click="openKbFromSummary(kb)">KB 상세보기</button>
+                    </div>
                   </div>
                 </div>
               </div>
+              <div v-else class="empty-state">
+                데이터가 없습니다.
+              </div>
             </div>
-            <div v-else class="empty-state">
-              데이터가 없습니다.
-            </div>
-          </div>
 
-          <!-- 키워드 분석 섹션 -->
-          <div v-if="questionSummary.topKeywords" class="keywords-section">
-            <h3>주요 키워드</h3>
-            <div class="keywords-cloud">
-              <span v-for="(kw, idx) in questionSummary.topKeywords" :key="idx" class="keyword-tag">
-                {{ kw.keyword || kw.Keyword || kw }}
-                <strong v-if="kw.count || kw.Count">{{ kw.count || kw.Count }}</strong>
-              </span>
+            <!-- 키워드 분석 섹션 -->
+            <div v-if="questionSummary.topKeywords" class="keywords-section">
+              <h3>주요 키워드</h3>
+              <div class="keywords-cloud">
+                <span v-for="(kw, idx) in questionSummary.topKeywords" :key="idx" class="keyword-tag">
+                  {{ kw.keyword || kw.Keyword || kw }}
+                  <strong v-if="kw.count || kw.Count">{{ kw.count || kw.Count }}</strong>
+                </span>
+              </div>
             </div>
           </div>
 
           <!-- 일일 질문 수 섹션 -->
           <div v-if="questionSummary.dailyCounts" class="daily-counts-section">
             <h3>일일 질문 수</h3>
+            <div v-if="dailyTrendSeries.length > 1" class="daily-trend-chart-wrap">
+              <svg viewBox="0 0 100 44" preserveAspectRatio="none" class="daily-trend-chart" aria-label="일일 질문 수 추이">
+                <polyline :points="dailyTrendPolyline" fill="none" stroke="url(#dailyLineGradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                <circle
+                  v-for="(pt, idx) in dailyTrendPoints"
+                  :key="`daily-point-${idx}`"
+                  :cx="pt.x"
+                  :cy="pt.y"
+                  r="1.3"
+                  fill="#3b82f6"
+                />
+                <defs>
+                  <linearGradient id="dailyLineGradient" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#8eb8ff" />
+                    <stop offset="100%" stop-color="#2563eb" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
             <div class="daily-counts-list">
               <div v-for="(item, idx) in questionSummary.dailyCounts" :key="idx" class="daily-item">
                 <div class="daily-date">{{ formatDate(item.date || item.Date) }}</div>
-                <div class="daily-count">{{ item.count || 0 }}건</div>
+                <div class="daily-bar-wrap">
+                  <div class="daily-bar" :style="{ width: (((item.count ?? item.Count ?? 0) / maxDailyQuestionCount) * 100) + '%' }"></div>
+                </div>
+                <div class="daily-count">{{ item.count || item.Count || 0 }}건</div>
               </div>
             </div>
           </div>
@@ -914,9 +1018,10 @@ onMounted(() => {
 
 .analysis-title-row {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .analysis-title-row h3 {
@@ -930,6 +1035,26 @@ onMounted(() => {
   margin: 0;
   font-size: 13px;
   color: #64748b;
+}
+
+.analysis-meta-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.analysis-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe6f2;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 10px;
 }
 
 /* =====================================================
@@ -972,6 +1097,11 @@ onMounted(() => {
 .quality-kpi-card.kpi-good {
   background: #f0fdf4;
   border-color: #bbf7d0;
+}
+
+.quality-kpi-card.kpi-danger {
+  background: #fff1f2;
+  border-color: #fecdd3;
 }
 
 .quality-kpi-label {
@@ -1054,10 +1184,26 @@ onMounted(() => {
 }
 
 .kpi-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #fbfdff 0%, #f3f8ff 100%);
+  border: 1px solid #dbe6f2;
   border-radius: 10px;
   padding: 16px 18px;
+}
+
+.kpi-card.kpi-warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.kpi-card.kpi-good {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
 .top-questions-section,
@@ -1124,6 +1270,26 @@ onMounted(() => {
   gap: 8px;
 }
 
+.question-actions {
+  margin-top: 8px;
+}
+
+.open-kb-btn {
+  border: 1px solid #bcd4fb;
+  border-radius: 8px;
+  background: #f3f8ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.open-kb-btn:hover {
+  background: #e9f1ff;
+  border-color: #93baf5;
+}
+
 .meta-item {
   font-size: 12px;
   color: #64748b;
@@ -1131,13 +1297,17 @@ onMounted(() => {
 
 .keywords-cloud {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 
 .keyword-tag {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
   border-radius: 999px;
   padding: 8px 12px;
@@ -1157,11 +1327,25 @@ onMounted(() => {
   gap: 8px;
 }
 
+.daily-trend-chart-wrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fbfdff;
+  padding: 10px 12px 8px;
+  margin-bottom: 10px;
+}
+
+.daily-trend-chart {
+  width: 100%;
+  height: 88px;
+  display: block;
+}
+
 .daily-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 112px 1fr auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border: 1px dashed #d0d7de;
   border-radius: 10px;
   padding: 10px 12px;
@@ -1178,6 +1362,22 @@ onMounted(() => {
   font-size: 13px;
   color: #0d6efd;
   font-weight: 700;
+  min-width: 54px;
+  text-align: right;
+}
+
+.daily-bar-wrap {
+  height: 8px;
+  border-radius: 999px;
+  background: #e5edf7;
+  overflow: hidden;
+}
+
+.daily-bar {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #9cc3ff 0%, #3b82f6 100%);
 }
 
 .empty-state {
@@ -1435,6 +1635,10 @@ onMounted(() => {
   .kpi-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1527,12 +1731,26 @@ onMounted(() => {
     width: 100%;
   }
 
+  .analysis-meta-chips {
+    margin-left: 0;
+    width: 100%;
+  }
+
   .kpi-cards {
     grid-template-columns: 1fr;
   }
 
   .question-item {
     grid-template-columns: 1fr;
+  }
+
+  .daily-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .daily-count {
+    text-align: left;
   }
 }
 </style>

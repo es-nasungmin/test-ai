@@ -96,7 +96,6 @@ erDiagram
         datetime CreatedAt
         string  RelatedKbIds         "JSON 배열, nullable"
         string  RelatedKbMeta        "JSON 배열, nullable"
-        string  RelatedDocumentMeta  "JSON 배열, nullable"
         string  RetrievalDebugMeta   "JSON, nullable"
         float   TopSimilarity        "nullable"
         bool    IsLowSimilarity

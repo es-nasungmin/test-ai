@@ -43,12 +43,16 @@
 1. 본문 임베딩
    - 모델: `text-embedding-3-small` (OpenAI)
    - 입력: 제목 + 내용 결합 텍스트
-   - 저장: `KnowledgeBase.ProblemEmbedding` (JSON 문자열)
+   - 저장: Qdrant `document` 포인트 벡터로 저장 (RDB 컬럼 미사용)
 
 2. 예상질문 임베딩
    - 모델: 동일
    - 입력: 예상질문 각각을 개별 임베딩
-   - 저장: `KnowledgeBaseSimilarQuestion.QuestionEmbedding`
+   - 저장: Qdrant `expected` 포인트 벡터로 저장 (RDB 컬럼 미사용)
+
+참고:
+- 현재 구현은 임베딩을 DB 엔티티 컬럼에 저장하지 않습니다.
+- `QdrantVectorSearchService.BuildPointsAsync`에서 upsert 시점에 즉시 임베딩을 생성합니다.
 
 ### 2.3 벡터 인덱싱 (Qdrant)
 
@@ -66,8 +70,9 @@ payload 주요 필드:
 
 참고:
 - 여기서 `document`는 업로드 문서 타입이 아니라 "KB 본문 임베딩 포인트"를 의미합니다.
-
-> 앱 기동 시 `SyncAllKnowledgeBasesAsync`로 전체 KB 재동기화를 수행합니다.
+- 현재 `Program.cs`에는 앱 시작 시 `SyncAllKnowledgeBasesAsync` 자동 실행이 없습니다.
+- 전체 재동기화/재구축은 관리자 API(`reindex-all`, `rebuild-vector-index`)로 수동 실행합니다.
+- 일상 동기화는 KB 생성/수정/삭제 시점에 `UpsertKnowledgeBaseAsync`/`DeleteKnowledgeBaseAsync`로 처리됩니다.
 
 ---
 
@@ -90,7 +95,7 @@ payload 주요 필드:
                 고신뢰 조건 해당 시: 점수 내림차순 정렬만 (LLM 호출 없음)
                 일반 조건 시: GPT에 10개 → 상위 8개로 재정렬 (ReRankTopK)
     ↓ [6단계] FinalTopK 5개 → 유사도 임계치(0.5) 필터링
-   ↓ [7단계] eligible 상위 3개 점수순 선택 → selectedResults 확정
+   ↓ [7단계] eligible 상위 3개(재정렬 순서 기준) 선택 → selectedResults 확정
    ↓ [8단계] 답변 생성 (GPT 1회 호출)
     ↓ 최종 응답
 ```
@@ -104,6 +109,8 @@ payload 주요 필드:
 | 안됨, 안돼요, 불가, 조회 불가 | 안돼 |
 | 안보임, 안보여요 | 안보여 |
 | 연속 공백 | 단일 공백 |
+
+추가로, 짧은 후속 질문(예: "그럼 안돼?")으로 판단되면 직전 사용자 발화(최대 1개)를 임베딩 입력 앞에 결합해 검색 품질을 보정합니다.
 
 ### 3.2 질문 임베딩 생성
 
@@ -169,12 +176,12 @@ payload 주요 필드:
 - topResults 중 FinalScore ≥ 0.5 인 것만 eligibleResults (답변 근거 대상)
 - topResults가 0개이거나 1위 점수가 0.5 미만이면 저유사도 안내문 반환
 
-### 3.7 상위 3개 점수순 선택 — selectedResults 확정
+### 3.7 상위 3개(재정렬 순서 기준) 선택 — selectedResults 확정
 
 충돌 투표/다수결은 사용하지 않습니다.
 
-1. `eligibleResults`를 FinalScore 내림차순으로 정렬
-2. 상위 3개(`AnswerContextTopK`)를 `selectedResults`로 확정
+1. `eligibleResults`(이미 `topResults` 순서=rerank 결과 순서)를 기준으로
+2. 앞에서부터 상위 3개(`AnswerContextTopK`)를 `selectedResults`로 확정
 3. `selectedResults`만 ViewCount 증가, 답변 근거, 집계 대상으로 사용
 
 ### 3.8 답변 생성 (GPT 1회 호출)
@@ -228,7 +235,7 @@ payload 주요 필드:
 | KeywordBoostPerMatch | 0.01 | OpenAiRagService.cs |
 | MaxKeywordBoost | 0.03 | OpenAiRagService.cs |
 | SimilarityThreshold | 0.5 | ChatbotPromptTemplateService.cs |
-| Embedding Model | text-embedding-3-small | appsettings.json |
+| Embedding Model | text-embedding-3-small | OpenAiEmbeddingService.cs |
 | Chat Model | gpt-4o-mini | appsettings.json |
 
 ---
@@ -255,7 +262,7 @@ payload 주요 필드:
 12. 유사도 임계치(0.5) 필터 → eligibleResults
     ├─ 0개 또는 임계치 미달 → 저유사도 안내문 반환 (LLM 없음)
     └─ 1개 이상 → 다음 단계
-13. eligible 상위 3개 점수순 선택 → selectedResults
+13. eligible 상위 3개(재정렬 순서 기준) 선택 → selectedResults
 14. 컨텍스트 구성(최대 3개) + GPT 답변 생성
 15. selectedResults 기준 ViewCount 증가 + 집계 반영
 16. 클라이언트에 응답 반환
@@ -267,7 +274,7 @@ payload 주요 필드:
 
 | 역할 | 파일 |
 |------|------|
-| RAG 본체 (검색/병합/rerank/투표/응답) | `AiDeskApi/Services/OpenAiRagService.cs` |
+| RAG 본체 (검색/병합/rerank/응답) | `AiDeskApi/Services/OpenAiRagService.cs` |
 | 임베딩 생성 | `AiDeskApi/Services/OpenAiEmbeddingService.cs` |
 | Qdrant 인덱싱/검색 | `AiDeskApi/Services/QdrantVectorSearchService.cs` |
 | 임계치/프롬프트 템플릿 | `AiDeskApi/Services/ChatbotPromptTemplateService.cs` |

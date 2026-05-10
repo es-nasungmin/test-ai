@@ -4,6 +4,7 @@ import axios from 'axios'
 import { API_BASE_URL } from '../../config'
 
 const API_URL = API_BASE_URL
+const KB_FOCUS_STORAGE_KEY = 'aidesk.management.focusKbId'
 
 const kbList = ref([])
 const loading = ref(false)
@@ -872,6 +873,17 @@ function hasUpdateHistory(kb) {
 }
 
 onMounted(async () => {
+  try {
+    const focusKbId = Number(localStorage.getItem(KB_FOCUS_STORAGE_KEY) || 0)
+    if (focusKbId > 0) {
+      keyword.value = `#${focusKbId}`
+      kbPage.value = 1
+      localStorage.removeItem(KB_FOCUS_STORAGE_KEY)
+    }
+  } catch {
+    // ignore storage access errors
+  }
+
   await fetchPlatforms()
   await fetchKbs()
   await fetchLowSimilarityQuestions()
@@ -1184,6 +1196,46 @@ async function onCsvFileSelected(event) {
           </div>
         </template>
 
+      </div>
+    </div>
+
+    <!-- 재임베딩 진행 오버레이 -->
+    <div v-if="rebuildingVectorIndex" class="modal-overlay" @click.stop>
+      <div class="modal-box bulk-modal" @click.stop>
+        <div class="bulk-modal-head">
+          <h3>재임베딩 진행 중</h3>
+        </div>
+
+        <div class="bulk-progress-wrap">
+          <div class="bulk-loading-hero">
+            <div class="bulk-spinner" aria-hidden="true"></div>
+            <div class="bulk-loading-copy">
+              <p class="bulk-loading-title">전체 KB 재임베딩 중입니다…</p>
+              <p class="bulk-loading-sub">Qdrant 인덱스 초기화 및 벡터 재생성이 진행 중이니 잠시만 기다려 주세요.</p>
+            </div>
+          </div>
+
+          <div class="bulk-progress-card">
+            <div class="bulk-progress-row">
+              <span>Qdrant 인덱스 초기화</span>
+              <strong>진행 중</strong>
+            </div>
+            <div class="bulk-progress-row">
+              <span>KB 임베딩 재생성</span>
+              <strong>진행 중</strong>
+            </div>
+            <div class="bulk-progress-row">
+              <span>완료 알림</span>
+              <strong>대기</strong>
+            </div>
+
+            <div class="bulk-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-busy="true">
+              <div class="bulk-progress-indeterminate"></div>
+            </div>
+
+            <p class="bulk-progress-hint">작업이 완료되면 완료 안내가 자동으로 표시됩니다.</p>
+          </div>
+        </div>
       </div>
     </div>
 

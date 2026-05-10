@@ -58,7 +58,6 @@ Response 200 (예시)
       "isSelected": true
     }
   ],
-  "relatedDocuments": [],
   "conflictDetected": false,
   "decisionRule": "단일 해법",
   "retrievalDiagnostics": {

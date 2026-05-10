@@ -276,17 +276,6 @@ function handleOpenEvent(event) {
               </div>
             </div>
 
-            <div v-if="isAdmin && msg.relatedDocuments && msg.relatedDocuments.length" class="related">
-              <div class="related-label">📄 참고한 문서</div>
-              <div v-for="(doc, j) in msg.relatedDocuments" :key="j" class="kb-chip doc-chip">
-                <span class="sim">{{ Math.round(doc.similarity * 100) }}%</span>
-                <div class="kb-texts">
-                  <div class="kb-problem">{{ doc.displayName }}</div>
-                  <div class="kb-badge">p.{{ doc.pageNumber }}</div>
-                </div>
-              </div>
-            </div>
-
             <div class="msg-time">{{ msg.time }}</div>
           </div>
           <div v-if="msg.role === 'user'" class="avatar avatar-user" :class="isAdmin ? 'is-admin' : 'is-user'">

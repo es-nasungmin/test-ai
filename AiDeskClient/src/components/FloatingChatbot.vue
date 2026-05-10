@@ -169,7 +169,6 @@ async function send() {
       role: 'bot',
       text: res.data.answer,
       relatedKBs: res.data.relatedKBs || [],
-      relatedDocuments: res.data.relatedDocuments || [],
       time: now()
     })
   } catch (err) {
@@ -279,17 +278,6 @@ function onCompositionEnd() { isComposing.value = false }
                   <div v-if="kb.matchedQuestion" class="kb-badge">
                     매칭 질문: {{ kb.matchedQuestion }}
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="isAdmin && msg.relatedDocuments && msg.relatedDocuments.length" class="related">
-              <div class="related-label">📄 참고한 문서</div>
-              <div v-for="(doc, j) in msg.relatedDocuments" :key="j" class="kb-chip doc-chip">
-                <span class="sim">{{ Math.round(doc.similarity * 100) }}%</span>
-                <div class="kb-texts">
-                  <div class="kb-problem">{{ doc.displayName }}</div>
-                  <div class="kb-badge">p.{{ doc.pageNumber }}</div>
                 </div>
               </div>
             </div>

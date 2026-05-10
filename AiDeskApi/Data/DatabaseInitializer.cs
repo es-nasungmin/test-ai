@@ -304,7 +304,6 @@ namespace AiDeskApi.Data
                 CreatedAt TEXT NOT NULL,
                 RelatedKbIds TEXT NULL,
                 RelatedKbMeta TEXT NULL,
-                RelatedDocumentMeta TEXT NULL,
                 RetrievalDebugMeta TEXT NULL,
                 TopSimilarity REAL NULL,
                 IsLowSimilarity INTEGER NOT NULL DEFAULT 0,
@@ -314,14 +313,14 @@ namespace AiDeskApi.Data
 
             EnsureColumnExists(db, "ChatMessages", "RelatedKbMeta",
                 "ALTER TABLE ChatMessages ADD COLUMN RelatedKbMeta TEXT NULL;");
-            EnsureColumnExists(db, "ChatMessages", "RelatedDocumentMeta",
-                "ALTER TABLE ChatMessages ADD COLUMN RelatedDocumentMeta TEXT NULL;");
             EnsureColumnExists(db, "ChatMessages", "RetrievalDebugMeta",
                 "ALTER TABLE ChatMessages ADD COLUMN RetrievalDebugMeta TEXT NULL;");
             EnsureColumnExists(db, "ChatMessages", "TopSimilarity",
                 "ALTER TABLE ChatMessages ADD COLUMN TopSimilarity REAL NULL;");
             EnsureColumnExists(db, "ChatMessages", "IsLowSimilarity",
                 "ALTER TABLE ChatMessages ADD COLUMN IsLowSimilarity INTEGER NOT NULL DEFAULT 0;");
+
+            EnsureChatMessagesTableSchema(db);
 
             db.Database.ExecuteSqlRaw(@"
             CREATE INDEX IF NOT EXISTS IX_ChatMessages_SessionId
@@ -363,6 +362,8 @@ namespace AiDeskApi.Data
                 WHERE [Tags] IS NOT NULL
                   AND ( [Keywords] IS NULL OR LTRIM(RTRIM([Keywords])) = '' );");
             }
+
+                        EnsureChatMessagesSchemaSqlServer(db);
         }
 
         /// <summary>
@@ -798,6 +799,72 @@ namespace AiDeskApi.Data
 
             db.Database.ExecuteSqlRaw("DROP TABLE KnowledgeBaseWriterPromptTemplates_Legacy;");
             db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+        }
+
+        private static void EnsureChatMessagesTableSchema(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlite() || !HasTable(db, "ChatMessages"))
+            {
+                return;
+            }
+
+            // 더 이상 사용하지 않는 RelatedDocumentMeta 컬럼이 남아 있으면 테이블 재생성으로 제거
+            if (!HasColumn(db, "ChatMessages", "RelatedDocumentMeta"))
+            {
+                return;
+            }
+
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF;");
+            db.Database.ExecuteSqlRaw("ALTER TABLE ChatMessages RENAME TO ChatMessages_Legacy;");
+
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE ChatMessages (
+                Id INTEGER NOT NULL CONSTRAINT PK_ChatMessages PRIMARY KEY AUTOINCREMENT,
+                SessionId INTEGER NOT NULL,
+                Role TEXT NOT NULL,
+                Content TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                RelatedKbIds TEXT NULL,
+                RelatedKbMeta TEXT NULL,
+                RetrievalDebugMeta TEXT NULL,
+                TopSimilarity REAL NULL,
+                IsLowSimilarity INTEGER NOT NULL DEFAULT 0,
+                CONSTRAINT FK_ChatMessages_ChatSessions_SessionId
+                    FOREIGN KEY (SessionId) REFERENCES ChatSessions (Id) ON DELETE CASCADE
+            );");
+
+            db.Database.ExecuteSqlRaw(@"
+            INSERT INTO ChatMessages (Id, SessionId, Role, Content, CreatedAt, RelatedKbIds, RelatedKbMeta, RetrievalDebugMeta, TopSimilarity, IsLowSimilarity)
+            SELECT
+                Id,
+                SessionId,
+                Role,
+                Content,
+                CreatedAt,
+                RelatedKbIds,
+                RelatedKbMeta,
+                RetrievalDebugMeta,
+                TopSimilarity,
+                COALESCE(IsLowSimilarity, 0)
+            FROM ChatMessages_Legacy;");
+
+            db.Database.ExecuteSqlRaw("DROP TABLE ChatMessages_Legacy;");
+            db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+        }
+
+        private static void EnsureChatMessagesSchemaSqlServer(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlServer() || !HasTable(db, "ChatMessages"))
+            {
+                return;
+            }
+
+            if (!HasColumn(db, "ChatMessages", "RelatedDocumentMeta"))
+            {
+                return;
+            }
+
+            db.Database.ExecuteSqlRaw("ALTER TABLE [dbo].[ChatMessages] DROP COLUMN [RelatedDocumentMeta];");
         }
 
         private static void CreateKnowledgeBaseWriterPromptTemplateTable(AiDeskContext db)
