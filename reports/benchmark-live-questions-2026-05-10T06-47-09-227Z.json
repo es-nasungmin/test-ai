@@ -1,0 +1,156 @@
+{
+  "meta": {
+    "sessionsCount": 3,
+    "kbCount": null,
+    "caseCount": 4
+  },
+  "sequentialSummary": {
+    "total": 4,
+    "systemSuccessRate": 1,
+    "qualityConsistencyRate": 0.75,
+    "avgLatencyMs": 2023,
+    "p50LatencyMs": 926,
+    "p95LatencyMs": 4329,
+    "p99LatencyMs": 4329,
+    "similarityDeltaAvg": 0.2881198975,
+    "similarityDeltaP95": 0.78946054,
+    "qualityReasonBreakdown": {
+      "low_similarity_match": 2,
+      "non_low_similarity": 1,
+      "unexpected_low_similarity": 1
+    }
+  },
+  "concurrentSummary": {
+    "total": 4,
+    "concurrency": 8,
+    "elapsedSec": 4.015,
+    "throughputRps": 0.9962640099626402,
+    "systemSuccessRate": 1,
+    "avgLatencyMs": 1698.5,
+    "p50LatencyMs": 1160,
+    "p95LatencyMs": 4013,
+    "p99LatencyMs": 4013
+  },
+  "sequentialRows": [
+    {
+      "sessionId": 5,
+      "question": "ㅋㅋㅋㅋㅋ",
+      "role": "user",
+      "platform": "전체 플랫폼",
+      "expectedIsLowSimilarity": true,
+      "expectedTopSimilarity": 0.45645928,
+      "expectedSelectedKbIds": [],
+      "expectedTopKbTitle": null,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 2435,
+      "answerLength": 42,
+      "actualIsLowSimilarity": true,
+      "actualTopKbTitle": "해외송금 점검 절차",
+      "actualTopSimilarity": 0.2354388,
+      "similarityDelta": 0.22102048000000002,
+      "qualitySuccess": true,
+      "qualityReason": "low_similarity_match"
+    },
+    {
+      "sessionId": 4,
+      "question": "인증서가 안보여",
+      "role": "user",
+      "platform": "전체 플랫폼",
+      "expectedIsLowSimilarity": false,
+      "expectedTopSimilarity": 1.0000001,
+      "expectedSelectedKbIds": [
+        43,
+        39,
+        4
+      ],
+      "expectedTopKbTitle": null,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 4329,
+      "answerLength": 233,
+      "actualIsLowSimilarity": false,
+      "actualTopKbTitle": "인증서 사용 안내",
+      "actualTopSimilarity": 0.858047,
+      "similarityDelta": 0.14195310000000005,
+      "qualitySuccess": true,
+      "qualityReason": "non_low_similarity"
+    },
+    {
+      "sessionId": 4,
+      "question": "배고파",
+      "role": "user",
+      "platform": "전체 플랫폼",
+      "expectedIsLowSimilarity": true,
+      "expectedTopSimilarity": 0.2411255,
+      "expectedSelectedKbIds": [],
+      "expectedTopKbTitle": null,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 926,
+      "answerLength": 42,
+      "actualIsLowSimilarity": true,
+      "actualTopKbTitle": "해외법인설립 추가 점검",
+      "actualTopSimilarity": 0.24117097,
+      "similarityDelta": 0.00004547000000001966,
+      "qualitySuccess": true,
+      "qualityReason": "low_similarity_match"
+    },
+    {
+      "sessionId": 1,
+      "question": "인증서 조회가 되지 않는 경우에 어떻게 해야해?",
+      "role": "user",
+      "platform": "트러스트온",
+      "expectedIsLowSimilarity": false,
+      "expectedTopSimilarity": 0.78946054,
+      "expectedSelectedKbIds": [
+        43
+      ],
+      "expectedTopKbTitle": null,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 402,
+      "answerLength": 29,
+      "actualIsLowSimilarity": true,
+      "actualTopKbTitle": null,
+      "actualTopSimilarity": 0,
+      "similarityDelta": 0.78946054,
+      "qualitySuccess": false,
+      "qualityReason": "unexpected_low_similarity"
+    }
+  ],
+  "concurrentRows": [
+    {
+      "idx": 3,
+      "workerId": 4,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 459,
+      "answerLength": 29
+    },
+    {
+      "idx": 2,
+      "workerId": 3,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 1160,
+      "answerLength": 42
+    },
+    {
+      "idx": 0,
+      "workerId": 1,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 1162,
+      "answerLength": 42
+    },
+    {
+      "idx": 1,
+      "workerId": 2,
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 4013,
+      "answerLength": 223
+    }
+  ]
+}

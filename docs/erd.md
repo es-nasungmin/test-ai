@@ -1,127 +1,144 @@
-# AiDesk ERD (Entity Relationship Diagram)
-
-> Mermaid ERD 기준. SQLite(개발) / MSSQL(운영) 공통 스키마.
+# AiDesk ERD (현재 스키마 기준)
 
 ```mermaid
 erDiagram
-
-    %% ─────────────────────────────────────────
-    %% 인증
-    %% ─────────────────────────────────────────
     Users {
-        int     Id          PK
-        string  LoginId     "UNIQUE, max 50"
-        string  Username    "max 50"
-        string  PasswordHash
-        string  Role        "admin | user"
-        bool    IsActive
-        bool    IsApproved
+        int Id PK
+        string LoginId
+        string Username
+        string PasswordHash
+        string Role
+        string Status
         datetime CreatedAt
-        datetime ApprovedAt  "nullable"
-        datetime LastLoginAt "nullable"
+        datetime ApprovedAt
+        datetime LastLoginAt
     }
 
-    %% ─────────────────────────────────────────
-    %% 지식베이스 (KB)
-    %% ─────────────────────────────────────────
     KnowledgeBases {
-        int     Id               PK
-        string  Title            "max 200, nullable"
-        string  Problem          "max 500"
-        string  Solution
-        string  ProblemEmbedding "벡터 JSON, nullable"
+        int Id PK
+        string Title
+        string Content
         datetime CreatedAt
         datetime UpdatedAt
-        string  CreatedBy        "max 100"
-        string  UpdatedBy        "max 100"
-        int     ViewCount
-        string  Visibility       "admin | user"
-        string  Platform         "공통 | windows | ..."
-        string  Keywords         "Tags 컬럼명, nullable"
+        string CreatedBy
+        string UpdatedBy
+        int ViewCount
+        string Visibility
+        string Platform
+        string Keywords
     }
 
-    KnowledgeBaseSimilarQuestions {
-        int     Id               PK
-        int     KnowledgeBaseId  FK
-        string  Question         "max 500"
-        string  QuestionEmbedding "벡터 JSON, nullable"
+    KnowledgeBaseExpectedQuestions {
+        int Id PK
+        int KnowledgeBaseId FK
+        string Question
         datetime CreatedAt
     }
 
-    KnowledgeBases ||--o{ KnowledgeBaseSimilarQuestions : "has"
+    KnowledgeBaseHistories {
+        int Id PK
+        int KnowledgeBaseId
+        string Action
+        string Actor
+        datetime ChangedAt
+    }
+
+    KnowledgeBaseExpectedQuestionHistories {
+        int Id PK
+        int KnowledgeBaseId
+        int ExpectedQuestionId
+        string Action
+        string Actor
+        datetime ChangedAt
+    }
 
     KbPlatforms {
-        int     Id        PK
-        string  Name      "UNIQUE, max 50"
-        bool    IsActive
+        int Id PK
+        string Name
+        bool IsActive
         datetime CreatedAt
     }
-
 
     LowSimilarityQuestions {
-        int     Id                PK
-        string  Question          "max 1000"
-        string  Role              "max 20"
-        string  ActorName         "max 100"
-        string  Platform          "max 50"
-        float   TopSimilarity
-        string  TopMatchedQuestion  "max 500, nullable"
-        string  TopMatchedKbTitle   "max 200, nullable"
-        string  TopMatchedKbContent "nullable"
-        int     SessionId           "FK nullable"
+        int Id PK
+        string Question
+        string Role
+        string ActorName
+        string Platform
+        float TopSimilarity
+        string TopMatchedQuestion
+        string TopMatchedKbTitle
+        string TopMatchedKbContent
+        int SessionId
         datetime CreatedAt
-        bool    IsResolved
-        datetime ResolvedAt       "nullable"
+        bool IsResolved
+        datetime ResolvedAt
     }
 
-    %% ─────────────────────────────────────────
-    %% 챗봇 세션 / 메시지
-    %% ─────────────────────────────────────────
-    ChatSessions {
-        int     Id           PK
-        string  Title        "nullable"
-        string  UserRole     "admin | user"
-        string  ActorName    "max 100"
-        string  Platform     "max 50"
+    KnowledgeBaseWriterPromptTemplates {
+        int Id PK
+        string KeywordSystemPrompt
+        string KeywordRulesPrompt
+        string ExpectedQuestionSystemPrompt
+        string ExpectedQuestionRulesPrompt
+        string TopicKeywordSystemPrompt
+        string TopicKeywordRulesPrompt
+        string AnswerRefineSystemPrompt
+        string AnswerRefineRulesPrompt
         datetime CreatedAt
         datetime UpdatedAt
-        int     MessageCount
+    }
+
+    ChatSessions {
+        int Id PK
+        string Title
+        string UserRole
+        string ActorName
+        string Platform
+        datetime CreatedAt
+        datetime UpdatedAt
+        int MessageCount
     }
 
     ChatMessages {
-        int     Id                   PK
-        int     SessionId            FK
-        string  Role                 "user | bot"
-        string  Content
+        int Id PK
+        int SessionId FK
+        string Role
+        string Content
         datetime CreatedAt
-        string  RelatedKbIds         "JSON 배열, nullable"
-        string  RelatedKbMeta        "JSON 배열, nullable"
-        string  RetrievalDebugMeta   "JSON, nullable"
-        float   TopSimilarity        "nullable"
-        bool    IsLowSimilarity
+        string RelatedKbIds
+        string RelatedKbMeta
+        string RetrievalDebugMeta
+        float TopSimilarity
+        bool IsLowSimilarity
     }
 
-    ChatSessions ||--o{ ChatMessages : "has"
+    KnowledgeBases ||--o{ KnowledgeBaseExpectedQuestions : has
+    ChatSessions ||--o{ ChatMessages : has
 ```
 
 ## 테이블 요약
 
-| 그룹 | 테이블 | 설명 |
-|------|--------|------|
-| 인증 | `Users` | 사용자 계정 (LoginId + Username, 관리자 승인 기반) |
-| 지식베이스 | `KnowledgeBases` | 문제(Problem)+해결(Solution) 형식 KB 항목 |
-| 지식베이스 | `KnowledgeBaseSimilarQuestions` | KB별 유사 질문 (벡터 검색용) |
-| 지식베이스 | `KbPlatforms` | 플랫폼 목록 (공통, windows, ...) |
+- `Users`: 로그인/권한/승인 상태
+- `KnowledgeBases`: KB 본문
+- `KnowledgeBaseExpectedQuestions`: KB별 예상질문
+- `KnowledgeBaseHistories`: KB 본문 변경 이력
+- `KnowledgeBaseExpectedQuestionHistories`: 예상질문 변경 이력
+- `KbPlatforms`: 플랫폼 마스터
+- `LowSimilarityQuestions`: 저유사도 질문 로그
+- `KnowledgeBaseWriterPromptTemplates`: KB 작성 보조 프롬프트
+- `ChatSessions`: 세션 메타
+- `ChatMessages`: 사용자/봇 메시지 + 검색 메타
 
-| 지식베이스 | `LowSimilarityQuestions` | 유사도 미달 질문 로그 (ActorName, SessionId 포함) |
-| 챗봇 | `ChatSessions` | 채팅 세션 (ActorName 포함) |
-| 챗봇 | `ChatMessages` | 세션별 메시지 |
+## 벡터 저장소(Qdrant)
 
-## 벡터 저장소 (Qdrant)
+RDB 외에 Qdrant `aidesk_kb` 컬렉션에 벡터를 저장합니다.
 
-SQLite/MSSQL 외에 Qdrant 컬렉션 `aidesk_kb` 에 벡터를 별도 저장합니다.
+- `document` 포인트: KB 본문 임베딩 (KB당 1개)
+- `expected` 포인트: 예상질문 임베딩 (질문당 1개)
 
-| 포인트 타입 | 연결 엔티티 | payload 필드 |
-|-------------|-------------|-------------|
-| KB 대표 질문 | `KnowledgeBases.Id` | `kb_id`, `type="representative"` |
-| KB 유사 질문 | `KnowledgeBaseSimilarQuestions.Id` | `kb_id`, `similar_question_id`, `type="similar"` |
+payload 주요 필드:
+- `kbId`, `type`, `question`, `visibility`, `platforms`, `keywords`, `updatedAt`
+
+노트:
+- 과거 문서의 `ProblemEmbedding`, `QuestionEmbedding` DB 컬럼 설명은 현재 구조와 다릅니다.

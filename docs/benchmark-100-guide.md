@@ -1,76 +1,87 @@
-# 100문항 자동 벤치 가이드
+# 벤치마크 실행 가이드
 
-## 1. 구성 파일
+이 문서는 현재 저장소의 벤치마크 스크립트 2종을 기준으로 작성되었습니다.
 
-1. scripts/demo-kb-catalog.js
-- 데모 KB 카탈로그(시드 데이터 원본)
+1. `scripts/benchmark-100.js`
+- 카탈로그/실시간 KB를 사용한 100문항 품질 벤치
 
-2. scripts/seed-demo-kb.js
-- 카탈로그 기반 테스트 KB 자동 주입 스크립트
+2. `scripts/benchmark-live-questions.js`
+- 저장된 실제 질문을 재실행하는 리플레이 벤치(품질 일관성 + 지연/부하)
 
-3. scripts/benchmark-100.js
-- 100문항(Positive 90 + Negative 10) 자동 평가 스크립트
+## 1. 100문항 벤치 (`benchmark-100.js`)
 
-## 2. 실행 순서
+### 케이스 구성
+- 기본: Positive 93 + Negative 7 = 총 100
+- `BENCH_CASESET=demo` (기본): `scripts/demo-kb-catalog.js` 기준
+- `BENCH_CASESET=live`: 현재 DB의 `visibility=user` KB 기준
 
-1. 테스트 KB 주입
-
-```bash
-node scripts/seed-demo-kb.js
-```
-
-옵션:
+### 실행
 
 ```bash
-# 기존 KB 삭제 없이 추가만
-RESET_BEFORE_SEED=false node scripts/seed-demo-kb.js
-```
-
-2. 100문항 벤치 실행
-
-```bash
+# 데모 카탈로그 기준
 node scripts/benchmark-100.js
+
+# 실시간 KB 기준
+BENCH_CASESET=live node scripts/benchmark-100.js
 ```
+
+### 합격 기준(스크립트 내부)
+- 시스템 성공률 >= 99.5%
+- 품질 성공률 >= 90.0%
+- 미달 시 종료 코드 2
+
+## 2. 저장 질문 리플레이 벤치 (`benchmark-live-questions.js`)
+
+저장된 채팅 질문을 모아 재질의하고, 기존 결과와의 일관성을 측정합니다.
+
+### 핵심 지표
+- 순차 리플레이
+- 시스템 성공률
+- 품질 일관성률
+- 평균/P50/P95/P99 지연
+- TopSimilarity 차이(Delta)
+
+- 동시 부하 리플레이
+- 시스템 성공률
+- 평균/P50/P95/P99 지연
+- Throughput(req/s)
+
+### 실행
+
+```bash
+# 기본 실행
+node scripts/benchmark-live-questions.js
+
+# 심화 실행(반복 샘플 확대)
+BENCH_REPLAY_ROUNDS=20 BENCH_CONCURRENCY=8 node scripts/benchmark-live-questions.js
+```
+
+환경 변수:
+- `BENCH_MAX_SESSIONS` (기본 300)
+- `BENCH_MAX_CASES` (기본 300)
+- `BENCH_REPLAY_ROUNDS` (기본 20)
+- `BENCH_CONCURRENCY` (기본 8)
+- `API_BASE_URL` (기본 `http://localhost:8080/api`)
+- `BENCH_AUTH_TOKEN` (관리자 API 필요 시)
 
 ## 3. 산출물
 
-스크립트 실행 후 reports 폴더에 아래 파일이 생성됩니다.
+`reports/`에 아래 파일이 생성됩니다.
 
-1. reports/benchmark-100-latest.json
-- 원시 결과
+- 100문항 벤치
+- `benchmark-100-latest.json`
+- `benchmark-100-latest.md`
 
-2. reports/benchmark-100-latest.md
-- 요약 리포트
+- 저장 질문 리플레이
+- `benchmark-live-questions-latest.json`
+- `benchmark-live-questions-latest.md`
 
-3. 타임스탬프 버전 파일
-- reports/benchmark-100-YYYY-MM-DDTHH-MM-SS-msZ.json
-- reports/benchmark-100-YYYY-MM-DDTHH-MM-SS-msZ.md
+각 실행 시 타임스탬프 버전도 함께 생성됩니다.
 
-## 4. 리포트 포맷
+## 4. 운영 게이트 권장
 
-요약 표 필수 항목:
+배포 직전 최소 2개 벤치를 모두 통과시키는 것을 권장합니다.
 
-1. 시스템 성공률
-2. 품질 성공률
-3. Positive 품질 성공률
-4. Negative 품질 성공률
-5. 평균/P50/P95 응답시간
-
-실패 케이스 표 필수 항목:
-
-1. 문항 ID
-2. 문항 유형(positive/negative)
-3. 질문 원문
-4. HTTP 상태코드
-5. 저유사도 여부
-6. 매칭된 KB 제목
-7. 품질 통과 여부
-
-## 5. 합격/불합격 기준
-
-스크립트 기준:
-
-1. 시스템 성공률 99.5% 미만 또는
-2. 품질 성공률 90.0% 미만
-
-이면 프로세스 종료 코드 2를 반환합니다.
+1. `BENCH_CASESET=live node scripts/benchmark-100.js`
+2. `BENCH_REPLAY_ROUNDS=20 BENCH_CONCURRENCY=8 node scripts/benchmark-live-questions.js`
+3. 두 리포트의 실패 케이스를 확인한 후 릴리스 판단
