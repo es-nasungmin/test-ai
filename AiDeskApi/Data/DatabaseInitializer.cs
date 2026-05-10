@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 
 namespace AiDeskApi.Data
 {
@@ -27,6 +28,9 @@ namespace AiDeskApi.Data
             {
                 InitializeSqlServerDatabase(db);
             }
+
+            // 과거 로그 JSON 스키마 정규화 (legacy 키 제거/치환)
+            EnsureChatMessageRetrievalMetaSchema(db);
 
             // SQLite/MSSQL 공통: 기본 관리자 계정 생성
             EnsureAdminUserExists(db);
@@ -274,6 +278,7 @@ namespace AiDeskApi.Data
             ON KnowledgeBaseExpectedQuestionHistories (KnowledgeBaseId, ChangedAt DESC);");
 
             EnsureKnowledgeBaseWriterPromptTemplateSchema(db);
+            EnsureChatbotPromptTemplateSchema(db);
 
             // ChatSessions 테이블 (다양한 필드 포함)
             db.Database.ExecuteSqlRaw(@"
@@ -337,6 +342,11 @@ namespace AiDeskApi.Data
             SET Platform = '공통'
             WHERE LOWER(TRIM(Platform)) = 'common';");
         }
+
+        /// <summary>
+        /// MS SQL Server 데이터베이스의 테이블 및 기본 데이터 초기화
+        /// </summary>
+
         private static void InitializeSqlServerDatabase(AiDeskContext db)
         {
             EnsureColumnExists(db, "KnowledgeBases", "Content",
@@ -344,24 +354,6 @@ namespace AiDeskApi.Data
 
             EnsureColumnExists(db, "KnowledgeBases", "Keywords",
                 "ALTER TABLE [KnowledgeBases] ADD [Keywords] nvarchar(500) NULL;");
-
-            if (HasColumn(db, "KnowledgeBases", "Solution"))
-            {
-                db.Database.ExecuteSqlRaw(@"
-                UPDATE [KnowledgeBases]
-                SET [Content] = COALESCE(NULLIF(LTRIM(RTRIM([Content])), ''), [Solution])
-                WHERE [Solution] IS NOT NULL
-                  AND ( [Content] IS NULL OR LTRIM(RTRIM([Content])) = '' );");
-            }
-
-            if (HasColumn(db, "KnowledgeBases", "Tags"))
-            {
-                db.Database.ExecuteSqlRaw(@"
-                UPDATE [KnowledgeBases]
-                SET [Keywords] = COALESCE(NULLIF(LTRIM(RTRIM([Keywords])), ''), [Tags])
-                WHERE [Tags] IS NOT NULL
-                  AND ( [Keywords] IS NULL OR LTRIM(RTRIM([Keywords])) = '' );");
-            }
 
                         EnsureChatMessagesSchemaSqlServer(db);
         }
@@ -388,8 +380,6 @@ namespace AiDeskApi.Data
                     PasswordHash = HashPassword(adminPassword),
                     Role = "admin",
                     Status = "approved",
-                    IsActive = true,
-                    IsApproved = true,
                     CreatedAt = DateTime.UtcNow,
                     ApprovedAt = DateTime.UtcNow
                 };
@@ -415,8 +405,6 @@ namespace AiDeskApi.Data
                 if (!string.Equals(adminUser.Status, "approved", StringComparison.OrdinalIgnoreCase))
                 {
                     adminUser.Status = "approved";
-                    adminUser.IsApproved = true;
-                    adminUser.IsActive = true;
                     adminUser.ApprovedAt ??= DateTime.UtcNow;
                     changed = true;
                 }
@@ -438,8 +426,6 @@ namespace AiDeskApi.Data
                 PasswordHash TEXT NOT NULL,
                 Role TEXT NOT NULL,
                 Status TEXT NOT NULL DEFAULT 'pending',
-                IsActive INTEGER NOT NULL,
-                IsApproved INTEGER NOT NULL,
                 CreatedAt TEXT NOT NULL,
                 ApprovedAt TEXT NULL,
                 LastLoginAt TEXT NULL
@@ -457,15 +443,13 @@ namespace AiDeskApi.Data
                     PasswordHash TEXT NOT NULL,
                     Role TEXT NOT NULL,
                     Status TEXT NOT NULL DEFAULT 'pending',
-                    IsActive INTEGER NOT NULL,
-                    IsApproved INTEGER NOT NULL,
                     CreatedAt TEXT NOT NULL,
                     ApprovedAt TEXT NULL,
                     LastLoginAt TEXT NULL
                 );");
 
                 db.Database.ExecuteSqlRaw(@"
-                INSERT INTO Users (Id, LoginId, Username, PasswordHash, Role, Status, IsActive, IsApproved, CreatedAt, ApprovedAt, LastLoginAt)
+                INSERT INTO Users (Id, LoginId, Username, PasswordHash, Role, Status, CreatedAt, ApprovedAt, LastLoginAt)
                 SELECT
                     Id,
                     COALESCE(NULLIF(TRIM(Username), ''), 'user_' || Id),
@@ -473,12 +457,9 @@ namespace AiDeskApi.Data
                     PasswordHash,
                     CASE WHEN LOWER(Role) = 'admin' THEN 'admin' ELSE 'user' END,
                     CASE
-                        WHEN IsActive = 0 THEN 'rejected'
-                        WHEN IsApproved = 1 THEN 'approved'
+                        WHEN Status IN ('approved', 'pending', 'deleted') THEN Status
                         ELSE 'pending'
                     END,
-                    IsActive,
-                    IsApproved,
                     CreatedAt,
                     ApprovedAt,
                     LastLoginAt
@@ -501,9 +482,7 @@ namespace AiDeskApi.Data
 
                 UPDATE Users
                 SET Status = CASE
-                    WHEN Status IN ('approved', 'pending', 'rejected', 'deleted') THEN Status
-                    WHEN IsActive = 0 THEN 'rejected'
-                    WHEN IsApproved = 1 THEN 'approved'
+                    WHEN Status IN ('approved', 'pending', 'deleted') THEN Status
                     ELSE 'pending'
                 END;
                 ");
@@ -801,6 +780,19 @@ namespace AiDeskApi.Data
             db.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
         }
 
+        private static void EnsureChatbotPromptTemplateSchema(AiDeskContext db)
+        {
+            if (!db.Database.IsSqlite())
+            {
+                return;
+            }
+
+            if (!HasTable(db, "ChatbotPromptTemplates"))
+            {
+                CreateChatbotPromptTemplateTable(db);
+            }
+        }
+
         private static void EnsureChatMessagesTableSchema(AiDeskContext db)
         {
             if (!db.Database.IsSqlite() || !HasTable(db, "ChatMessages"))
@@ -867,6 +859,165 @@ namespace AiDeskApi.Data
             db.Database.ExecuteSqlRaw("ALTER TABLE [dbo].[ChatMessages] DROP COLUMN [RelatedDocumentMeta];");
         }
 
+        private static void EnsureChatMessageRetrievalMetaSchema(AiDeskContext db)
+        {
+            if (!HasTable(db, "ChatMessages"))
+            {
+                return;
+            }
+
+            var candidates = db.ChatMessages
+                .Where(x =>
+                    (!string.IsNullOrEmpty(x.RelatedKbMeta)
+                        && (x.RelatedKbMeta!.Contains("includedBySemantic")
+                            || x.RelatedKbMeta.Contains("matchedQuestion")))
+                    || (!string.IsNullOrEmpty(x.RetrievalDebugMeta)
+                        && (x.RetrievalDebugMeta!.Contains("includedBySemantic")
+                            || x.RetrievalDebugMeta.Contains("matchedQuestion"))))
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            var changedCount = 0;
+
+            foreach (var message in candidates)
+            {
+                var changed = false;
+
+                var normalizedRelated = NormalizeRelatedKbMeta(message.RelatedKbMeta, out var relatedChanged);
+                if (relatedChanged)
+                {
+                    message.RelatedKbMeta = normalizedRelated;
+                    changed = true;
+                }
+
+                var normalizedDiagnostics = NormalizeRetrievalDebugMeta(message.RetrievalDebugMeta, out var diagnosticsChanged);
+                if (diagnosticsChanged)
+                {
+                    message.RetrievalDebugMeta = normalizedDiagnostics;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    changedCount++;
+                }
+            }
+
+            if (changedCount > 0)
+            {
+                db.SaveChanges();
+            }
+        }
+
+        private static string? NormalizeRelatedKbMeta(string? raw, out bool changed)
+        {
+            changed = false;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return raw;
+            }
+
+            try
+            {
+                if (JsonNode.Parse(raw) is not JsonArray items)
+                {
+                    return raw;
+                }
+
+                foreach (var node in items)
+                {
+                    if (node is not JsonObject obj)
+                    {
+                        continue;
+                    }
+
+                    if (obj.Remove("includedBySemantic"))
+                    {
+                        changed = true;
+                    }
+
+                    if (obj["matchedEvidenceText"] == null
+                        && obj["matchedQuestion"] is JsonValue matchedQuestionValue
+                        && matchedQuestionValue.TryGetValue<string>(out var matchedQuestion)
+                        && !string.IsNullOrWhiteSpace(matchedQuestion))
+                    {
+                        obj["matchedEvidenceText"] = matchedQuestion;
+                        changed = true;
+                    }
+
+                    if (obj.Remove("matchedQuestion"))
+                    {
+                        changed = true;
+                    }
+                }
+
+                return changed ? items.ToJsonString() : raw;
+            }
+            catch
+            {
+                return raw;
+            }
+        }
+
+        private static string? NormalizeRetrievalDebugMeta(string? raw, out bool changed)
+        {
+            changed = false;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return raw;
+            }
+
+            try
+            {
+                if (JsonNode.Parse(raw) is not JsonObject root)
+                {
+                    return raw;
+                }
+
+                if (root["candidates"] is not JsonArray candidates)
+                {
+                    return raw;
+                }
+
+                foreach (var node in candidates)
+                {
+                    if (node is not JsonObject candidate)
+                    {
+                        continue;
+                    }
+
+                    if (candidate.Remove("includedBySemantic"))
+                    {
+                        changed = true;
+                    }
+
+                    if (candidate["matchedEvidenceText"] == null
+                        && candidate["matchedQuestion"] is JsonValue matchedQuestionValue
+                        && matchedQuestionValue.TryGetValue<string>(out var matchedQuestion)
+                        && !string.IsNullOrWhiteSpace(matchedQuestion))
+                    {
+                        candidate["matchedEvidenceText"] = matchedQuestion;
+                        changed = true;
+                    }
+
+                    if (candidate.Remove("matchedQuestion"))
+                    {
+                        changed = true;
+                    }
+                }
+
+                return changed ? root.ToJsonString() : raw;
+            }
+            catch
+            {
+                return raw;
+            }
+        }
+
         private static void CreateKnowledgeBaseWriterPromptTemplateTable(AiDeskContext db)
         {
             db.Database.ExecuteSqlRaw(@"
@@ -880,6 +1031,23 @@ namespace AiDeskApi.Data
                 TopicKeywordRulesPrompt TEXT NOT NULL,
                 AnswerRefineSystemPrompt TEXT NOT NULL,
                 AnswerRefineRulesPrompt TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL
+            );");
+        }
+
+        private static void CreateChatbotPromptTemplateTable(AiDeskContext db)
+        {
+            db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ChatbotPromptTemplates (
+                Id INTEGER NOT NULL CONSTRAINT PK_ChatbotPromptTemplates PRIMARY KEY AUTOINCREMENT,
+                UserSystemPrompt TEXT NOT NULL,
+                AdminSystemPrompt TEXT NOT NULL,
+                UserRulesPrompt TEXT NOT NULL,
+                AdminRulesPrompt TEXT NOT NULL,
+                UserLowSimilarityMessage TEXT NOT NULL,
+                AdminLowSimilarityMessage TEXT NOT NULL,
+                SimilarityThreshold REAL NOT NULL,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL
             );");

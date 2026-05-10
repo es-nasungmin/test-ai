@@ -7,7 +7,7 @@ namespace AiDeskApi.Models
         // "admin" 또는 "user"
         public string UserRole { get; set; } = "user";
         public string ActorName { get; set; } = "알 수 없음";
-        public string Platform { get; set; } = "web";
+        public string Platform { get; set; } = "unknown";
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public int MessageCount { get; set; } = 0;

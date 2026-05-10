@@ -7,25 +7,37 @@ using AiDeskApi.Models;
 
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// Qdrant에 KB 벡터를 적재하고 검색하는 벡터 저장소 서비스입니다.
+    /// </summary>
     public interface IVectorSearchService
     {
+        /// <summary>검색에 사용할 Qdrant 컬렉션이 존재하는지 확인하고 없으면 생성합니다.</summary>
         Task EnsureCollectionAsync(int vectorSize, CancellationToken cancellationToken = default);
+        /// <summary>특정 KB의 본문/예상질문 벡터를 Qdrant에 적재하거나 갱신합니다.</summary>
         Task UpsertKnowledgeBaseAsync(KnowledgeBase kb, CancellationToken cancellationToken = default);
+        /// <summary>특정 KB에 연결된 모든 벡터 포인트를 삭제합니다.</summary>
         Task DeleteKnowledgeBaseAsync(int kbId, CancellationToken cancellationToken = default);
+        /// <summary>특정 KB의 예상질문 벡터 포인트만 삭제합니다.</summary>
         Task DeleteExpectedQuestionPointsAsync(int kbId, IEnumerable<string> questions, CancellationToken cancellationToken = default);
+        /// <summary>질문 벡터를 이용해 KB 후보를 검색합니다.</summary>
         Task<IReadOnlyList<VectorSearchHit>> SearchAsync(float[] queryVector, string role, string platform, int topK, CancellationToken cancellationToken = default);
+        /// <summary>DB에 있는 모든 KB를 Qdrant에 다시 동기화합니다.</summary>
         Task SyncAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
+        /// <summary>Qdrant 컬렉션을 비우고 전체 KB를 새로 적재합니다.</summary>
         Task RebuildAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
     }
 
+    // 벡터 검색 결과를 나타내는 모델입니다. KB ID, 유사도 점수, 매칭된 질문, 예상질문 여부를 포함합니다.
     public class VectorSearchHit
     {
         public int KbId { get; set; }
         public float Score { get; set; }
-        public string MatchedQuestion { get; set; } = string.Empty;
+        public string MatchedEvidenceText { get; set; } = string.Empty;
         public bool IsExpectedQuestion { get; set; }
     }
 
+    // KB 문서와 예상질문을 Qdrant 포인트로 변환할 때 사용하는 내부 모델
     internal class QdrantPoint
     {
         public string id { get; set; } = string.Empty;
@@ -33,15 +45,23 @@ namespace AiDeskApi.Services
         public object payload { get; set; } = new { };
     }
 
+    // KB 본문/예상질문 벡터를 Qdrant 컬렉션에 동기화하고 유사 항목을 조회하는 구현체
     public class QdrantVectorSearchService : IVectorSearchService
     {
+        // Qdrant REST API 호출 전용 HttpClient (DI에서 typed/named client로 주입)
         private readonly HttpClient _httpClient;
+        // appsettings*.json / 환경변수의 Qdrant:* 키를 읽기 위한 설정 루트
         private readonly IConfiguration _configuration;
+        // KB/ExpectedQuestions를 DB에서 읽어 전체 동기화할 때 사용하는 EF Core DbContext
         private readonly AiDeskContext _context;
+        // 본문/질문 텍스트를 임베딩 벡터로 변환하는 서비스
         private readonly IEmbeddingService _embeddingService;
         private readonly ILogger<QdrantVectorSearchService> _logger;
+        // Qdrant 컬렉션 이름 (Qdrant:CollectionName)
         private readonly string _collectionName;
+        // 벡터 기능 on/off 플래그 (Qdrant:Enabled)
         private readonly bool _enabled;
+        // 앱 인스턴스 생명주기 내 컬렉션 생성 1회 보장 플래그
         private bool _collectionEnsured;
 
         public QdrantVectorSearchService(
@@ -57,9 +77,11 @@ namespace AiDeskApi.Services
             _embeddingService = embeddingService;
             _logger = logger;
 
+            // 설정 키 참조: appsettings.json, appsettings.{Environment}.json, 환경변수 순으로 오버라이드 가능
             _enabled = _configuration.GetValue<bool?>("Qdrant:Enabled") ?? true;
             _collectionName = _configuration["Qdrant:CollectionName"] ?? "aidesk_kb";
 
+            // Qdrant 엔드포인트 (Qdrant:Url). 미설정 시 로컬 기본값 사용
             var baseUrl = _configuration["Qdrant:Url"] ?? "http://localhost:6333";
             _httpClient.BaseAddress = new Uri(baseUrl.TrimEnd('/'));
         }
@@ -215,12 +237,12 @@ namespace AiDeskApi.Services
         /// <list type="bullet">
         ///   <item><description>
         ///     <b>visibility 필터</b>: admin이 아닌 일반 사용자는 <c>visibility == "user"</c>
-        ///     포인트만 조회합니다. 관리자는 모든 KB(draft 포함)를 검색합니다.
+        ///     포인트만 조회합니다. 관리자는 모든 KB를 검색합니다.
         ///   </description></item>
         ///   <item><description>
-        ///     <b>platform 필터</b>: 특정 플랫폼으로 요청이 들어온 경우, 해당 플랫폼 포인트와
-        ///     "공통" 포인트 모두를 허용합니다(<c>any</c> 조건). "전체 플랫폼" 또는 "공통" 요청은
-        ///     필터를 적용하지 않아 모든 KB를 대상으로 검색합니다.
+        ///     <b>platform 필터</b>: "전체 플랫폼" 요청은 필터 없이 전체 조회합니다.
+        ///     "공통" 요청은 공통 포인트만 조회하고, 특정 플랫폼 요청은 "공통" + 해당 플랫폼 포인트를
+        ///     함께 허용합니다(<c>any</c> 조건).
         ///   </description></item>
         /// </list>
         /// </para>
@@ -252,10 +274,18 @@ namespace AiDeskApi.Services
             }
 
             var normalizedPlatform = NormalizePlatform(platform);
-            // 특정 플랫폼 요청: 해당 플랫폼 포인트 + "공통" 포인트 모두 허용
-            // "전체 플랫폼" 또는 "공통" 요청: 필터 없이 전체 대상 검색
-            if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+            // "전체 플랫폼" 요청: 필터 없이 전체 대상 검색
+            // "공통" 요청: 공통 포인트만 검색
+            // 특정 플랫폼 요청: 해당 플랫폼 + 공통 포인트 검색
+            if (string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+            {
+                must.Add(new
+                {
+                    key = "platforms",
+                    match = new { any = new[] { "공통" } }
+                });
+            }
+            else if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase))
             {
                 must.Add(new
                 {
@@ -305,9 +335,17 @@ namespace AiDeskApi.Services
                     continue;
                 }
 
-                var matchedQuestion = payload.TryGetProperty("question", out var qElem) && qElem.ValueKind == JsonValueKind.String
+                var matchedEvidenceText = payload.TryGetProperty("question", out var qElem) && qElem.ValueKind == JsonValueKind.String
                     ? qElem.GetString() ?? string.Empty
                     : string.Empty;
+
+                // document 포인트는 title 키를 사용하므로, question이 비어 있으면 title로 보완
+                if (string.IsNullOrWhiteSpace(matchedEvidenceText)
+                    && payload.TryGetProperty("title", out var titleElem)
+                    && titleElem.ValueKind == JsonValueKind.String)
+                {
+                    matchedEvidenceText = titleElem.GetString() ?? string.Empty;
+                }
 
                 // type == "expected"이면 예상질문 포인트, 그 외("document")는 본문 포인트
                 var pointType = payload.TryGetProperty("type", out var tElem) && tElem.ValueKind == JsonValueKind.String
@@ -318,7 +356,7 @@ namespace AiDeskApi.Services
                 {
                     KbId = kbIdElem.GetInt32(),
                     Score = (float)scoreElem.GetDouble(),
-                    MatchedQuestion = matchedQuestion,
+                    MatchedEvidenceText = matchedEvidenceText,
                     // true = 예상질문 포인트에서 매칭됨 → RAG에서 높은 신뢰도로 처리
                     IsExpectedQuestion = string.Equals(pointType, "expected", StringComparison.OrdinalIgnoreCase)
                 });
@@ -355,6 +393,7 @@ namespace AiDeskApi.Services
             _logger.LogInformation("Qdrant 동기화 완료: {Count} KB", kbs.Count);
         }
 
+        // 컬렉션을 완전히 초기화한 뒤 전체 KB를 새로 적재합니다. 대량 KB가 있을 때 사용하세요.
         public async Task RebuildAllKnowledgeBasesAsync(CancellationToken cancellationToken = default)
         {
             if (!_enabled) return;
@@ -379,11 +418,13 @@ namespace AiDeskApi.Services
         ///     <b>document 포인트 (type="document")</b>: KB의 제목과 본문을 합쳐
         ///     임베딩한 포인트입니다. "제목: …\n내용: …" 형식으로 결합해
         ///     의미적 맥락을 풍부하게 합니다.
+        ///     payload에는 document 전용으로 <c>title</c>을 저장합니다.
         ///   </description></item>
         ///   <item><description>
         ///     <b>expected 포인트 (type="expected")</b>: 예상질문 각각을 독립적으로
         ///     임베딩한 포인트입니다. 사용자 질의와 예상질문이 의미적으로 유사할 때
         ///     높은 점수를 받도록 분리 저장합니다.
+        ///     payload에는 expected 전용으로 <c>question</c>을 저장합니다.
         ///   </description></item>
         /// </list>
         /// </para>
@@ -401,10 +442,12 @@ namespace AiDeskApi.Services
                 ? Array.Empty<string>()
                 : kb.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
 
+            // 제목 + 본문 임베딩 → document 포인트 1개 생성
             var bodySource = BuildKbBodyEmbeddingSource(kb.Title, kb.Content);
             if (!string.IsNullOrWhiteSpace(bodySource))
             {
-                var bodyEmbedding = await _embeddingService.EmbedTextAsync(bodySource);
+                var normalizedBodySource = EmbeddingTextNormalizer.NormalizeForEmbedding(bodySource);
+                var bodyEmbedding = await _embeddingService.EmbedTextAsync(normalizedBodySource);
                 if (bodyEmbedding.Length > 0)
                 {
                     points.Add(new QdrantPoint
@@ -414,10 +457,10 @@ namespace AiDeskApi.Services
                         payload = new
                         {
                             kbId = kb.Id,
-                            type = "document",
-                            question = kb.Title,
+                            type = "document", // 포인트 분류키: 검색 결과에서 본문 포인트로 판별
+                            title = kb.Title,
                             content = kb.Content,
-                            visibility = kb.Visibility,
+                            visibility = kb.Visibility, // 일반 사용자 검색에서 visibility="user"만 통과시키기 위한 필드
                             platforms,
                             keywords,
                             updatedAt = kb.UpdatedAt
@@ -435,9 +478,11 @@ namespace AiDeskApi.Services
                 .DistinctBy(x => x.Question, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // 예상질문 각각 임베딩 → expected 포인트 N개 생성
             foreach (var item in expectedQuestions)
             {
-                var questionEmbedding = await _embeddingService.EmbedTextAsync(item.Question);
+                var normalizedQuestion = EmbeddingTextNormalizer.NormalizeForEmbedding(item.Question);
+                var questionEmbedding = await _embeddingService.EmbedTextAsync(normalizedQuestion);
                 if (questionEmbedding.Length == 0)
                 {
                     continue;
@@ -450,9 +495,9 @@ namespace AiDeskApi.Services
                     payload = new
                     {
                         kbId = kb.Id,
-                        type = "expected",
+                        type = "expected", // 포인트 분류키: 검색 결과에서 예상질문 포인트로 판별
                         question = item.Question,
-                        visibility = kb.Visibility,
+                        visibility = kb.Visibility, // 일반 사용자 검색에서 visibility="user"만 통과시키기 위한 필드
                         platforms,
                         keywords,
                         updatedAt = kb.UpdatedAt
@@ -506,6 +551,7 @@ namespace AiDeskApi.Services
             return parsed.Length == 0 ? new[] { "공통" } : parsed;
         }
 
+        // 포인트 ID 생성: "kb-{kbId}-doc" 또는 "kb-{kbId}-expected-{question}" 형태의 문자열을 MD5 해시로 변환해 UUID 형식으로 반환
         private static string CreatePointId(string rawKey)
         {
             var hash = MD5.HashData(Encoding.UTF8.GetBytes(rawKey));

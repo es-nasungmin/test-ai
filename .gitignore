@@ -34,6 +34,14 @@ reports/benchmark-100-*.md
 reports/benchmark-100-*.json
 !reports/benchmark-100-latest.md
 !reports/benchmark-100-latest.json
+reports/benchmark-live-questions-*.md
+reports/benchmark-live-questions-*.json
+reports/benchmark-followup-*.md
+reports/benchmark-followup-*.json
+reports/benchmark-live-questions-latest.md
+reports/benchmark-live-questions-latest.json
+reports/benchmark-followup-latest.md
+reports/benchmark-followup-latest.json
 AiDeskClient/*.local
 
 # Environment files
@@ -44,6 +52,7 @@ AiDeskClient/.env.*.local
 # Logs
 **/logs/
 **/*.log
+nohup.out
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

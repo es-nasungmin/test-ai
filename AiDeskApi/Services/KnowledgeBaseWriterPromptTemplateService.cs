@@ -4,9 +4,14 @@ using AiDeskApi.Models;
 
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// KB 작성 흐름에서 사용하는 프롬프트 템플릿을 DB에 저장/조회/초기화하는 서비스입니다.
+    /// </summary>
     public interface IKnowledgeBaseWriterPromptTemplateService
     {
+        /// <summary>현재 KB 작성 프롬프트 템플릿의 스냅샷을 가져옵니다.</summary>
         Task<KnowledgeBaseWriterPromptTemplateSnapshot> GetAsync();
+        /// <summary>KB 작성 프롬프트 템플릿 전체를 갱신합니다.</summary>
         Task<KnowledgeBaseWriterPromptTemplateSnapshot> UpdateAsync(
             string keywordSystemPrompt,
             string keywordRulesPrompt,
@@ -18,6 +23,7 @@ namespace AiDeskApi.Services
             string answerRefineRulesPrompt);
     }
 
+    // 키워드, 예상질문, 주제키워드, 답변정제 프롬프트의 기본값과 저장값을 관리하는 구현체
     public class KnowledgeBaseWriterPromptTemplateService : IKnowledgeBaseWriterPromptTemplateService
     {
         private readonly AiDeskContext _context;

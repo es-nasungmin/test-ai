@@ -8,11 +8,17 @@ using AiDeskApi.Models;
 
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// 사용자 질문을 임베딩, 벡터 검색, rerank, 답변 생성까지 이어주는 RAG 오케스트레이터입니다.
+    /// </summary>
     public interface IRagService
     {
         // role: "admin" = 전체 KB 조회, "user" = visibility='user'만 조회
         // history: 이전 대화 메시지 [(role, content)] 최근 순 (오래된 것부터)
-        // platform: 공통이면 전체 플랫폼 조회, 특정값이면 공통 + 해당 플랫폼 조회
+        // platform: 전체 플랫폼이면 전체 조회, 공통이면 공통만 조회, 특정값이면 공통 + 해당 플랫폼 조회
+        /// <summary>
+        /// 질문을 검색하고, 관련 KB를 바탕으로 최종 답변을 생성합니다.
+        /// </summary>
         Task<RagResponse> SearchAndGenerateAsync(
             string question,
             string role = "user",
@@ -22,10 +28,19 @@ namespace AiDeskApi.Services
     }
 
     // 질문 임베딩 -> 유사 KB 검색 -> 답변 생성까지 RAG 전체 흐름을 담당
+    // KB 검색과 답변 생성을 묶어서 실제 챗봇 응답을 만드는 핵심 RAG 구현체
     public class OpenAiRagService : IRagService
     {
-        private const int PromptHistoryMessageLimit = 2;
-        private const int EmbeddingHistoryUserMessageLimit = 1;
+        // RAG 실행 시 고려하는 최근 대화이력 범위와 후보 수를 정의한다.
+        // 1턴 = 질문 + 답변(2메시지) 기준
+        private const int HistoryTurnLimit = 3;
+        // 1턴을 구성하는 메시지 수 (질문 1 + 답변 1)
+        private const int MessagesPerTurn = 2;
+        // 최근 대화이력에서 RAG 답변 생성 프롬프트에 함께 보낼 메시지 수 (최근 3턴 = 최대 6메시지)
+        private const int PromptHistoryMessageLimit = HistoryTurnLimit * MessagesPerTurn;
+        // 질문 정제(RefineQuestionWithLlmAsync) 시 LLM에 함께 보낼 메시지 수 (최근 3턴 = 최대 6메시지)
+        private const int RefineHistoryMessageLimit = HistoryTurnLimit * MessagesPerTurn;
+        // 후속 질문 접두사
         private static readonly string[] FollowUpQuestionPrefixes =
         {
             "그럼", "그러면", "그건", "이건", "저건", "그거", "이거", "저거",
@@ -48,20 +63,31 @@ namespace AiDeskApi.Services
         private const int AnswerContextTopK = 3;
         private const float ReRankSkipScoreThreshold = 0.82f;   // 상위 후보가 이 이상이면 rerank 스킵
         private const float ReRankSkipGapThreshold = 0.15f;    // 1위~2위 점수 차가 이 이상이면 rerank 스킵
-        private const float KeywordBoostPerMatch = 0.01f;
-        private const float MaxKeywordBoost = 0.03f;
-        private const float KeywordBoostHardFloorGap = 0.05f;
+        private const float KeywordBoostPerMatch = 0.01f; // 키워드 매칭당 가산점 (최대 0.03f)
+        private const float MaxKeywordBoost = 0.03f; // 키워드 가산점 상한
+        private const float KeywordBoostHardFloorGap = 0.05f; // 키워드 가산점이 의미 있으려면 원래 점수가 임계치에서 이만큼 가까워야 함
 
+        // EF Core DB 접근(지식베이스 조회/조회수 업데이트)
         private readonly AiDeskContext _context;
+        // 질문/본문을 임베딩 벡터로 변환
         private readonly IEmbeddingService _embeddingService;
+        // Qdrant 벡터 검색/동기화 진입점
         private readonly IVectorSearchService _vectorSearchService;
+        // OpenAI Chat Completions 호출 클라이언트
         private readonly HttpClient _httpClient;
+        // appsettings 및 환경변수 설정 접근
         private readonly IConfiguration _configuration;
+        // role별 시스템/규칙 프롬프트 템플릿 제공
         private readonly IChatbotPromptTemplateService _promptTemplates;
+        // RAG 파이프라인 진단 로그 기록
         private readonly ILogger<OpenAiRagService> _logger;
+        // OpenAI 채팅 엔드포인트 URL
         private readonly string _chatCompletionsEndpoint;
+        // 답변/질문정제에 사용하는 모델명
         private readonly string _chatModel;
+        // 답변 생성 온도 파라미터
         private readonly float _chatTemperature;
+        // 답변 생성 최대 토큰 수
         private readonly int _chatMaxTokens;
 
         public OpenAiRagService(
@@ -94,54 +120,31 @@ namespace AiDeskApi.Services
             string question,
             string role = "user",
             string platform = "공통",
-            IList<(string Role, string Content)>? history = null,
-            RagRuntimeOptions? runtimeOptions = null)
+            IList<(string Role, string Content)>? history = null, // 최근 대화이력 (역순, 최대 3턴 = 6메시지)
+            RagRuntimeOptions? runtimeOptions = null) // RAG 실행 시점에 적용할 옵션 (유사도 임계치/프롬프트 오버라이드 등)
         {
             try
             {
                 _logger.LogInformation("📝 질문 받음 [{Role}/{Platform}]: {Question}", role, platform, question);
                 runtimeOptions ??= new RagRuntimeOptions();
 
-                // prompt-only 모드: 검색/판단 로직을 모두 건너뛰고 프롬프트 응답만 생성
-                if (runtimeOptions.PromptOnly)
-                {
-                    var promptOnlyAnswer = await GenerateAnswerAsync(
-                        question,
-                        string.Empty,
-                        role,
-                        1.0f,
-                        history,
-                        runtimeOptions);
-
-                    return new RagResponse
-                    {
-                        Answer = promptOnlyAnswer,
-                        TopSimilarity = 1.0f,
-                        IsLowSimilarity = false,
-                        ConflictDetected = false,
-                        DecisionRule = "prompt-only",
-                        RelatedKBs = new List<KBSummary>()
-                    };
-                }
-
-                // 1) 사용자 질문 정규화 + 임베딩 생성
+                // 1) 사용자 질문 정규화 + LLM 기반 질문 정제 + 임베딩 생성
                 //    - 표기 흔들림(안됨/불가/안 보여요 등)을 정규화해 임베딩 분산을 줄인다.
-                //    - 후속 질문("그래도 안보여" 등)은 맥락 없이 임베딩하면 유사도가 낮아지므로
-                //      직전 사용자 발화 1~2턴을 앞에 붙여 검색 품질을 높인다.
-                var recentHistory = GetRecentHistoryMessages(history);
-                var normalizedQuestion = NormalizeQueryForEmbedding(question);
-                var embeddingInput = normalizedQuestion;
-                if (ShouldUseHistoryForEmbedding(question, recentHistory))
+                //    - 후속 질문("그래도 안보여" 등)은 LLM에게 대화이력과 함께 보내 정제된 단일 질문으로 변환한다.
+                //    - 정제된 질문을 임베딩해 검색 품질을 높인다.
+                var recentHistory = GetRecentHistoryMessages(history); // 최대 3턴(6메시지)까지 최근 대화이력을 가져온다.
+                var normalizedQuestion = NormalizeQueryForEmbedding(question); // 표기 흔들림을 줄이는 정규화 수행 (예: "안 보여요" → "안보여")
+                
+                // 대화이력이 있으면 LLM이 정제된 단일 질문을 생성
+                var refinedQuestion = normalizedQuestion;
+                if (recentHistory.Count > 0)
                 {
-                    var recentUserTurns = recentHistory
-                        .Where(h => h.Role == "user")
-                        .TakeLast(EmbeddingHistoryUserMessageLimit)
-                        .Select(h => NormalizeQueryForEmbedding(h.Content))
-                        .ToList();
-                    if (recentUserTurns.Count > 0)
-                        embeddingInput = string.Join(" ", recentUserTurns) + " " + normalizedQuestion;
+                    refinedQuestion = await RefineQuestionWithLlmAsync(question, recentHistory);
+                    _logger.LogInformation("💡 질문 정제: '{Original}' → '{Refined}'", question, refinedQuestion);
                 }
-                var questionEmbedding = await _embeddingService.EmbedTextAsync(embeddingInput);
+                
+                // 질문 정제가 실패하거나 후속 질문이 아닌 경우 원래 질문을 사용한다.
+                var questionEmbedding = await _embeddingService.EmbedTextAsync(refinedQuestion);
                 var normalizedPlatform = NormalizePlatform(platform);
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
 
@@ -153,8 +156,12 @@ namespace AiDeskApi.Services
                     kbQuery = kbQuery.Where(x => x.Visibility == "user");
                 }
 
-                if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+                // 플랫폼이 "공통"이면 공통만, "전체 플랫폼"이면 전체, 특정 플랫폼이면 공통+해당 플랫폼을 조회하도록 한다.
+                if (string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
+                {
+                    kbQuery = kbQuery.Where(kb => kb.Platform.Contains("공통"));
+                }
+                else if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase))
                 {
                     kbQuery = kbQuery.Where(kb => kb.Platform.Contains("공통") || kb.Platform.Contains(normalizedPlatform));
                 }
@@ -172,6 +179,7 @@ namespace AiDeskApi.Services
                     semanticHits = Array.Empty<VectorSearchHit>();
                 }
 
+                // 1-2) 벡터 검색 결과를 document/expected 포인트별로 상위 후보를 유지하면서 KB 단위로 병합한다.
                 var documentVectorHits = semanticHits
                     .Where(x => !x.IsExpectedQuestion)
                     .OrderByDescending(x => x.Score)
@@ -191,11 +199,14 @@ namespace AiDeskApi.Services
                 // 2) 질문 키워드 추출 (키워드는 임베딩하지 않고 약한 가산/진단 용도로만 사용)
                 var questionTokens = ExtractKeywordTokens(normalizedQuestion);
 
+                // 2-1) KB별 대표 임베딩 점수와 키워드 매칭 정보를 결합해 최종 후보 점수를 매긴다.
+                //      - KB별 대표 임베딩 점수는 document/expected 중 더 높은 쪽을 채택한다.
+                //      - 키워드 매칭 정보는 KB 내용과 질문에서 추출한 토큰의 교집합 개수에 비례해 가산점으로 활용한다. (예: 매칭당 0.01점, 최대 0.1점)
                 var candidateKbIds = semanticTop
                     .Select(x => x.KbId)
                     .Distinct()
                     .ToList();
-
+                // 후보 KB 조회 범위는 role/platform으로 이미 제한된 상태이므로, 벡터 검색 결과에 대해서만 KB 정보를 추가로 조회한다.
                 var kbById = await kbQuery
                     .Where(x => candidateKbIds.Contains(x.Id))
                     .ToDictionaryAsync(x => x.Id);
@@ -221,11 +232,12 @@ namespace AiDeskApi.Services
                             : bestDoc;
 
                         var semanticScore = bestSemantic?.Score ?? 0f;
-                        var matchedQuestion = bestSemantic?.MatchedQuestion
+                        var matchedEvidenceText = bestSemantic?.MatchedEvidenceText
                             ?? kbById[id].Title
                             ?? string.Empty;
                         var isExpectedMatch = bestSemantic?.IsExpectedQuestion == true;
 
+                        // 키워드 매칭 가산점 계산 (원래 점수가 임계치에서 너무 멀면 가산점이 의미 없으므로 0으로 처리)
                         var keywordInfo = BuildKeywordBoostInfo(kbById[id], questionTokens);
                         var keywordBoost = semanticScore >= similarityThreshold - KeywordBoostHardFloorGap
                             ? keywordInfo.Boost
@@ -233,21 +245,20 @@ namespace AiDeskApi.Services
 
                         return new MergedRetrievalCandidate
                         {
-                            Kb = kbById[id],
-                            MatchedQuestion = matchedQuestion,
-                            IsExpectedMatch = isExpectedMatch,
-                            SemanticScore = semanticScore,
-                            KeywordScore = keywordBoost,
-                            FinalScore = semanticScore + keywordBoost,
-                            IncludedBySemantic = bestSemantic != null,
-                            IncludedByKeyword = keywordInfo.MatchCount > 0,
-                            MatchedKeywords = keywordInfo.MatchedKeywords,
-                            KeywordMatchCount = keywordInfo.MatchCount
+                            Kb = kbById[id], // KB 정보
+                            MatchedEvidenceText = matchedEvidenceText, // 검색된 KB의 대표 텍스트 (매칭된 질문 또는 KB 제목)
+                            IsExpectedMatch = isExpectedMatch, // 대표 텍스트가 예상질문에서 왔는지 여부
+                            SemanticScore = semanticScore, // 벡터 검색에서 계산된 유사도 점수
+                            KeywordScore = keywordBoost, // 키워드 매칭에 따른 가산점
+                            FinalScore = semanticScore + keywordBoost, // 최종 점수는 벡터 유사도 + 키워드 가산점
+                            IncludedByKeyword = keywordInfo.MatchCount > 0, // 이 후보가 키워드 매칭으로 가산점이 부여되었는지 여부
+                            MatchedKeywords = keywordInfo.MatchedKeywords, // 매칭된 키워드 목록
+                            KeywordMatchCount = keywordInfo.MatchCount // 매칭된 키워드 개수
                         };
                     })
-                    .OrderByDescending(x => x.FinalScore)
-                    .ThenByDescending(x => x.SemanticScore)
-                    .Take(MergeTopK)
+                    .OrderByDescending(x => x.FinalScore) // 최종 점수 기준으로 후보 정렬 (벡터 유사도 + 키워드 가산점)
+                    .ThenByDescending(x => x.SemanticScore) // 벡터 유사도 기준으로 후보 정렬
+                    .Take(MergeTopK) // 병합 후 상위 MergeTopK개 후보를 유지한다.
                     .ToList();
 
                 // 3) 상위 후보를 AI로 재정렬 후 답변 컨텍스트 후보를 확정
@@ -258,8 +269,7 @@ namespace AiDeskApi.Services
 
                 // 최종 답변 생성 단계로 넘길 후보 집합
                 var topResults = reranked
-                    .Take(FinalTopK)
-                    .Select(x => (x.Kb, x.FinalScore, x.MatchedQuestion, x.IsExpectedMatch))
+                    .Take(FinalTopK) // 최종 답변 컨텍스트에 사용할 후보 수 (5개로 제한)
                     .ToList();
 
                 if (topResults.Count == 0)
@@ -279,21 +289,22 @@ namespace AiDeskApi.Services
 
                 // 답변 생성에 사용하는 FAQ 후보는 임계치 이상 사례로 제한
                 var eligibleResults = topResults
-                    .Where(x => x.Item2 >= similarityThreshold)
+                    .Where(x => x.SemanticScore >= similarityThreshold)
                     .ToList();
 
-                // 단순 정책: 임계치 통과 후보 중 점수 상위 3개를 선택
+                // 단순 정책: semantic 임계치 통과 후보 중 재정렬 순서 상위 3개를 선택
                 var selectedResults = eligibleResults
                     .Take(AnswerContextTopK)
-                    .Select(x => (kb: x.Item1, similarity: x.Item2))
+                    .Select(x => (kb: x.Kb, similarity: x.SemanticScore))
                     .ToList();
                 var decisionRule = selectedResults.Count > 0
-                    ? $"eligible 상위 {AnswerContextTopK}개 점수순 선택"
-                    : "임계치 통과 후보 없음";
-                var topResultSet = topResults.Select(x => x.Item1.Id).ToHashSet();
-                var eligibleSet = eligibleResults.Select(x => x.Item1.Id).ToHashSet();
+                    ? $"semantic 임계치 통과 후보 중 상위 {AnswerContextTopK}개 선택"
+                    : "semantic 임계치 통과 후보 없음";
+                var topResultSet = topResults.Select(x => x.Kb.Id).ToHashSet();
+                var eligibleSet = eligibleResults.Select(x => x.Kb.Id).ToHashSet();
                 var selectedSet = selectedResults.Select(x => x.kb.Id).ToHashSet();
 
+                // RAG 진단 정보 구축: 검색된 후보 전체에 대한 상세 정보를 담는다.
                 var retrievalDiagnostics = new RetrievalDiagnostics
                 {
                     SimilarityThreshold = similarityThreshold,
@@ -304,22 +315,21 @@ namespace AiDeskApi.Services
                         .Select(x => new RetrievalCandidateDiagnostic
                         {
                             Id = x.Kb.Id,
-                            Title = x.Kb.Title,
-                            MatchedQuestion = x.MatchedQuestion,
-                            BaseSimilarity = x.SemanticScore,
-                            KeywordBoost = x.KeywordScore,
-                            AdjustedSimilarity = x.FinalScore,
-                            KeywordMatchCount = x.KeywordMatchCount,
-                            MatchedKeywords = x.MatchedKeywords,
-                            IncludedBySemantic = x.IncludedBySemantic,
-                            IncludedByKeyword = x.IncludedByKeyword,
-                            PassedThreshold = eligibleSet.Contains(x.Kb.Id),
-                            SelectedForAnswer = selectedSet.Contains(x.Kb.Id)
+                            Title = x.Kb.Title, // 진단에서는 KB 제목도 함께 보여준다.
+                            MatchedEvidenceText = x.MatchedEvidenceText, // 검색된 KB의 대표 텍스트 (매칭된 질문 또는 KB 제목)
+                            BaseSimilarity = x.SemanticScore, // 벡터 검색에서 계산된 유사도 점수
+                            KeywordBoost = x.KeywordScore, // 키워드 매칭에 따른 가산점
+                            AdjustedSimilarity = x.FinalScore, // 최종 점수는 벡터 유사도 + 키워드 가산점
+                            KeywordMatchCount = x.KeywordMatchCount, // 매칭된 키워드 개수
+                            MatchedKeywords = x.MatchedKeywords, // 매칭된 키워드 목록
+                            IncludedByKeyword = x.IncludedByKeyword, // 이 후보가 키워드 매칭으로 가산점이 부여되었는지 여부
+                            PassedThreshold = eligibleSet.Contains(x.Kb.Id), // 임계치 통과 여부
+                            SelectedForAnswer = selectedSet.Contains(x.Kb.Id) // 최종 답변 후보로 선택되었는지 여부
                         })
                         .ToList()
                 };
 
-                // View count 증가 (실제로 사용된 모든 FAQ)
+                // View count 증가 (실제로 사용된 모든 KB에 대해 업데이트한다. 답변 컨텍스트에 포함된 KB뿐 아니라, 후보군에 오른 KB도 포함한다.)
                 _logger.LogInformation("📊 View count 처리: DisablePersistence={DisablePersistence}, selectedResults={Count}", runtimeOptions.DisablePersistence, selectedResults.Count);
                 if (!runtimeOptions.DisablePersistence && selectedResults.Count > 0)
                 {
@@ -329,7 +339,7 @@ namespace AiDeskApi.Services
                     await _context.KnowledgeBases
                         .Where(x => kbIds.Contains(x.Id))
                         .ExecuteUpdateAsync(s => s
-                            .SetProperty(x => x.ViewCount, x => x.ViewCount + 1)
+                            .SetProperty(x => x.ViewCount, x => x.ViewCount + 1) // ViewCount를 1 증가시키고, UpdatedAt도 현재 시간으로 갱신한다.
                             .SetProperty(x => x.UpdatedAt, updatedAt));
                     _logger.LogInformation("✓ View count 증가: {Count}개 KB 업데이트 완료", kbIds.Count);
                 }
@@ -337,28 +347,37 @@ namespace AiDeskApi.Services
                 // 답변 생성
                 // 관리자/사용자 role에 따라 BuildContext에서 노출 정보 레벨이 달라진다.
                 var answerContextResults = selectedResults
-                    .Select(x => (x.kb, x.similarity, topResults.FirstOrDefault(r => r.Item1.Id == x.kb.Id).Item3 ?? x.kb.Title, topResults.FirstOrDefault(r => r.Item1.Id == x.kb.Id).Item4))
+                    .Select(x =>
+                    {
+                        var candidate = topResults.FirstOrDefault(r => r.Kb.Id == x.kb.Id);
+                        return (
+                            x.kb,
+                            x.similarity,
+                            candidate?.MatchedEvidenceText ?? x.kb.Title,
+                            candidate?.IsExpectedMatch ?? false);
+                    })
                     .ToList();
 
-                var faqContext = BuildContext(answerContextResults, role);
-                var contextText = faqContext;
+                var kbContext = BuildContext(answerContextResults, role);
+                var contextText = kbContext;
 
-                var topKbScore = topResults.Count > 0 ? topResults[0].Item2 : 0f;
+                var topKbScore = topResults.Count > 0 ? topResults[0].SemanticScore : 0f;
                 var topScore = topKbScore;
-                var topMatchedQuestion = topResults.Count > 0 ? topResults[0].Item3 : null;
-                var topKb = topResults.Count > 0 ? topResults[0].Item1 : null;
+                var topMatchedEvidenceText = topResults.Count > 0 ? topResults[0].MatchedEvidenceText : null;
+                var topKb = topResults.Count > 0 ? topResults[0].Kb : null;
                 var topMatchedKbTitle = topKb?.Title;
                 var topMatchedKbContent = topKb?.Content;
 
                 var answer = await GenerateAnswerAsync(question, contextText, role, topScore, recentHistory, runtimeOptions);
                 var isLowSimilarity = topScore < similarityThreshold;
 
+                // 최종 응답에 검색된 후보와 RAG 실행 진단 정보를 함께 담아서 반환한다.
                 return new RagResponse
                 {
                     Answer = answer,
                     TopSimilarity = topScore,
                     IsLowSimilarity = isLowSimilarity,
-                    TopMatchedQuestion = topMatchedQuestion,
+                    TopMatchedEvidenceText = topMatchedEvidenceText,
                     TopMatchedKbTitle = topMatchedKbTitle,
                     TopMatchedKbContent = topMatchedKbContent,
                     ConflictDetected = false,
@@ -369,12 +388,12 @@ namespace AiDeskApi.Services
                         : eligibleResults
                         .Select(x => new KBSummary
                         {
-                            Id = x.Item1.Id,
-                            Title = x.Item1.Title,
-                            Content = x.Item1.Content,
-                            Similarity = x.Item2,
-                            MatchedQuestion = x.Item3,
-                            IsSelected = selectedSet.Contains(x.Item1.Id)
+                            Id = x.Kb.Id,
+                            Title = x.Kb.Title,
+                            Content = x.Kb.Content,
+                            Similarity = x.SemanticScore,
+                            MatchedEvidenceText = x.MatchedEvidenceText,
+                            IsSelected = selectedSet.Contains(x.Kb.Id)
                         }).ToList()
                 };
             }
@@ -401,10 +420,10 @@ namespace AiDeskApi.Services
         }
 
         private async Task<string> GenerateAnswerAsync(
-            string question,
-            string context,
-            string role,
-            float topScore,
+            string question, // 사용자 질문
+            string context, // 답변 생성에 사용할 KB 근거 텍스트 (최대 3개 KB의 제목/내용을 압축해서 담는다)
+            string role, // 사용자 역할 (admin/user)
+            float topScore, // 검색된 KB 중 최고 유사도 점수 (답변 생성 시 low similarity 판단에 사용)
             IList<(string Role, string Content)>? history = null,
             RagRuntimeOptions? runtimeOptions = null)
         {
@@ -445,24 +464,13 @@ namespace AiDeskApi.Services
                 else
                 {
                     var userRules = ResolveRulesPrompt(role, runtimeOptions);
-                    if (runtimeOptions.PromptOnly)
-                    {
-                        prompt = $@"【사용자 질문】
-{question}
-
-답변 규칙:
-{userRules}";
-                    }
-                    else
-                    {
-                        prompt = $@"{context}
+                    prompt = $@"{context}
 
 【사용자 질문】
 {question}
 
 답변 규칙:
 {userRules}";
-                    }
                 }
 
                 messages.Add(new { role = "user", content = prompt });
@@ -552,7 +560,7 @@ namespace AiDeskApi.Services
                 : options.LowSimilarityMessageOverride;
         }
 
-        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results, string role)
+        private string BuildContext(List<(KnowledgeBase kb, float similarity, string matchedEvidenceText, bool matchedExpected)> results, string role)
         {
             if (role != "admin")
             {
@@ -563,9 +571,9 @@ namespace AiDeskApi.Services
             sb.AppendLine("【관련된 과거 상담 사례】");
             for (int i = 0; i < results.Count; i++)
             {
-                var (kb, similarity, matchedQuestion, matchedExpected) = results[i];
+                var (kb, similarity, matchedEvidenceText, matchedExpected) = results[i];
                 sb.AppendLine($"\n{i + 1}. 유사도: {similarity:P0}");
-                sb.AppendLine($"   매칭 근거: {matchedQuestion} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
+                sb.AppendLine($"   매칭 근거: {matchedEvidenceText} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
                 sb.AppendLine($"   제목: {kb.Title}");
                 sb.AppendLine($"   해결: {kb.Content}");
             }
@@ -573,16 +581,16 @@ namespace AiDeskApi.Services
             return sb.ToString();
         }
 
-        private string BuildUserContext(List<(KnowledgeBase kb, float similarity, string matchedQuestion, bool matchedExpected)> results)
+        private string BuildUserContext(List<(KnowledgeBase kb, float similarity, string matchedEvidenceText, bool matchedExpected)> results)
         {
             var sb = new StringBuilder();
             sb.AppendLine("【답변 후보 정보(우선순위 순)】");
 
             for (int i = 0; i < results.Count; i++)
             {
-                var (kb, _, matchedQuestion, matchedExpected) = results[i];
+                var (kb, _, matchedEvidenceText, matchedExpected) = results[i];
                 sb.AppendLine($"\n우선순위 {i + 1}");
-                sb.AppendLine($"- 매칭된 근거: {matchedQuestion} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
+                sb.AppendLine($"- 매칭된 근거: {matchedEvidenceText} {(matchedExpected ? "(예상질문)" : "(제목/내용)")}");
                 sb.AppendLine($"- KB 제목: {kb.Title}");
                 sb.AppendLine($"- 권장 안내: {kb.Content}");
             }
@@ -601,17 +609,7 @@ namespace AiDeskApi.Services
 
         private static string NormalizeQueryForEmbedding(string raw)
         {
-            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
-
-            var normalized = raw.Trim().ToLowerInvariant();
-            normalized = Regex.Replace(normalized, "[\\s]+", " ");
-
-            // 경계 케이스에서 의미가 같은 표현을 통일해 임베딩 분산을 줄인다.
-            normalized = Regex.Replace(normalized, "안\\s*됨|안\\s*돼요|안\\s*되요|안\\s*됩니다|안\\s*되는", "안돼");
-            normalized = Regex.Replace(normalized, "불가|조회\\s*불가|확인\\s*불가", "안돼");
-            normalized = Regex.Replace(normalized, "안\\s*보임|안\\s*보여요|안\\s*보입니다", "안보여");
-
-            return normalized;
+            return EmbeddingTextNormalizer.NormalizeForEmbedding(raw);
         }
 
         private static string SanitizeAnswerMarkdown(string answer)
@@ -714,6 +712,7 @@ namespace AiDeskApi.Services
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
+        // 키워드 매칭 정보 계산: KB의 제목/키워드/본문과 질문에서 추출한 토큰의 교집합 개수에 비례해 가산점으로 활용한다.
         private KeywordBoostInfo BuildKeywordBoostInfo(KnowledgeBase kb, HashSet<string> questionTokens)
         {
             if (questionTokens.Count == 0)
@@ -727,9 +726,12 @@ namespace AiDeskApi.Services
             var keywordTokens = string.IsNullOrWhiteSpace(kb.Keywords)
                 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 : ParseKeywordTokens(kb.Keywords);
+            var contentTokens = string.IsNullOrWhiteSpace(kb.Content)
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : ExtractKeywordTokens(TruncateText(kb.Content, 2000));
 
             var matched = questionTokens
-                .Where(token => titleTokens.Contains(token) || keywordTokens.Contains(token))
+                .Where(token => titleTokens.Contains(token) || keywordTokens.Contains(token) || contentTokens.Contains(token))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(x => x)
                 .ToList();
@@ -779,6 +781,86 @@ namespace AiDeskApi.Services
             return false;
         }
 
+        /// <summary>
+        /// 대화이력을 기반으로 현재 질문을 정제된 단일 질문으로 변환합니다.
+        /// LLM이 이전 대화 맥락을 파악해 축약된 후속 질문을 완전한 문장으로 복원합니다.
+        /// </summary>
+        private async Task<string> RefineQuestionWithLlmAsync(
+            string currentQuestion,
+            IList<(string Role, string Content)> recentHistory)
+        {
+            try
+            {
+                if (recentHistory == null || recentHistory.Count == 0)
+                {
+                    return NormalizeQueryForEmbedding(currentQuestion);
+                }
+
+                var messages = new List<object>
+                {
+                    new { role = "system", content = @"당신은 고객 지원 챗봇의 질문 정제기입니다.
+사용자의 현재 질문과 이전 대화 이력을 보고, 현재 질문의 의도를 명확한 독립 질문으로 변환하세요.
+
+규칙:
+1. 축약·생략된 질문(예: '그럼 안돼?', '어디서 받아?')을 완전한 문장으로 복원
+2. 이전 대화의 핵심 주제어(예: '중복 결제', '인증서', 'OTP', '비밀번호' 등)를 반드시 정제 질문에 포함
+3. 현재 질문이 이전 주제의 후속이면, [이전 핵심 주제] + [현재 행동/요청]을 결합 (예: '중복 결제 환불은 어떻게 받나요?')
+4. 핵심 주제어는 절대 제거하지 말 것 — 불필요한 감탄사·접속사만 제거
+5. 이전 대화와 현재 질문의 주제가 명확히 다르면, 이전 대화를 섞지 말고 현재 질문만 자연스럽게 정리해 반환
+6. 한 문장의 명확한 질문만 출력, 부연 설명 없이" }
+                };
+
+                // 최근 대화이력 추가 (RefineHistoryMessageLimit 기준)
+                foreach (var (role, content) in recentHistory.TakeLast(RefineHistoryMessageLimit))
+                {
+                    var gptRole = role == "bot" ? "assistant" : role;
+                    messages.Add(new { role = gptRole, content = content });
+                }
+
+                // 현재 질문
+                messages.Add(new { role = "user", content = $"현재 질문: {currentQuestion}\n\n위 질문을 정제해 하나의 명확한 질문으로 변환해주세요." });
+
+                var request = new
+                {
+                    model = _chatModel,
+                    messages,
+                    temperature = 0.3,
+                    max_tokens = 100
+                };
+
+                var response = await _httpClient.PostAsJsonAsync(
+                    _chatCompletionsEndpoint,
+                    request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("⚠️ 질문 정제 LLM 호출 실패, 원본 사용");
+                    return NormalizeQueryForEmbedding(currentQuestion);
+                }
+
+                var jsonString = await response.Content.ReadAsStringAsync();
+                var json = JsonDocument.Parse(jsonString).RootElement;
+                var refinedQuestion = json
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+
+                if (string.IsNullOrWhiteSpace(refinedQuestion))
+                {
+                    return NormalizeQueryForEmbedding(currentQuestion);
+                }
+
+                // 정제 결과를 정규화
+                return NormalizeQueryForEmbedding(refinedQuestion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠️ 질문 정제 중 오류, 원본 사용");
+                return NormalizeQueryForEmbedding(currentQuestion);
+            }
+        }
+
         private async Task<List<MergedRetrievalCandidate>> ReRankCandidatesAsync(
             string question,
             List<MergedRetrievalCandidate> candidates,
@@ -790,7 +872,7 @@ namespace AiDeskApi.Services
             }
 
             var candidateLines = candidates.Select((x, idx) =>
-                $"{idx + 1}. id={x.Kb.Id}, title={x.Kb.Title}, semantic={x.SemanticScore:F3}, final={x.FinalScore:F3}, matched={x.MatchedQuestion}, source={(x.IsExpectedMatch ? "expected" : "document")}, content={TruncateText(x.Kb.Content, 180)}");
+                $"{idx + 1}. id={x.Kb.Id}, title={x.Kb.Title}, semantic={x.SemanticScore:F3}, final={x.FinalScore:F3}, matched={x.MatchedEvidenceText}, source={(x.IsExpectedMatch ? "expected" : "document")}, content={TruncateText(x.Kb.Content, 180)}");
 
             var prompt = $@"사용자 질문과 관련성 순으로 후보를 재정렬하세요.
 
@@ -883,24 +965,37 @@ namespace AiDeskApi.Services
             }
         }
 
+        // 제목/키워드 매칭으로 계산한 가산점 결과
         private sealed class KeywordBoostInfo
         {
+            // 최종 점수에 더할 가산점 값
             public float Boost { get; init; }
+            // 매칭된 키워드 개수
             public int MatchCount { get; init; }
+            // 실제로 매칭된 키워드 목록(진단용)
             public List<string> MatchedKeywords { get; init; } = new();
         }
 
+        // document/expected 검색 결과를 KB 단위로 병합한 후보
         private sealed class MergedRetrievalCandidate
         {
+            // 후보 KB 원문
             public KnowledgeBase Kb { get; init; } = default!;
-            public string MatchedQuestion { get; init; } = string.Empty;
+            // 매칭 근거로 사용된 질문/제목
+            public string MatchedEvidenceText { get; init; } = string.Empty;
+            // true면 expected 포인트 기반 매칭
             public bool IsExpectedMatch { get; init; }
+            // 벡터 유사도 기반 점수
             public float SemanticScore { get; init; }
+            // 키워드 매칭 가산점
             public float KeywordScore { get; init; }
+            // semantic + keyword 합산 최종 점수
             public float FinalScore { get; init; }
-            public bool IncludedBySemantic { get; init; }
+            // 키워드 매칭으로 포함 근거가 있는지 여부
             public bool IncludedByKeyword { get; init; }
+            // 매칭된 키워드 수
             public int KeywordMatchCount { get; init; }
+            // 매칭된 키워드 목록
             public List<string> MatchedKeywords { get; init; } = new();
         }
 
@@ -999,60 +1094,108 @@ namespace AiDeskApi.Services
         }
     }
 
+    /// <summary>
+    /// RAG 질의 1회 실행 결과를 API로 반환하는 응답 모델입니다.
+    /// </summary>
     public class RagResponse
     {
+        // 최종 사용자 답변
         public string Answer { get; set; } = string.Empty;
+        // 최상위 후보의 최종 유사도 점수
         public float TopSimilarity { get; set; }
+        // 임계치 미달 여부
         public bool IsLowSimilarity { get; set; }
-        public string? TopMatchedQuestion { get; set; }
+        // 최상위 후보의 매칭 질문(제목/예상질문)
+        public string? TopMatchedEvidenceText { get; set; }
+        // 최상위 후보 KB 제목
         public string? TopMatchedKbTitle { get; set; }
+        // 최상위 후보 KB 본문
         public string? TopMatchedKbContent { get; set; }
+        // 상충 후보 감지 여부(확장 포인트)
         public bool ConflictDetected { get; set; }
+        // 후보 선택 정책 설명 문자열
         public string? DecisionRule { get; set; }
+        // 검색/선정 상세 진단 정보
         public RetrievalDiagnostics? RetrievalDiagnostics { get; set; }
+        // 관련 KB 목록(임계치 통과 후보 중심)
         public List<KBSummary> RelatedKBs { get; set; } = new();
     }
 
+    /// <summary>
+    /// 검색 단계의 내부 진단 데이터를 담는 모델입니다.
+    /// </summary>
     public class RetrievalDiagnostics
     {
+        // 적용된 유사도 임계치
         public float SimilarityThreshold { get; set; }
+        // 질문에서 추출한 키워드 토큰
         public List<string> QuestionTokens { get; set; } = new();
+        // 후보별 점수/선택 여부 상세
         public List<RetrievalCandidateDiagnostic> Candidates { get; set; } = new();
     }
 
+    /// <summary>
+    /// 개별 후보의 점수 구성과 통과 여부를 나타냅니다.
+    /// </summary>
     public class RetrievalCandidateDiagnostic
     {
+        // KB 식별자
         public int Id { get; set; }
+        // KB 제목
         public string? Title { get; set; }
-        public string? MatchedQuestion { get; set; }
+        // 매칭 근거 텍스트
+        public string? MatchedEvidenceText { get; set; }
+        // 벡터 검색 원점수
         public float BaseSimilarity { get; set; }
+        // 키워드 가산점
         public float KeywordBoost { get; set; }
+        // 최종 점수(Base + Boost)
         public float AdjustedSimilarity { get; set; }
+        // 매칭 키워드 수
         public int KeywordMatchCount { get; set; }
+        // 매칭 키워드 목록
         public List<string> MatchedKeywords { get; set; } = new();
-        public bool IncludedBySemantic { get; set; }
+        // 키워드 매칭으로 포함 근거가 있는지 여부
         public bool IncludedByKeyword { get; set; }
+        // 임계치 통과 여부
         public bool PassedThreshold { get; set; }
+        // 최종 답변 컨텍스트 선택 여부
         public bool SelectedForAnswer { get; set; }
     }
 
+    /// <summary>
+    /// 응답에 노출할 KB 요약 정보입니다.
+    /// </summary>
     public class KBSummary
     {
+        // KB 식별자
         public int Id { get; set; }
+        // KB 제목
         public string? Title { get; set; }
+        // KB 본문(요약 없이 원문 전달)
         public string? Content { get; set; }
+        // 해당 KB의 유사도 점수
         public float Similarity { get; set; }
-        public string? MatchedQuestion { get; set; }
+        // 매칭 근거 질문
+        public string? MatchedEvidenceText { get; set; }
+        // 답변 컨텍스트에 실제 선택됐는지 여부
         public bool IsSelected { get; set; }
     }
 
+    /// <summary>
+    /// RAG 실행 시 동작을 제어하는 런타임 옵션입니다.
+    /// </summary>
     public class RagRuntimeOptions
     {
+        // true면 조회수 증가/저장 같은 영속 작업을 생략
         public bool DisablePersistence { get; set; }
-        public bool PromptOnly { get; set; }
+        // 시스템 프롬프트 강제 덮어쓰기
         public string? SystemPromptOverride { get; set; }
+        // 답변 규칙 프롬프트 강제 덮어쓰기
         public string? RulesPromptOverride { get; set; }
+        // 저유사도 fallback 안내문 강제 덮어쓰기
         public string? LowSimilarityMessageOverride { get; set; }
+        // 유사도 임계치 강제 덮어쓰기
         public float? SimilarityThresholdOverride { get; set; }
     }
 }

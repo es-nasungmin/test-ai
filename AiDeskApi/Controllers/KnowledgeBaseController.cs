@@ -70,13 +70,20 @@ namespace AiDeskApi.Controllers
 
                 var noSave = request.NoSave == true;
                 var actorName = noSave ? "알 수 없음" : await ResolveActorNameAsync(request.Username, request.UserLoginId);
-                // 현재 Ask API의 history 카운트는 '턴'이 아니라 '메시지 수' 기준으로 동작한다.
-                // 신규 필드(HistoryMessageCount)를 우선 사용하고, 레거시 필드(HistoryTurnCount)는 호환용으로 유지한다.
-                var historyMessageCount = Math.Clamp(request.HistoryMessageCount ?? request.HistoryTurnCount ?? 2, 0, 2);
+                // RAG 서비스 기준: 최근 3턴(질문+답변) = 최대 6메시지 사용
+                const int maxHistoryTurns = 3;
+                const int messagesPerTurn = 2;
+                const int maxHistoryMessages = maxHistoryTurns * messagesPerTurn;
+
+                // 신규 필드(메시지 수)를 우선 사용하고, 레거시 턴 필드는 메시지 수로 변환해 호환한다.
+                var historyMessageCount = request.HistoryMessageCount.HasValue
+                    ? Math.Clamp(request.HistoryMessageCount.Value, 0, maxHistoryMessages)
+                    : request.HistoryTurnCount.HasValue
+                        ? Math.Clamp(request.HistoryTurnCount.Value, 0, maxHistoryTurns) * messagesPerTurn
+                        : maxHistoryMessages;
                 var runtimeOptions = new RagRuntimeOptions
                 {
                     DisablePersistence = noSave,
-                    PromptOnly = request.PromptOverride?.PromptOnly == true,
                     SystemPromptOverride = request.PromptOverride?.SystemPrompt,
                     RulesPromptOverride = request.PromptOverride?.RulesPrompt,
                     LowSimilarityMessageOverride = request.PromptOverride?.LowSimilarityMessage,
@@ -85,6 +92,16 @@ namespace AiDeskApi.Controllers
 
                 ChatSession? session = null;
                 List<(string Role, string Content)> history = new();
+
+                // 인라인 이력이 직접 전달된 경우 (SessionId 없을 때)
+                if (request.History != null && request.History.Count > 0 && !request.SessionId.HasValue)
+                {
+                    history = request.History
+                        .Where(h => !string.IsNullOrWhiteSpace(h.Role) && !string.IsNullOrWhiteSpace(h.Content))
+                        .Select(h => (h.Role!.Trim(), h.Content!.Trim()))
+                        .TakeLast(historyMessageCount)
+                        .ToList();
+                }
 
                 if (request.SessionId.HasValue)
                 {
@@ -138,7 +155,7 @@ namespace AiDeskApi.Controllers
                         ActorName = actorName,
                         Platform = platform,
                         TopSimilarity = result.TopSimilarity,
-                        TopMatchedQuestion = result.TopMatchedQuestion ?? result.RelatedKBs.FirstOrDefault()?.MatchedQuestion,
+                        TopMatchedEvidenceText = result.TopMatchedEvidenceText ?? result.RelatedKBs.FirstOrDefault()?.MatchedEvidenceText,
                         TopMatchedKbTitle = result.TopMatchedKbTitle,
                         TopMatchedKbContent = result.TopMatchedKbContent,
                         SessionId = session?.Id,
@@ -214,7 +231,7 @@ namespace AiDeskApi.Controllers
                     result.Answer,
                     result.TopSimilarity,
                     result.IsLowSimilarity,
-                    result.TopMatchedQuestion,
+                    result.TopMatchedEvidenceText,
                     result.TopMatchedKbTitle,
                     result.TopMatchedKbContent,
                     result.RelatedKBs,
@@ -1024,7 +1041,7 @@ namespace AiDeskApi.Controllers
                     ActorName = string.IsNullOrWhiteSpace(actorName) ? "알 수 없음" : actorName,
                     item.Platform,
                     item.TopSimilarity,
-                    item.TopMatchedQuestion,
+                    item.TopMatchedEvidenceText,
                     item.TopMatchedKbTitle,
                     item.TopMatchedKbContent,
                     item.CreatedAt,
@@ -1838,10 +1855,12 @@ namespace AiDeskApi.Controllers
         public int? SessionId { get; set; }
         public bool? CreateSession { get; set; }
         public bool? NoSave { get; set; }
-        /// <summary>최근 대화 이력을 메시지 개수 기준으로 지정 (기본 2, 최대 2)</summary>
+        /// <summary>최근 대화 이력을 메시지 개수 기준으로 지정 (기본 6, 최대 6)</summary>
         public int? HistoryMessageCount { get; set; }
-        /// <summary>레거시 호환용 별칭. 실제 동작은 메시지 개수 기준으로 처리됨</summary>
+        /// <summary>레거시 호환용 턴 개수(기본 3, 최대 3). 내부에서는 1턴=2메시지로 변환됨</summary>
         public int? HistoryTurnCount { get; set; }
+        /// <summary>인라인 대화 이력 (세션 없이 직접 전달할 때 사용). SessionId가 있으면 DB 이력이 우선됨.</summary>
+        public List<AskHistoryItem>? History { get; set; }
         public AskPromptOverrideRequest? PromptOverride { get; set; }
         /// <summary>외부 위젯에서 전달하는 사용자 표시명 (예: 나성민)</summary>
         public string? Username { get; set; }
@@ -1849,9 +1868,14 @@ namespace AiDeskApi.Controllers
         public string? UserLoginId { get; set; }
     }
 
+    public class AskHistoryItem
+    {
+        public string? Role { get; set; }
+        public string? Content { get; set; }
+    }
+
     public class AskPromptOverrideRequest
     {
-        public bool? PromptOnly { get; set; }
         public string? SystemPrompt { get; set; }
         public string? RulesPrompt { get; set; }
         public string? LowSimilarityMessage { get; set; }

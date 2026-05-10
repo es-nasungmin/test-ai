@@ -173,7 +173,9 @@ onMounted(async () => {
         <p class="meta">
           <span>채팅자: {{ item.actorName || '알 수 없음' }}</span>
           <span>최대 유사도: {{ Math.round((item.topSimilarity || 0) * 100) }}%</span>
-          <span v-if="item.topMatchedQuestion">매칭 후보: {{ item.topMatchedQuestion }}</span>
+          <span v-if="item.topMatchedEvidenceText || item.topMatchedQuestion">
+            매칭 후보: {{ item.topMatchedEvidenceText || item.topMatchedQuestion }}
+          </span>
           <span v-if="item.isResolved && item.resolvedAt">처리일시: {{ formatDateTime(item.resolvedAt) }}</span>
         </p>
 

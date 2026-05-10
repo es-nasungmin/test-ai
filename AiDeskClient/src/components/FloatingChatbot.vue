@@ -275,8 +275,8 @@ function onCompositionEnd() { isComposing.value = false }
                 <span class="sim">{{ Math.round(kb.similarity * 100) }}%</span>
                 <div class="kb-texts">
                   <div class="kb-problem">{{ kb.title || kb.problem }}</div>
-                  <div v-if="kb.matchedQuestion" class="kb-badge">
-                    매칭 질문: {{ kb.matchedQuestion }}
+                  <div v-if="kb.matchedEvidenceText || kb.matchedQuestion" class="kb-badge">
+                    매칭 질문: {{ kb.matchedEvidenceText || kb.matchedQuestion }}
                   </div>
                 </div>
               </div>

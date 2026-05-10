@@ -8,7 +8,7 @@ namespace AiDeskApi.Models
         public string ActorName { get; set; } = "알 수 없음";
         public string Platform { get; set; } = "web";
         public float TopSimilarity { get; set; }
-        public string? TopMatchedQuestion { get; set; }
+        public string? TopMatchedEvidenceText { get; set; }
         public string? TopMatchedKbTitle { get; set; }
         public string? TopMatchedKbContent { get; set; }
         public int? SessionId { get; set; }

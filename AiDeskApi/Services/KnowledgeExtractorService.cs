@@ -4,15 +4,24 @@ using System.Text.RegularExpressions;
 
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// KB 작성/정리 작업에서 예상질문, 키워드, 추천 제목, 답변 정제를 LLM으로 생성하는 서비스입니다.
+    /// </summary>
     public interface IKnowledgeExtractorService
     {
+        /// <summary>KB 제목과 본문을 바탕으로 예상질문 목록을 생성합니다.</summary>
         Task<List<string>> GenerateExpectedQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
+        /// <summary>본문과 추가 맥락을 바탕으로 검색/분류용 키워드를 생성합니다.</summary>
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
+        /// <summary>내용을 요약해 추천 제목 후보들을 생성합니다.</summary>
         Task<List<string>> GenerateRecommendedTitlesAsync(string content, int count, string systemPrompt, string rulesPrompt);
+        /// <summary>내용에 맞는 추천 제목 하나를 생성합니다.</summary>
         Task<string> GenerateRecommendedTitleAsync(string content, string systemPrompt, string rulesPrompt);
+        /// <summary>답변 초안을 고객 안내문 형태로 정제합니다.</summary>
         Task<string> RefineSolutionAsync(string content, string systemPrompt, string rulesPrompt);
     }
 
+    // OpenAI Chat Completions를 사용해 KB 생성용 구조화 결과를 뽑아내는 구현체
     public class KnowledgeExtractorService : IKnowledgeExtractorService
     {
         private readonly HttpClient _httpClient;

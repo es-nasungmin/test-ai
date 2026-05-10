@@ -1,15 +1,30 @@
+using AiDeskApi.Data;
+using AiDeskApi.Models;
+using Microsoft.EntityFrameworkCore;
+
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// 챗봇 응답용 시스템 프롬프트, 저유사도 안내문, 임계치를 저장/조회하는 서비스입니다.
+    /// </summary>
     public interface IChatbotPromptTemplateService
     {
+        /// <summary>사용자용 시스템 프롬프트를 가져옵니다.</summary>
         string UserSystemPrompt { get; }
+        /// <summary>관리자용 시스템 프롬프트를 가져옵니다.</summary>
         string AdminSystemPrompt { get; }
+        /// <summary>사용자용 규칙 프롬프트를 가져옵니다.</summary>
         string UserRulesPrompt { get; }
+        /// <summary>관리자용 규칙 프롬프트를 가져옵니다.</summary>
         string AdminRulesPrompt { get; }
+        /// <summary>사용자에게 보여줄 저유사도 안내문을 가져옵니다.</summary>
         string UserLowSimilarityMessage { get; }
+        /// <summary>관리자에게 보여줄 저유사도 안내문을 가져옵니다.</summary>
         string AdminLowSimilarityMessage { get; }
+        /// <summary>저유사도 판정 임계치를 가져옵니다.</summary>
         float SimilarityThreshold { get; }
 
+        /// <summary>프롬프트, 안내문, 임계치를 한 번에 저장합니다.</summary>
         void Update(
             string userSystemPrompt,
             string adminSystemPrompt,
@@ -20,9 +35,14 @@ namespace AiDeskApi.Services
             float similarityThreshold);
     }
 
+    // 관리자 수정값을 DB에 저장하고, RAG 실행 시 현재 설정을 제공하는 구현체
     public class ChatbotPromptTemplateService : IChatbotPromptTemplateService
     {
         private readonly object _sync = new();
+        private readonly AiDeskContext _context;
+
+        private ChatbotPromptTemplate? _entity;
+        private bool _loaded;
 
         private string _userSystemPrompt = "당신은 고객 지원 챗봇입니다. 친절하고 정확하게 한국어로 답하세요.";
         private string _adminSystemPrompt = "당신은 관리자 지원 어시스턴트입니다. 내부 운영 관점에서 근거 중심으로 한국어로 답하세요.";
@@ -35,13 +55,18 @@ namespace AiDeskApi.Services
 
         private float _similarityThreshold = 0.5f;
 
-        public string UserSystemPrompt { get { lock (_sync) { return _userSystemPrompt; } } }
-        public string AdminSystemPrompt { get { lock (_sync) { return _adminSystemPrompt; } } }
-        public string UserRulesPrompt { get { lock (_sync) { return _userRulesPrompt; } } }
-        public string AdminRulesPrompt { get { lock (_sync) { return _adminRulesPrompt; } } }
-        public string UserLowSimilarityMessage { get { lock (_sync) { return _userLowSimilarityMessage; } } }
-        public string AdminLowSimilarityMessage { get { lock (_sync) { return _adminLowSimilarityMessage; } } }
-        public float SimilarityThreshold { get { lock (_sync) { return _similarityThreshold; } } }
+        public ChatbotPromptTemplateService(AiDeskContext context)
+        {
+            _context = context;
+        }
+
+        public string UserSystemPrompt { get { lock (_sync) { EnsureLoadedLocked(); return _userSystemPrompt; } } }
+        public string AdminSystemPrompt { get { lock (_sync) { EnsureLoadedLocked(); return _adminSystemPrompt; } } }
+        public string UserRulesPrompt { get { lock (_sync) { EnsureLoadedLocked(); return _userRulesPrompt; } } }
+        public string AdminRulesPrompt { get { lock (_sync) { EnsureLoadedLocked(); return _adminRulesPrompt; } } }
+        public string UserLowSimilarityMessage { get { lock (_sync) { EnsureLoadedLocked(); return _userLowSimilarityMessage; } } }
+        public string AdminLowSimilarityMessage { get { lock (_sync) { EnsureLoadedLocked(); return _adminLowSimilarityMessage; } } }
+        public float SimilarityThreshold { get { lock (_sync) { EnsureLoadedLocked(); return _similarityThreshold; } } }
 
         public void Update(
             string userSystemPrompt,
@@ -62,6 +87,8 @@ namespace AiDeskApi.Services
 
             lock (_sync)
             {
+                EnsureLoadedLocked();
+
                 _userSystemPrompt = userSystemPrompt.Trim();
                 _adminSystemPrompt = adminSystemPrompt.Trim();
                 _userRulesPrompt = userRulesPrompt.Trim();
@@ -69,7 +96,61 @@ namespace AiDeskApi.Services
                 _userLowSimilarityMessage = userLowSimilarityMessage.Trim();
                 _adminLowSimilarityMessage = adminLowSimilarityMessage.Trim();
                 _similarityThreshold = similarityThreshold;
+
+                if (_entity != null)
+                {
+                    _entity.UserSystemPrompt = _userSystemPrompt;
+                    _entity.AdminSystemPrompt = _adminSystemPrompt;
+                    _entity.UserRulesPrompt = _userRulesPrompt;
+                    _entity.AdminRulesPrompt = _adminRulesPrompt;
+                    _entity.UserLowSimilarityMessage = _userLowSimilarityMessage;
+                    _entity.AdminLowSimilarityMessage = _adminLowSimilarityMessage;
+                    _entity.SimilarityThreshold = _similarityThreshold;
+                    _entity.UpdatedAt = DateTime.UtcNow;
+                    _context.SaveChanges();
+                }
             }
+        }
+
+        private void EnsureLoadedLocked()
+        {
+            if (_loaded)
+            {
+                return;
+            }
+
+            var entity = _context.ChatbotPromptTemplates.OrderBy(x => x.Id).FirstOrDefault();
+            if (entity == null)
+            {
+                entity = new ChatbotPromptTemplate
+                {
+                    UserSystemPrompt = _userSystemPrompt,
+                    AdminSystemPrompt = _adminSystemPrompt,
+                    UserRulesPrompt = _userRulesPrompt,
+                    AdminRulesPrompt = _adminRulesPrompt,
+                    UserLowSimilarityMessage = _userLowSimilarityMessage,
+                    AdminLowSimilarityMessage = _adminLowSimilarityMessage,
+                    SimilarityThreshold = _similarityThreshold,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _context.ChatbotPromptTemplates.Add(entity);
+                _context.SaveChanges();
+            }
+            else
+            {
+                _userSystemPrompt = entity.UserSystemPrompt;
+                _adminSystemPrompt = entity.AdminSystemPrompt;
+                _userRulesPrompt = entity.UserRulesPrompt;
+                _adminRulesPrompt = entity.AdminRulesPrompt;
+                _userLowSimilarityMessage = entity.UserLowSimilarityMessage;
+                _adminLowSimilarityMessage = entity.AdminLowSimilarityMessage;
+                _similarityThreshold = entity.SimilarityThreshold;
+            }
+
+            _entity = entity;
+            _loaded = true;
         }
     }
 }

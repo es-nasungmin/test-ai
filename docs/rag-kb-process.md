@@ -1,282 +1,366 @@
-# RAG + KB 전체 프로세스 문서
+# RAG + KB 전체 프로세스
 
-이 문서는 현재 코드 기준으로 KB 생성부터 질문 처리, 답변 생성, 집계까지의 동작을 설명합니다.
+이 문서는 현재 코드 기준의 KB 저장, 검색, 후보 선택, 답변 생성, 로그 저장, 운영 검증 흐름을 설명합니다.
 
-관련 소스: `AiDeskApi/Services/OpenAiRagService.cs`
+대상 소스
 
----
-
-## 1. 목표와 구성
-
-시스템은 단일 KB 채널을 사용하며, 검색용 벡터 포인트를 두 종류로 운용합니다.
-
-1. KB 본문 포인트 (`document` 타입)
-   - 관리자가 작성한 KB의 제목+내용 기반 임베딩
-
-2. 예상질문 포인트 (`expected` 타입)
-   - KB별 예상질문 임베딩
-
-핵심 원칙:
-- 본문(제목+내용) 벡터와 예상질문 벡터를 분리해 인덱싱
-- 키워드는 보조 신호(약한 가산)로만 사용
-- 최종 답변 후보는 조건부 LLM 재정렬 후 상위 집합에서 선택
+- AiDeskApi/Services/OpenAiRagService.cs
+- AiDeskApi/Controllers/KnowledgeBaseController.cs
+- AiDeskApi/Controllers/ChatController.cs
+- AiDeskApi/Services/QdrantVectorSearchService.cs
 
 ---
 
-## 2. KB 생성/수정 파이프라인
+## 1. 이번 버전의 핵심 변화
 
-### 2.1 입력 항목
+현재 버전에서 발표 시 꼭 강조해야 할 포인트는 다음과 같습니다.
+
+1. KB 검색은 document 벡터와 expected 벡터를 분리해 조회합니다.
+2. KB 후보 정렬에는 semanticScore와 keyword boost가 함께 쓰입니다.
+3. 하지만 최종 답변 가능 여부는 semanticScore 기준으로만 판단합니다.
+4. 따라서 키워드 보정이 threshold 판정을 뒤집지 않습니다.
+5. RetrievalDiagnostics에는 semantic, keyword, adjusted 점수를 모두 남겨 추적이 가능합니다.
+
+발표용 한 줄 설명
+
+- 키워드는 후보 순서를 보정하는 약한 신호로만 사용하고, 최종 채택 여부는 semanticScore로만 판단합니다.
+
+이 구조는 negative 오탐을 줄이면서도, 경계 구간에서 후보 순서 보정 정보는 유지하기 위한 선택입니다.
+
+---
+
+## 2. 엔드투엔드 흐름 한눈에 보기
+
+```text
+관리자 KB 저장
+  -> 본문 document 포인트 생성
+  -> 예상질문 expected 포인트 생성
+  -> Qdrant upsert
+
+사용자 질문
+  -> 질문 정규화
+  -> 조건부 질문 정제
+  -> 임베딩 생성
+  -> Qdrant raw search
+  -> document/expected 분리
+  -> KB 단위 병합
+  -> keyword boost 계산
+  -> adjustedSimilarity 기준 정렬
+  -> 조건부 LLM rerank
+  -> FinalTopK 확정
+  -> semantic threshold 필터
+  -> 상위 3개 selectedResults 확정
+  -> GPT 답변 생성 또는 저유사도 즉시 반환
+  -> ViewCount, ChatMessage, LowSimilarity 로그 저장
+```
+
+---
+
+## 3. KB 생성/수정 파이프라인
+
+### 3.1 입력 데이터
 
 | 항목 | 설명 |
-|------|------|
-| Title | KB 제목 (필수) |
-| Content (Solution) | 답변 내용 (필수) |
-| Visibility | `user`(공개) / `admin`(내부) |
-| Platform | `공통` 또는 특정 플랫폼명 |
-| Keywords | 검색 보조 키워드 (쉼표/세미콜론 구분) |
-| ExpectedQuestions | 예상질문 최대 10개 |
+|---|---|
+| Title | KB 제목 |
+| Content | 해결 내용 |
+| Visibility | user 또는 admin |
+| Platform | 공통 또는 특정 플랫폼 |
+| Keywords | 검색 보조 키워드 |
+| ExpectedQuestions | 예상질문 목록 |
 
-### 2.2 임베딩 생성
+### 3.2 임베딩 생성
 
-저장 시 임베딩은 다음과 같이 생성됩니다.
+본문 임베딩
 
-1. 본문 임베딩
-   - 모델: `text-embedding-3-small` (OpenAI)
-   - 입력: 제목 + 내용 결합 텍스트
-   - 저장: Qdrant `document` 포인트 벡터로 저장 (RDB 컬럼 미사용)
+- 입력: Title + Content 결합 텍스트
+- 결과: document 포인트 1개
 
-2. 예상질문 임베딩
-   - 모델: 동일
-   - 입력: 예상질문 각각을 개별 임베딩
-   - 저장: Qdrant `expected` 포인트 벡터로 저장 (RDB 컬럼 미사용)
+예상질문 임베딩
 
-참고:
-- 현재 구현은 임베딩을 DB 엔티티 컬럼에 저장하지 않습니다.
-- `QdrantVectorSearchService.BuildPointsAsync`에서 upsert 시점에 즉시 임베딩을 생성합니다.
+- 입력: 예상질문 각 문장
+- 결과: expected 포인트 N개
 
-### 2.3 벡터 인덱싱 (Qdrant)
+현재 구현 특징
 
-KB 저장/수정 후 Qdrant 컬렉션으로 upsert 됩니다.
+1. 임베딩 벡터는 RDB 컬럼에 저장하지 않습니다.
+2. Qdrant upsert 시점에 생성합니다.
+3. 전체 재동기화는 관리자 API로 수행합니다.
+
+---
+
+## 4. 질문 처리 파이프라인
+
+### 4.1 단계별 개요
+
+| 단계 | 설명 | 주요 상수 |
+|---|---|---|
+| 0 | 질문 정규화 및 조건부 질문 정제 | HistoryTurnLimit=3 |
+| 1 | 임베딩 생성 | - |
+| 2 | Qdrant raw search | RawVectorTopK=40 |
+| 3 | document/expected 분리 유지 | 15 / 20 |
+| 4 | KB 단위 병합 + keyword boost | MergeTopK=10 |
+| 5 | 조건부 LLM rerank | ReRankTopK=8 |
+| 6 | FinalTopK 확정 | FinalTopK=5 |
+| 7 | semantic threshold 필터 | SimilarityThreshold 기본 0.5 |
+| 8 | selectedResults 확정 | AnswerContextTopK=3 |
+| 9 | GPT 답변 또는 low-similarity 응답 | - |
+
+---
+
+### 4.2 질문 정규화와 정제
+
+정규화 목적
+
+- 표기 흔들림을 줄여 임베딩 분산을 줄임
+
+예시
+
+| 원문 | 정규화 |
+|---|---|
+| 안됨, 안돼요, 불가 | 안돼 |
+| 안보임, 안보여요 | 안보여 |
+
+질문 정제 목적
+
+- 대화 이력이 있을 때 후속 질문을 단일 의미 질문으로 풀어줌
+
+예시
+
+```text
+이전 대화:
+사용자: 인증서가 뭐야?
+봇: 인증서는 사용자 인증용 디지털 증명서입니다.
+사용자: 어디에 저장해야 되는데
+
+정제 결과:
+인증서는 어디에 저장해야 하나요?
+```
+
+---
+
+### 4.3 Qdrant raw search
 
 | 항목 | 값 |
-|------|------|
-| 컬렉션명 | `aidesk_kb` |
-| 거리 함수 | Cosine |
-| document 포인트 | KB당 1개 (본문 벡터) |
-| expected 포인트 | 예상질문 수만큼 N개 (질문 벡터) |
+|---|---:|
+| RawVectorTopK | 40 |
+| DocumentVectorTopK | 15 |
+| ExpectedVectorTopK | 20 |
 
-payload 주요 필드:
-- `kbId`, `type`(`document`|`expected`), `question`, `visibility`, `platforms`, `keywords`, `updatedAt`
+필터 규칙
 
-참고:
-- 여기서 `document`는 업로드 문서 타입이 아니라 "KB 본문 임베딩 포인트"를 의미합니다.
-- 현재 `Program.cs`에는 앱 시작 시 `SyncAllKnowledgeBasesAsync` 자동 실행이 없습니다.
-- 전체 재동기화/재구축은 관리자 API(`reindex-all`, `rebuild-vector-index`)로 수동 실행합니다.
-- 일상 동기화는 KB 생성/수정/삭제 시점에 `UpsertKnowledgeBaseAsync`/`DeleteKnowledgeBaseAsync`로 처리됩니다.
+1. role=user면 visibility=user KB만 조회
+2. role=admin이면 전체 조회
+3. platform=공통이면 공통 KB만
+4. 특정 플랫폼이면 공통 + 해당 플랫폼 KB
+5. 전체 플랫폼이면 플랫폼 제한 없음
 
 ---
 
-## 3. 사용자 질문 처리 파이프라인
+### 4.4 KB 단위 병합과 점수 구성
 
-엔드포인트: `POST /api/knowledgebase/ask`
+각 KB 후보는 아래 세 점수를 갖습니다.
 
-### 파이프라인 단계별 수치 요약
+| 점수 | 의미 |
+|---|---|
+| SemanticScore | document 또는 expected 중 더 높은 벡터 점수 |
+| KeywordBoost | 질문 토큰과 KB 제목, 키워드, 본문 매칭 기반 가산점 |
+| AdjustedSimilarity | SemanticScore + KeywordBoost |
 
-```
-사용자 질문
-    ↓ [1단계] 질문 정규화
-    ↓ [2단계] OpenAI 임베딩 (text-embedding-3-small)
-    ↓ [3단계] Qdrant 벡터 검색 → Raw 40개 추출
-                ├─ document 타입 → 상위 15개 (DocumentVectorTopK)
-                └─ expected 타입 → 상위 20개 (ExpectedVectorTopK)
-    ↓ [4단계] KB 단위 병합 + 키워드 보조 가산
-                → 상위 10개 후보로 압축 (MergeTopK)
-    ↓ [5단계] LLM Rerank (조건부)
-                고신뢰 조건 해당 시: 점수 내림차순 정렬만 (LLM 호출 없음)
-                일반 조건 시: GPT에 10개 → 상위 8개로 재정렬 (ReRankTopK)
-    ↓ [6단계] FinalTopK 5개 → 유사도 임계치(0.5) 필터링
-   ↓ [7단계] eligible 상위 3개(재정렬 순서 기준) 선택 → selectedResults 확정
-   ↓ [8단계] 답변 생성 (GPT 1회 호출)
-    ↓ 최종 응답
-```
+현재 상수
 
-### 3.1 질문 정규화
+| 항목 | 값 |
+|---|---:|
+| KeywordBoostPerMatch | 0.01 |
+| MaxKeywordBoost | 0.03 |
+| KeywordBoostHardFloorGap | 0.05 |
 
-임베딩 전 질문 표현을 정규화합니다.
+중요한 정책
 
-| 원본 표현 | 정규화 결과 |
-|-----------|-------------|
-| 안됨, 안돼요, 불가, 조회 불가 | 안돼 |
-| 안보임, 안보여요 | 안보여 |
-| 연속 공백 | 단일 공백 |
+1. keyword boost는 semanticScore가 threshold 근처일 때만 적용됩니다.
+2. adjustedSimilarity는 후보 정렬과 rerank 입력용입니다.
+3. threshold 통과 판정에는 semanticScore만 사용합니다.
+4. 즉, keyword boost는 후보 순서와 진단 설명에는 영향을 주지만, 답변 가능 여부 자체를 바꾸지는 않습니다.
 
-추가로, 짧은 후속 질문(예: "그럼 안돼?")으로 판단되면 직전 사용자 발화(최대 1개)를 임베딩 입력 앞에 결합해 검색 품질을 보정합니다.
+이 정책이 필요한 이유
 
-### 3.2 질문 임베딩 생성
-
-- 모델: `text-embedding-3-small`
-- 출력: 1536차원 float 벡터
-
-### 3.3 Qdrant 벡터 검색 — Raw 40개 추출
-
-| 파라미터 | 값 | 설명 |
-|----------|-----|------|
-| RawVectorTopK | **40** | Qdrant에서 한 번에 조회하는 총 hit 수 |
-| DocumentVectorTopK | **15** | document 타입 hit 중 유지할 상위 개수 |
-| ExpectedVectorTopK | **20** | expected 타입 hit 중 유지할 상위 개수 |
-
-- role이 `user`이면 `visibility='user'`인 KB만, `admin`이면 전체 KB 대상
-- platform 필터: `공통` + 지정 플랫폼 KB만 포함
-- document hit과 expected hit 각각 score 내림차순 정렬 후 개수 제한 적용
-
-### 3.4 KB 단위 병합 + 키워드 보조 가산 — 상위 10개 후보
-
-| 파라미터 | 값 | 설명 |
-|----------|-----|------|
-| MergeTopK | **10** | 병합 후 유지할 KB 후보 수 |
-| KeywordBoostPerMatch | 0.01 | 키워드 매칭 1개당 가산 점수 |
-| MaxKeywordBoost | 0.03 | 키워드 가산 상한 |
-| KeywordBoostHardFloorGap | 0.05 | SemanticScore < (threshold − 0.05) 이면 가산 미적용 |
-
-병합 로직:
-1. document hit과 expected hit을 kbId 기준으로 그룹화
-2. 각 KB에서 document 최고점 vs expected 최고점 비교 → 높은 쪽이 SemanticScore
-3. 질문 토큰과 KB 제목/키워드 매칭 → KeywordBoost 계산
-4. FinalScore = SemanticScore + KeywordBoost
-5. FinalScore 내림차순으로 상위 10개만 유지
-
-키워드는 임계치 근방의 근소 차이를 보정하는 약한 신호입니다. 임계치와 크게 차이 나는 후보에는 적용하지 않습니다.
-
-### 3.5 조건부 LLM Rerank — 최대 8개 재정렬
-
-| 파라미터 | 값 | 설명 |
-|----------|-----|------|
-| ReRankTopK | **8** | LLM rerank 대상 및 결과 최대 개수 |
-| ReRankSkipScoreThreshold | **0.82** | 1위 FinalScore ≥ 이 값이면 rerank 스킵 |
-| ReRankSkipGapThreshold | **0.15** | 1위-2위 점수 차 ≥ 이 값이면 rerank 스킵 |
-
-**Rerank 스킵 조건 (LLM 호출 없음):**
-- 1위 후보 FinalScore ≥ 0.82 → 이미 충분히 명확한 매칭
-- 1위와 2위의 점수 차 ≥ 0.15 → 경쟁 후보 없음
-
-**Rerank 실행 조건 (LLM 1회 호출):**
-- 위 조건 모두 미해당 → 상위 10개 후보를 GPT에게 전달해 질문 관련성 순 재정렬
-- 입력: 질문 + 후보 요약 (id, title, semantic, source, content 180자 이내)
-- 출력: id 정수 배열 (JSON)
-- 응답 이상 시: FinalScore 내림차순 fallback
-
-### 3.6 FinalTopK 5개 확정 + 임계치 필터링
-
-| 파라미터 | 값 | 설명 |
-|----------|-----|------|
-| FinalTopK | **5** | 답변 컨텍스트에 사용할 최대 KB 수 |
-| SimilarityThreshold | **0.5** | 유사도 임계치 (ChatbotPromptTemplateService에서 관리) |
-
-- reranked 결과 상위 5개를 topResults로 확정
-- topResults 중 FinalScore ≥ 0.5 인 것만 eligibleResults (답변 근거 대상)
-- topResults가 0개이거나 1위 점수가 0.5 미만이면 저유사도 안내문 반환
-
-### 3.7 상위 3개(재정렬 순서 기준) 선택 — selectedResults 확정
-
-충돌 투표/다수결은 사용하지 않습니다.
-
-1. `eligibleResults`(이미 `topResults` 순서=rerank 결과 순서)를 기준으로
-2. 앞에서부터 상위 3개(`AnswerContextTopK`)를 `selectedResults`로 확정
-3. `selectedResults`만 ViewCount 증가, 답변 근거, 집계 대상으로 사용
-
-### 3.8 답변 생성 (GPT 1회 호출)
-
-- 모델: `gpt-4o-mini`
-- eligibleResults → 컨텍스트 문자열 구성
-- role에 따라 admin/user 전용 시스템 프롬프트 사용
-- topSimilarity < 0.5 이면 LLM 호출 없이 저유사도 안내문 즉시 반환
+- 키워드 보정은 순서 미세 조정에는 유용하지만, threshold를 뒤집으면 negative 오탐이 늘기 쉽습니다.
 
 ---
 
-## 4. 총 LLM 호출 횟수 요약
+### 4.5 조건부 LLM rerank
 
-| 조건 | 임베딩 | Rerank LLM | Answer LLM | 합계 |
-|------|--------|-----------|------------|------|
-| 고신뢰 매칭 (rerank 스킵) | 1 | 0 | 1 | **2** |
-| 모호한 후보 (rerank 실행) | 1 | 1 | 1 | **3** |
-| 저유사도 (answer 스킵) | 1 | 0~1 | 0 | **1~2** |
+| 항목 | 값 |
+|---|---:|
+| ReRankTopK | 8 |
+| ReRankSkipScoreThreshold | 0.82 |
+| ReRankSkipGapThreshold | 0.15 |
 
----
+스킵 규칙
 
-## 5. 로그 저장 및 집계 기준
+1. 1위 adjustedSimilarity가 0.82 이상이면 rerank 생략
+2. 1위와 2위 adjustedSimilarity 차이가 0.15 이상이면 rerank 생략
 
-### 5.1 채팅 메시지 저장
+실행 규칙
 
-`relatedKbMeta`에 후보 메타를 저장하며, `isSelected=true`인 KB(최대 3개)만 최종 참조 ID로 반영됩니다.
-
-### 5.2 참조수 (ViewCount)
-
-`selectedResults`(eligible 상위 3개) 기준으로만 ViewCount를 증가시킵니다.
-
-### 5.3 질문 분석 리포트
-
-`GET /api/chat/questions-summary` 집계도 selected 기준으로 동작합니다.
+- 위 조건에 해당하지 않으면 GPT에 후보 요약을 보내 관련성 순으로 재정렬합니다.
 
 ---
 
-## 6. 설정값 전체 요약
+### 4.6 FinalTopK와 semantic threshold
 
-| 파라미터 | 현재값 | 위치 |
-|----------|--------|------|
-| RawVectorTopK | 40 | OpenAiRagService.cs |
-| DocumentVectorTopK | 15 | OpenAiRagService.cs |
-| ExpectedVectorTopK | 20 | OpenAiRagService.cs |
-| MergeTopK | 10 | OpenAiRagService.cs |
-| ReRankTopK | 8 | OpenAiRagService.cs |
-| FinalTopK | 5 | OpenAiRagService.cs |
-| AnswerContextTopK | 3 | OpenAiRagService.cs |
-| ReRankSkipScoreThreshold | 0.82 | OpenAiRagService.cs |
-| ReRankSkipGapThreshold | 0.15 | OpenAiRagService.cs |
-| KeywordBoostPerMatch | 0.01 | OpenAiRagService.cs |
-| MaxKeywordBoost | 0.03 | OpenAiRagService.cs |
-| SimilarityThreshold | 0.5 | ChatbotPromptTemplateService.cs |
-| Embedding Model | text-embedding-3-small | OpenAiEmbeddingService.cs |
-| Chat Model | gpt-4o-mini | appsettings.json |
+후보 확정 순서
 
----
+1. reranked 상위 5개를 topResults로 확정
+2. topResults 중 semanticScore가 threshold 이상인 후보만 eligibleResults
+3. eligibleResults 상위 3개를 selectedResults로 확정
 
-## 7. 엔드투엔드 시퀀스
+현재 판정 기준
 
-```
-[관리자 작업]
-1. 관리자가 KB 작성 (제목/내용/키워드/예상질문)
-2. 저장 시 본문 임베딩 1개 + 예상질문 임베딩 N개 생성
-3. Qdrant aidesk_kb 컬렉션에 document/expected 포인트 upsert
+| 항목 | 기준 |
+|---|---|
+| topSimilarity | topResults 1위의 semanticScore |
+| isLowSimilarity | topResults 1위 semanticScore < threshold |
+| relatedKBs | eligibleResults 기준 |
+| relatedKBs.similarity | semanticScore |
+| retrievalDiagnostics.candidates[].adjustedSimilarity | semantic + keyword |
 
-[사용자 질문]
-4. 사용자가 질문 입력
-5. 질문 정규화 (표현 통일)
-6. OpenAI 임베딩 생성 (1536d 벡터)
-7. Qdrant 코사인 검색 → raw 40개 hit 수신
-8. document 15개 / expected 20개로 분리
-9. KB 단위 병합 + 키워드 가산 → 상위 10개 후보
-10. Rerank 스킵 판단
-    ├─ 스킵 → 점수 내림차순 정렬 (LLM 호출 없음)
-    └─ 실행 → GPT 재정렬 요청 → 상위 8개
-11. 상위 5개(FinalTopK) 확정
-12. 유사도 임계치(0.5) 필터 → eligibleResults
-    ├─ 0개 또는 임계치 미달 → 저유사도 안내문 반환 (LLM 없음)
-    └─ 1개 이상 → 다음 단계
-13. eligible 상위 3개(재정렬 순서 기준) 선택 → selectedResults
-14. 컨텍스트 구성(최대 3개) + GPT 답변 생성
-15. selectedResults 기준 ViewCount 증가 + 집계 반영
-16. 클라이언트에 응답 반환
-```
+이전 버전과의 차이
+
+- 예전에는 keyword boost가 포함된 finalScore가 threshold 판정에도 쓰일 수 있었습니다.
+- 현재는 semanticScore만 threshold 판정에 사용합니다.
 
 ---
 
-## 8. 관련 코드 위치
+### 4.7 답변 생성과 low-similarity 응답
 
-| 역할 | 파일 |
-|------|------|
-| RAG 본체 (검색/병합/rerank/응답) | `AiDeskApi/Services/OpenAiRagService.cs` |
-| 임베딩 생성 | `AiDeskApi/Services/OpenAiEmbeddingService.cs` |
-| Qdrant 인덱싱/검색 | `AiDeskApi/Services/QdrantVectorSearchService.cs` |
-| 임계치/프롬프트 템플릿 | `AiDeskApi/Services/ChatbotPromptTemplateService.cs` |
-| KB 생성/수정/메타 저장 | `AiDeskApi/Controllers/KnowledgeBaseController.cs` |
-| 질문분석 집계 | `AiDeskApi/Controllers/ChatController.cs` |
+답변 생성 조건
+
+- topSimilarity가 threshold 이상일 때만 GPT 답변 생성
+
+low-similarity 조건
+
+- topSimilarity가 threshold 미만이면 GPT 호출 없이 즉시 안내문 반환
+
+전달되는 컨텍스트
+
+1. selectedResults 최대 3개
+2. 최근 대화 이력 최대 6메시지
+3. role별 시스템 프롬프트와 규칙 프롬프트
+
+---
+
+## 5. 저장 및 집계 규칙
+
+### 5.1 ViewCount
+
+- selectedResults 기준으로만 증가합니다.
+- 후보군에만 오른 KB는 증가하지 않습니다.
+
+### 5.2 ChatMessages
+
+bot 메시지에 저장되는 메타
+
+| 필드 | 설명 |
+|---|---|
+| RelatedKbIds | selected KB ID 목록 |
+| RelatedKbMeta | selected KB 메타 요약 |
+| RetrievalDebugMeta | 전체 RetrievalDiagnostics |
+| TopSimilarity | 최상위 semanticScore |
+| IsLowSimilarity | 저유사도 여부 |
+
+### 5.3 LowSimilarityQuestions
+
+저장 조건
+
+- ask 요청 결과 isLowSimilarity=true
+- noSave=false
+
+저장되는 주요 정보
+
+1. 질문 원문
+2. role
+3. actorName
+4. platform
+5. topSimilarity
+6. topMatchedEvidenceText
+7. topMatchedKbTitle
+8. topMatchedKbContent
+
+---
+
+## 6. RetrievalDiagnostics 읽는 법
+
+운영이나 발표에서 가장 설명하기 좋은 필드는 아래입니다.
+
+| 필드 | 의미 |
+|---|---|
+| similarityThreshold | 이번 요청에 적용된 threshold |
+| questionTokens | 질문에서 추출한 토큰 |
+| candidates[].baseSimilarity | semanticScore |
+| candidates[].keywordBoost | 키워드 보정치 |
+| candidates[].adjustedSimilarity | 정렬용 보정 점수 |
+| candidates[].passedThreshold | semantic threshold 통과 여부 |
+| candidates[].selectedForAnswer | 답변 컨텍스트 채택 여부 |
+
+발표 시 설명 문장 예시
+
+"정렬은 adjustedSimilarity로 하되, 실제 답변 가능 여부는 baseSimilarity, 즉 semanticScore 기준으로만 판단합니다. 그래서 키워드가 조금 겹쳤다고 근거 없는 답변이 통과하지 않게 했습니다."
+
+같은 의미의 짧은 버전
+
+"키워드는 정렬용이고, semantic은 판정용입니다."
+
+---
+
+## 7. 운영 검증 최신 스냅샷
+
+### 7.1 100문항 라이브 벤치
+
+2026-05-10 결과
+
+- 시스템 성공률: 100.00%
+- 품질 성공률: 98.00%
+- Positive 품질 성공률: 100.00%
+- Negative 품질 성공률: 71.43%
+- 평균 응답시간: 2386.1ms
+- P95 응답시간: 5036.0ms
+
+해석
+
+- positive recall은 충분히 높았습니다.
+- 현재 남은 리스크는 negative 오탐입니다.
+- 그래서 threshold 판정은 semanticScore 기준으로 단순화했습니다.
+
+### 7.2 저장 질문 리플레이
+
+2026-05-10 결과
+
+- 순차 품질 일관성률: 100.00%
+- 순차 P95: 3997.0ms
+- 동시 처리량: 3.96 req/s
+
+의미
+
+- 동일 저장 질문 재실행 시 결과 흔들림은 낮았습니다.
+- 현재 변경은 후보 판정 기준을 명확히 하는 방향이라, 다음 검증 포인트는 negative 개선 여부입니다.
+
+---
+
+## 8. 발표용 메시지 정리
+
+짧게 설명하면 아래 순서가 가장 전달력이 좋습니다.
+
+1. document와 expected를 따로 검색합니다.
+2. KB 단위로 병합하고 keyword boost로 순서를 보정합니다.
+3. 하지만 답변 가능 여부는 semanticScore 기준으로만 판단합니다.
+4. selected KB만 ViewCount, 대화 로그, 통계에 반영합니다.
+5. retrievalDiagnostics로 후보 선정 근거를 추적할 수 있습니다.
+
+한 줄 버전
+
+"키워드는 정렬을 돕고, semantic이 최종 판정을 담당하는 구조입니다."
+
+조금 더 직설적인 버전
+
+"키워드 보정은 순서 정렬에만 쓰고, 통과 여부는 semanticScore로만 결정합니다."

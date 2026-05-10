@@ -65,15 +65,6 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            if (status == "rejected")
-            {
-                return Unauthorized(new LoginResponse
-                {
-                    Success = false,
-                    Message = "관리자에게 거절된 계정입니다."
-                });
-            }
-
             if (status == "pending")
             {
                 return Unauthorized(new LoginResponse
@@ -100,8 +91,6 @@ namespace AiDeskApi.Controllers
                     Username = user.Username,
                     Role = user.Role,
                     Status = status,
-                    IsApproved = user.IsApproved,
-                    IsActive = user.IsActive,
                     CreatedAt = user.CreatedAt,
                     ApprovedAt = user.ApprovedAt,
                     LastLoginAt = user.LastLoginAt
@@ -187,9 +176,7 @@ namespace AiDeskApi.Controllers
                 Username = username,
                 PasswordHash = HashPassword(request.Password),
                 Role = "user",
-                Status = "pending",
-                IsActive = true,
-                IsApproved = false // 관리자 승인 필요
+                Status = "pending"
             };
 
             _context.Users.Add(user);
@@ -205,9 +192,7 @@ namespace AiDeskApi.Controllers
                     LoginId = user.LoginId,
                     Username = user.Username,
                     Role = user.Role,
-                    Status = ResolveUserStatus(user),
-                    IsApproved = user.IsApproved,
-                    IsActive = user.IsActive,
+                    Status = user.Status,
                     CreatedAt = user.CreatedAt,
                     ApprovedAt = user.ApprovedAt,
                     LastLoginAt = user.LastLoginAt
@@ -239,7 +224,7 @@ namespace AiDeskApi.Controllers
 
             var user = await _context.Users
                 .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+                .FirstOrDefaultAsync(u => u.Id == userId && u.Status != "deleted");
 
             if (user == null)
             {
@@ -256,9 +241,7 @@ namespace AiDeskApi.Controllers
                 LoginId = user.LoginId,
                 Username = user.Username,
                 Role = user.Role,
-                Status = ResolveUserStatus(user),
-                IsApproved = user.IsApproved,
-                IsActive = user.IsActive,
+                Status = user.Status,
                 CreatedAt = user.CreatedAt,
                 ApprovedAt = user.ApprovedAt,
                 LastLoginAt = user.LastLoginAt
@@ -298,7 +281,7 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.Status != "deleted");
             if (user == null)
             {
                 return NotFound(new LoginResponse
@@ -321,9 +304,7 @@ namespace AiDeskApi.Controllers
                     LoginId = user.LoginId,
                     Username = user.Username,
                     Role = user.Role,
-                    Status = ResolveUserStatus(user),
-                    IsApproved = user.IsApproved,
-                    IsActive = user.IsActive,
+                    Status = user.Status,
                     CreatedAt = user.CreatedAt,
                     ApprovedAt = user.ApprovedAt,
                     LastLoginAt = user.LastLoginAt
@@ -366,7 +347,7 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId && u.Status != "deleted");
             if (user == null)
             {
                 return NotFound(new LoginResponse
@@ -410,8 +391,6 @@ namespace AiDeskApi.Controllers
                     Username = u.Username,
                     Role = u.Role,
                     Status = u.Status,
-                    IsApproved = u.IsApproved,
-                    IsActive = u.IsActive,
                     CreatedAt = u.CreatedAt,
                     ApprovedAt = u.ApprovedAt,
                     LastLoginAt = u.LastLoginAt
@@ -434,8 +413,6 @@ namespace AiDeskApi.Controllers
                     Username = u.Username,
                     Role = u.Role,
                     Status = u.Status,
-                    IsApproved = u.IsApproved,
-                    IsActive = u.IsActive,
                     CreatedAt = u.CreatedAt,
                     ApprovedAt = u.ApprovedAt,
                     LastLoginAt = u.LastLoginAt
@@ -519,8 +496,6 @@ namespace AiDeskApi.Controllers
                 PasswordHash = HashPassword(password),
                 Role = role,
                 Status = "approved",
-                IsActive = true,
-                IsApproved = true,
                 ApprovedAt = DateTime.UtcNow
             };
 
@@ -537,9 +512,7 @@ namespace AiDeskApi.Controllers
                     LoginId = user.LoginId,
                     Username = user.Username,
                     Role = user.Role,
-                    Status = ResolveUserStatus(user),
-                    IsApproved = user.IsApproved,
-                    IsActive = user.IsActive,
+                    Status = user.Status,
                     CreatedAt = user.CreatedAt,
                     ApprovedAt = user.ApprovedAt,
                     LastLoginAt = user.LastLoginAt
@@ -583,7 +556,7 @@ namespace AiDeskApi.Controllers
                 return BadRequest(new LoginResponse
                 {
                     Success = false,
-                    Message = "상태는 approved, pending, rejected, deleted 중 하나여야 합니다."
+                    Message = "상태는 approved, pending, deleted 중 하나여야 합니다."
                 });
             }
 
@@ -638,9 +611,7 @@ namespace AiDeskApi.Controllers
                     LoginId = user.LoginId,
                     Username = user.Username,
                     Role = user.Role,
-                    Status = ResolveUserStatus(user),
-                    IsApproved = user.IsApproved,
-                    IsActive = user.IsActive,
+                    Status = user.Status,
                     CreatedAt = user.CreatedAt,
                     ApprovedAt = user.ApprovedAt,
                     LastLoginAt = user.LastLoginAt
@@ -686,13 +657,14 @@ namespace AiDeskApi.Controllers
                 });
             }
 
-            ApplyUserStatus(userToReject, "rejected");
+            // 거절 = pending으로 상태 복귀
+            ApplyUserStatus(userToReject, "pending");
             await _context.SaveChangesAsync();
 
             return Ok(new LoginResponse
             {
                 Success = true,
-                Message = $"{userToReject.Username} 사용자를 거절했습니다."
+                Message = $"{userToReject.Username} 사용자 승인을 거절했습니다."
             });
         }
 
@@ -791,7 +763,7 @@ namespace AiDeskApi.Controllers
         {
             if (string.IsNullOrWhiteSpace(status)) return null;
             var normalized = status.Trim().ToLowerInvariant();
-            if (normalized == "approved" || normalized == "pending" || normalized == "rejected" || normalized == "deleted")
+            if (normalized == "approved" || normalized == "pending" || normalized == "deleted")
             {
                 return normalized;
             }
@@ -803,49 +775,25 @@ namespace AiDeskApi.Controllers
             if (status == "approved")
             {
                 user.Status = "approved";
-                user.IsActive = true;
-                user.IsApproved = true;
                 user.ApprovedAt ??= DateTime.UtcNow;
-                return;
-            }
-
-            if (status == "rejected")
-            {
-                user.Status = "rejected";
-                user.IsActive = false;
-                user.IsApproved = false;
-                user.ApprovedAt = null;
                 return;
             }
 
             if (status == "deleted")
             {
                 user.Status = "deleted";
-                user.IsActive = false;
-                user.IsApproved = false;
                 user.ApprovedAt = null;
                 return;
             }
 
             user.Status = "pending";
-            user.IsActive = true;
-            user.IsApproved = false;
             user.ApprovedAt = null;
         }
 
         private static string ResolveUserStatus(User user)
         {
-            var status = user.Status?.Trim().ToLowerInvariant();
-            // 명시적으로 차단/삭제된 상태는 최우선
-            if (status == "deleted") return "deleted";
-            if (status == "rejected") return "rejected";
-
-            // IsApproved가 true면 status가 stale(pending)이어도 승인으로 본다.
-            if (user.IsApproved) return "approved";
-
-            if (status == "approved") return "approved";
-            if (!user.IsActive) return "rejected";
-            return "pending";
+            var status = user.Status?.Trim().ToLowerInvariant() ?? "pending";
+            return status == "approved" || status == "deleted" ? status : "pending";
         }
 
         public class UpdateMyProfileRequest

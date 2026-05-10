@@ -22,6 +22,7 @@ namespace AiDeskApi.Data
         public DbSet<KnowledgeBaseExpectedQuestion> KnowledgeBaseExpectedQuestions { get; set; } = null!;
         public DbSet<LowSimilarityQuestion> LowSimilarityQuestions { get; set; } = null!;
         public DbSet<KnowledgeBaseWriterPromptTemplate> KnowledgeBaseWriterPromptTemplates { get; set; } = null!;
+        public DbSet<ChatbotPromptTemplate> ChatbotPromptTemplates { get; set; } = null!;
 
         // 챗봇 세션/메시지
         public DbSet<ChatSession> ChatSessions { get; set; } = null!;
@@ -125,7 +126,7 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.ActorName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.TopMatchedQuestion).HasMaxLength(500);
+                entity.Property(e => e.TopMatchedEvidenceText).HasColumnName("TopMatchedQuestion").HasMaxLength(500);
                 entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.ResolvedAt).HasConversion(utcNullableDateTimeConverter);
                 entity.HasIndex(e => new { e.IsResolved, e.CreatedAt });
@@ -142,6 +143,20 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.TopicKeywordRulesPrompt).IsRequired();
                 entity.Property(e => e.AnswerRefineSystemPrompt).IsRequired();
                 entity.Property(e => e.AnswerRefineRulesPrompt).IsRequired();
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
+            });
+
+            modelBuilder.Entity<ChatbotPromptTemplate>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.UserSystemPrompt).IsRequired();
+                entity.Property(e => e.AdminSystemPrompt).IsRequired();
+                entity.Property(e => e.UserRulesPrompt).IsRequired();
+                entity.Property(e => e.AdminRulesPrompt).IsRequired();
+                entity.Property(e => e.UserLowSimilarityMessage).IsRequired();
+                entity.Property(e => e.AdminLowSimilarityMessage).IsRequired();
+                entity.Property(e => e.SimilarityThreshold).IsRequired();
                 entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
             });

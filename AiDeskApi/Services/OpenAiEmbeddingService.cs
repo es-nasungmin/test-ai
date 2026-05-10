@@ -3,11 +3,16 @@ using System.Text.Json;
 
 namespace AiDeskApi.Services
 {
+    /// <summary>
+    /// 질문이나 문장을 OpenAI 임베딩 벡터로 변환하는 서비스입니다.
+    /// </summary>
     public interface IEmbeddingService
     {
+        /// <summary>입력 텍스트를 검색용 임베딩 벡터로 변환합니다.</summary>
         Task<float[]> EmbedTextAsync(string text);
     }
 
+    // OpenAI embeddings API를 호출해 검색용 벡터를 만드는 구현체
     public class OpenAiEmbeddingService : IEmbeddingService
     {
         private readonly HttpClient _httpClient;

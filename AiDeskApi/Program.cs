@@ -59,7 +59,7 @@ builder.Services.AddHttpClient<IVectorSearchService, QdrantVectorSearchService>(
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
-builder.Services.AddSingleton<IChatbotPromptTemplateService, ChatbotPromptTemplateService>();
+builder.Services.AddScoped<IChatbotPromptTemplateService, ChatbotPromptTemplateService>();
 builder.Services.AddScoped<IKnowledgeBaseWriterPromptTemplateService, KnowledgeBaseWriterPromptTemplateService>();
 
 // JWT 인증 설정

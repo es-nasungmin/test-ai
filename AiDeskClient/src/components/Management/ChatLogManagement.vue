@@ -140,7 +140,6 @@ function parseRelatedKbs(message) {
           .map((item) => ({
             id: Number(item?.id),
             similarity: Number.isFinite(Number(item?.similarity)) ? Number(item.similarity) : null,
-            includedBySemantic: item?.includedBySemantic === true,
             includedByKeyword: item?.includedByKeyword === true,
             matchedKeywords: Array.isArray(item?.matchedKeywords)
               ? item.matchedKeywords.map((x) => String(x).trim()).filter(Boolean)
@@ -168,7 +167,6 @@ function parseRelatedKbs(message) {
       .map((id) => ({
         id,
         similarity: null,
-        includedBySemantic: candidateById.get(id)?.includedBySemantic === true,
         includedByKeyword: candidateById.get(id)?.includedByKeyword === true,
         matchedKeywords: candidateById.get(id)?.matchedKeywords || [],
         keywordMatchCount: candidateById.get(id)?.keywordMatchCount || 0,
@@ -199,7 +197,9 @@ function parseRetrievalDiagnostics(message) {
         .map((c) => ({
           id: Number(c?.id),
           title: typeof c?.title === 'string' ? c.title : '',
-          matchedQuestion: typeof c?.matchedQuestion === 'string' ? c.matchedQuestion : '',
+          matchedEvidenceText: typeof c?.matchedEvidenceText === 'string'
+            ? c.matchedEvidenceText
+            : (typeof c?.matchedQuestion === 'string' ? c.matchedQuestion : ''),
           baseSimilarity: Number(c?.baseSimilarity),
           keywordBoost: Number(c?.keywordBoost),
           adjustedSimilarity: Number(c?.adjustedSimilarity),
@@ -207,7 +207,6 @@ function parseRetrievalDiagnostics(message) {
           matchedKeywords: Array.isArray(c?.matchedKeywords)
             ? c.matchedKeywords.map((x) => String(x).trim()).filter(Boolean)
             : [],
-          includedBySemantic: Boolean(c?.includedBySemantic),
           includedByKeyword: Boolean(c?.includedByKeyword),
           passedThreshold: Boolean(c?.passedThreshold),
           selectedForAnswer: Boolean(c?.selectedForAnswer)
@@ -237,21 +236,14 @@ function getRelatedKbsSorted(message) {
 }
 
 function sourceLabelClass(item) {
-  const bySemantic = item?.includedBySemantic === true
   const byKeyword = item?.includedByKeyword === true
-  if (bySemantic && byKeyword) return 'both'
-  if (bySemantic) return 'semantic'
-  if (byKeyword) return 'keyword'
-  return ''
+  if (byKeyword) return 'both'
+  return 'semantic'
 }
 
 function sourceLabelText(item) {
-  const bySemantic = item?.includedBySemantic === true
   const byKeyword = item?.includedByKeyword === true
-  if (bySemantic && byKeyword) return '벡터+키워드'
-  if (bySemantic) return '벡터'
-  if (byKeyword) return '키워드'
-  return '경로없음'
+  return byKeyword ? '벡터+키워드' : '벡터'
 }
 
 function formatPercentPart(value) {
@@ -293,7 +285,6 @@ function buildSimilarityEvidence(rawEvidence, fallbackSimilarity) {
     semanticSimilarity,
     keywordBoost,
     adjustedSimilarity,
-    includedBySemantic: evidence.includedBySemantic === true,
     includedByKeyword: evidence.includedByKeyword === true
   }
 }
@@ -315,12 +306,9 @@ function similarityExplainText(evidence, fallbackSimilarity) {
     ? `매칭 키워드: ${normalized.matchedKeywords.join(', ')}`
     : '매칭 키워드 없음'
 
-  const inclusionReasons = []
-  if (normalized.includedBySemantic) inclusionReasons.push('벡터 검색')
+  const inclusionReasons = ['벡터 검색']
   if (normalized.includedByKeyword) inclusionReasons.push('키워드 매칭')
-  const inclusionText = inclusionReasons.length > 0
-    ? `후보 포함 경로: ${inclusionReasons.join(' + ')}`
-    : '후보 포함 경로: 정보 없음'
+  const inclusionText = `후보 포함 경로: ${inclusionReasons.join(' + ')}`
 
   // 키워드 매칭됐지만 점수 가산이 없는 경우: 유사도가 너무 낮아 가산 차단됨
   const keywordNote = normalized.includedByKeyword && !hasBoost
