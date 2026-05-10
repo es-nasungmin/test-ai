@@ -2,6 +2,7 @@
   <div class="user-approval-container">
     <div class="header">
       <h2>사용자 관리</h2>
+      <button type="button" class="btn btn-create" @click="openCreateModal">계정 생성</button>
     </div>
 
     <div v-if="error" class="error-message">
@@ -47,12 +48,22 @@
             <td class="created-at">{{ formatDate(user.lastLoginAt) }}</td>
             <td class="actions">
               <button
+                v-if="!isAdminAccount(user)"
                 @click="openEditModal(user)"
                 class="btn btn-edit"
-                :disabled="savingEditUserId === user.id"
+                :disabled="savingEditUserId === user.id || deletingUserId === user.id"
               >
                 {{ savingEditUserId === user.id ? '저장 중...' : '수정' }}
               </button>
+              <button
+                v-if="!isAdminAccount(user)"
+                @click="deleteUser(user)"
+                class="btn btn-delete"
+                :disabled="savingEditUserId === user.id || deletingUserId === user.id"
+              >
+                {{ deletingUserId === user.id ? '삭제 중...' : '삭제' }}
+              </button>
+              <span v-else class="action-placeholder">-</span>
             </td>
           </tr>
         </tbody>
@@ -105,6 +116,47 @@
         </form>
       </div>
     </div>
+
+    <div v-if="createUserModalVisible" class="edit-modal-overlay" @click="closeCreateModal">
+      <div class="edit-modal create-user-modal" @click.stop>
+        <div class="edit-modal-head">
+          <h3>계정 생성</h3>
+          <button type="button" class="edit-modal-close" @click="closeCreateModal">닫기</button>
+        </div>
+        <form class="edit-form create-user-form" @submit.prevent="submitCreateUser">
+          <label>
+            로그인 아이디
+            <input v-model.trim="createForm.loginId" type="text" required />
+          </label>
+          <label>
+            사용자명
+            <input v-model.trim="createForm.username" type="text" required />
+          </label>
+          <label>
+            비밀번호
+            <input v-model="createForm.password" type="password" required minlength="8" />
+          </label>
+          <label>
+            비밀번호 확인
+            <input v-model="createForm.confirmPassword" type="password" required minlength="8" />
+          </label>
+          <label>
+            권한
+            <select v-model="createForm.role" required>
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <small class="create-user-hint">관리자 화면에서 생성한 계정은 바로 승인 상태로 저장됩니다.</small>
+          <div class="create-user-actions">
+            <button type="button" class="ghost-btn" :disabled="creatingUser" @click="closeCreateModal">취소</button>
+            <button type="submit" class="btn btn-create" :disabled="creatingUser">
+              {{ creatingUser ? '생성 중...' : '계정 생성' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -117,7 +169,17 @@ const loadingUsers = ref(false)
 const error = ref(null)
 const approvalMessage = ref(null)
 const savingEditUserId = ref(null)
+const deletingUserId = ref(null)
 const editUserModalVisible = ref(false)
+const createUserModalVisible = ref(false)
+const creatingUser = ref(false)
+const createForm = ref({
+  loginId: '',
+  username: '',
+  password: '',
+  confirmPassword: '',
+  role: 'user'
+})
 const editForm = ref({
   id: null,
   loginId: '',
@@ -127,6 +189,32 @@ const editForm = ref({
   resetPassword: false
 })
 const DEFAULT_RESET_PASSWORD = 'a1234567890'
+
+function resetCreateForm() {
+  createForm.value = {
+    loginId: '',
+    username: '',
+    password: '',
+    confirmPassword: '',
+    role: 'user'
+  }
+}
+
+function openCreateModal() {
+  error.value = null
+  approvalMessage.value = null
+  resetCreateForm()
+  createUserModalVisible.value = true
+}
+
+function closeCreateModal() {
+  if (creatingUser.value) {
+    return
+  }
+
+  createUserModalVisible.value = false
+  resetCreateForm()
+}
 
 const loadUsers = async () => {
   loadingUsers.value = true
@@ -172,7 +260,58 @@ function statusClass(user) {
   return 'status-pending'
 }
 
+function isAdminAccount(user) {
+  return String(user?.role || '').trim().toLowerCase() === 'admin'
+}
+
+const submitCreateUser = async () => {
+  if (!createForm.value.loginId || !createForm.value.username || !createForm.value.password) {
+    error.value = '로그인 아이디, 사용자명, 비밀번호를 모두 입력해주세요.'
+    return
+  }
+
+  if (createForm.value.password !== createForm.value.confirmPassword) {
+    error.value = '비밀번호가 일치하지 않습니다.'
+    return
+  }
+
+  if (createForm.value.password.length < 8) {
+    error.value = '비밀번호는 8자 이상이어야 합니다.'
+    return
+  }
+
+  creatingUser.value = true
+  error.value = null
+
+  try {
+    await authApi.createUser({
+      loginId: createForm.value.loginId,
+      username: createForm.value.username,
+      password: createForm.value.password,
+      confirmPassword: createForm.value.confirmPassword,
+      role: createForm.value.role
+    })
+    approvalMessage.value = '계정이 생성되었습니다.'
+    alert('계정이 생성되었습니다.')
+    resetCreateForm()
+    createUserModalVisible.value = false
+    await loadUsers()
+    setTimeout(() => {
+      approvalMessage.value = null
+    }, 3000)
+  } catch (err) {
+    error.value = err?.response?.data?.message || '계정 생성에 실패했습니다.'
+    console.error(err)
+  } finally {
+    creatingUser.value = false
+  }
+}
+
 const openEditModal = (user) => {
+  if (isAdminAccount(user)) {
+    return
+  }
+
   editForm.value = {
     id: user.id,
     loginId: user.loginId || '',
@@ -182,6 +321,38 @@ const openEditModal = (user) => {
     resetPassword: false
   }
   editUserModalVisible.value = true
+}
+
+const deleteUser = async (user) => {
+  if (!user?.id || isAdminAccount(user)) {
+    return
+  }
+
+  const name = formatDisplayName(user)
+  if (!confirm(`${name} 계정을 삭제하시겠습니까?`)) {
+    return
+  }
+
+  deletingUserId.value = user.id
+  error.value = null
+
+  try {
+    await authApi.deleteUser(user.id)
+    approvalMessage.value = '사용자가 삭제되었습니다.'
+    alert('사용자가 삭제되었습니다.')
+    if (editForm.value.id === user.id) {
+      closeEditModal()
+    }
+    await loadUsers()
+    setTimeout(() => {
+      approvalMessage.value = null
+    }, 3000)
+  } catch (err) {
+    error.value = err?.response?.data?.message || '사용자 삭제에 실패했습니다.'
+    console.error(err)
+  } finally {
+    deletingUserId.value = null
+  }
 }
 
 const closeEditModal = () => {
@@ -209,6 +380,10 @@ const submitEditUser = async () => {
     return
   }
 
+  if (!confirm('사용자를 수정하시겠습니까?')) {
+    return
+  }
+
   savingEditUserId.value = editForm.value.id
   error.value = null
 
@@ -223,6 +398,7 @@ const submitEditUser = async () => {
     approvalMessage.value = editForm.value.resetPassword
       ? '사용자 정보가 수정되고 비밀번호가 초기화되었습니다.'
       : '사용자 정보가 수정되었습니다.'
+    alert('사용자가 수정되었습니다.')
     await loadUsers()
     closeEditModal()
     setTimeout(() => {
@@ -283,6 +459,61 @@ onMounted(() => {
   color: #333;
 }
 
+.create-user-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.create-user-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #495057;
+  font-weight: 600;
+}
+
+.create-user-form input,
+.create-user-form select {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.create-user-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.create-user-hint {
+  display: block;
+  color: #6c757d;
+  font-size: 12px;
+}
+
+.create-user-modal {
+  max-width: 480px;
+}
+
+.ghost-btn {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  color: #495057;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ghost-btn:hover:not(:disabled) {
+  background: #f8f9fa;
+}
+
 .ghost {
   border: 1px solid #ced4da;
   border-radius: 10px;
@@ -327,36 +558,56 @@ onMounted(() => {
 
 .users-list {
   overflow-x: auto;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
 }
 
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
 }
 
 thead {
-  background: #f9f9f9;
-  border-bottom: 2px solid #e0e0e0;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
 }
 
 th {
-  padding: 12px;
-  text-align: left;
+  padding: 14px 12px;
+  text-align: center;
   font-weight: 600;
-  color: #333;
+  color: #334155;
+  border-bottom: 1px solid #dbe4f0;
+  border-right: 1px solid #e5edf6;
+  white-space: nowrap;
 }
 
 tbody tr {
-  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
 }
 
 tbody tr:hover {
-  background: #fafafa;
+  background: #f8fbff;
 }
 
 td {
-  padding: 12px;
+  padding: 14px 12px;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid #edf2f7;
+  border-right: 1px solid #f0f4f8;
+}
+
+th:last-child,
+td:last-child {
+  border-right: none;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .username {
@@ -407,8 +658,14 @@ td {
 
 .actions {
   display: flex;
+  justify-content: center;
+  align-items: center;
   gap: 8px;
-  min-width: 200px;
+  min-width: 140px;
+}
+
+.action-placeholder {
+  color: #98a2ad;
 }
 
 .btn {
@@ -436,6 +693,49 @@ td {
   background: #ffffff;
   color: #3b5bdb;
   border-color: #3b5bdb;
+}
+
+.btn-delete {
+  background: #ffffff;
+  color: #c92a2a;
+  border: 1px solid #f1aeb5;
+}
+
+.btn-delete:hover:not(:disabled) {
+  background: #ffffff;
+  color: #a61e1e;
+  border-color: #e98b95;
+}
+
+.btn-create {
+  color: #1f5aa8;
+  border: 1px solid #a9c6f3;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  background: #ffffff;
+  box-shadow: none;
+  transition: transform 0.14s ease, border-color 0.18s ease, opacity 0.15s;
+}
+
+.btn-create:hover:not(:disabled) {
+  border-color: #8db4eb;
+  background: #ffffff;
+  box-shadow: none;
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+.btn-create:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.btn-create:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
 }
 
 .btn-approve:hover:not(:disabled) {
@@ -518,6 +818,12 @@ td {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .create-user-actions {
+    flex-direction: column;
+  }
 }
 
 .edit-inline-checkbox input {

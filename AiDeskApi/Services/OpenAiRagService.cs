@@ -29,7 +29,7 @@ namespace AiDeskApi.Services
         private static readonly string[] FollowUpQuestionPrefixes =
         {
             "그럼", "그러면", "그건", "이건", "저건", "그거", "이거", "저거",
-            "근데", "그런데", "아니", "그리고", "추가로", "이어서", "그다음", "그 다음",
+            "근데", "그런데", "아니", "추가로", "이어서", "그다음", "그 다음",
             "그 말고", "이 말고", "저 말고"
         };
         // 초기 벡터 검색 후보 수. document/expected를 분리하기 전에 넓게 가져온다.
@@ -648,16 +648,41 @@ namespace AiDeskApi.Services
                 return false;
             }
 
+            // 키워드가 충분하거나 길이가 긴 질문은 독립 질의로 판단해 히스토리 결합을 피한다.
+            var keywordTokens = ExtractKeywordTokens(normalizedQuestion);
+            if (keywordTokens.Count >= 4 || normalizedQuestion.Length >= 30)
+            {
+                return false;
+            }
+
             if (FollowUpQuestionPrefixes.Any(prefix => normalizedQuestion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return keywordTokens.Count <= 2;
+            }
+
+            var hasReferencePronoun = Regex.IsMatch(normalizedQuestion, "(그거|이거|저거|그건|이건|저건|그렇다면|이렇다면|그 부분|이 부분|저 부분|해당 건|이전 내용|위 내용)");
+            if (hasReferencePronoun && keywordTokens.Count <= 2)
             {
                 return true;
             }
 
-            var hasReferencePronoun = Regex.IsMatch(normalizedQuestion, "(그거|이거|저거|그건|이건|저건|그렇다면|이렇다면)");
-            var keywordTokens = ExtractKeywordTokens(normalizedQuestion);
-            if (hasReferencePronoun && keywordTokens.Count <= 2)
+            var lastUserTurn = recentHistory
+                .Where(x => string.Equals(x.Role, "user", StringComparison.OrdinalIgnoreCase))
+                .Select(x => NormalizeQueryForEmbedding(x.Content))
+                .LastOrDefault();
+
+            // 참조어가 없으면 직전 사용자 질문과 토큰이 일부라도 맞닿는 경우에만 히스토리를 결합한다.
+            if (!string.IsNullOrWhiteSpace(lastUserTurn) && keywordTokens.Count > 0)
             {
-                return true;
+                var previousTokens = ExtractKeywordTokens(lastUserTurn);
+                if (previousTokens.Count > 0)
+                {
+                    var overlap = keywordTokens.Count(token => previousTokens.Contains(token));
+                    if (overlap == 0)
+                    {
+                        return false;
+                    }
+                }
             }
 
             var looksLikeShortEllipticQuestion = normalizedQuestion.Length <= 14

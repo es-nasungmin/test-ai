@@ -12,6 +12,7 @@ namespace AiDeskApi.Services
         Task EnsureCollectionAsync(int vectorSize, CancellationToken cancellationToken = default);
         Task UpsertKnowledgeBaseAsync(KnowledgeBase kb, CancellationToken cancellationToken = default);
         Task DeleteKnowledgeBaseAsync(int kbId, CancellationToken cancellationToken = default);
+        Task DeleteExpectedQuestionPointsAsync(int kbId, IEnumerable<string> questions, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<VectorSearchHit>> SearchAsync(float[] queryVector, string role, string platform, int topK, CancellationToken cancellationToken = default);
         Task SyncAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
         Task RebuildAllKnowledgeBasesAsync(CancellationToken cancellationToken = default);
@@ -163,6 +164,40 @@ namespace AiDeskApi.Services
                         }
                     }
                 }
+            };
+
+            var response = await _httpClient.PostAsJsonAsync($"/collections/{_collectionName}/points/delete?wait=true", body, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new InvalidOperationException($"Qdrant delete 실패: {message}");
+            }
+        }
+
+        /// <summary>
+        /// 특정 KB의 예상질문 포인트 일부만 삭제합니다.
+        /// <para>
+        /// KB 수정 시 현재 상태와 달라진 오래된 예상질문만 정리할 때 사용합니다.
+        /// </para>
+        /// </summary>
+        public async Task DeleteExpectedQuestionPointsAsync(int kbId, IEnumerable<string> questions, CancellationToken cancellationToken = default)
+        {
+            if (!_enabled || kbId <= 0 || questions == null) return;
+
+            var pointIds = questions
+                .Where(question => !string.IsNullOrWhiteSpace(question))
+                .Select(question => CreatePointId($"kb-{kbId}-expected-{question.Trim()}"))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (pointIds.Length == 0)
+            {
+                return;
+            }
+
+            var body = new
+            {
+                points = pointIds
             };
 
             var response = await _httpClient.PostAsJsonAsync($"/collections/{_collectionName}/points/delete?wait=true", body, cancellationToken);

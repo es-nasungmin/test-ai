@@ -21,6 +21,7 @@ namespace AiDeskApi.Controllers
         private const string ExpectedQuestionHistoryActionAdd = "add";
         private const string ExpectedQuestionHistoryActionUpdate = "update";
         private const string ExpectedQuestionHistoryActionRemove = "remove";
+        private const int MaxKeywords = 10;
 
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
@@ -326,6 +327,10 @@ namespace AiDeskApi.Controllers
                 var beforeVisibility = kb.Visibility;
                 var beforePlatform = kb.Platform;
                 var beforeKeywords = kb.Keywords;
+                var beforeExpectedQuestions = kb.ExpectedQuestions
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Question))
+                    .Select(x => x.Question)
+                    .ToList();
 
                 var content = ResolveContent(request);
                 var expectedQuestions = ResolveExpectedQuestions(request);
@@ -410,9 +415,34 @@ namespace AiDeskApi.Controllers
                 }
 
                 await _context.SaveChangesAsync();
+
+                var incomingByKey = incoming
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .GroupBy(x => NormalizeQuestionKey(x))
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                var staleExpectedQuestions = beforeExpectedQuestions
+                    .Where(oldQuestion =>
+                    {
+                        var key = NormalizeQuestionKey(oldQuestion);
+                        if (!incomingByKey.TryGetValue(key, out var currentQuestion))
+                        {
+                            return true;
+                        }
+
+                        return !string.Equals(oldQuestion, currentQuestion, StringComparison.Ordinal);
+                    })
+                    .ToList();
+
                 try
                 {
+                    // 현재 상태를 먼저 업서트하고, 그 다음 구버전 예상질문 포인트만 정리한다.
                     await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+
+                    if (staleExpectedQuestions.Count > 0)
+                    {
+                        await _vectorSearchService.DeleteExpectedQuestionPointsAsync(kb.Id, staleExpectedQuestions);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -575,7 +605,6 @@ namespace AiDeskApi.Controllers
 
                 var prompts = await _kbWriterPromptTemplates.GetAsync();
                 var refined = await _knowledgeExtractorService.RefineSolutionAsync(
-                    request.Title?.Trim() ?? string.Empty,
                     request.Content.Trim(),
                     prompts.AnswerRefineSystemPrompt,
                     prompts.AnswerRefineRulesPrompt);
@@ -585,6 +614,45 @@ namespace AiDeskApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "답변 정리 오류");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("recommend-title")]
+        public async Task<IActionResult> RecommendTitle([FromBody] RecommendTitleRequest request)
+        {
+            return await RecommendTitleCoreAsync(request.Content, request.Count);
+        }
+
+        [HttpGet("recommend-title")]
+        public async Task<IActionResult> RecommendTitleByQuery([FromQuery] string? content, [FromQuery] int? count)
+        {
+            return await RecommendTitleCoreAsync(content, count);
+        }
+
+        private async Task<IActionResult> RecommendTitleCoreAsync(string? content, int? count)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(content))
+                    return BadRequest(new { error = "내용을 먼저 작성해주세요." });
+
+                var prompts = await _kbWriterPromptTemplates.GetAsync();
+                var items = await _knowledgeExtractorService.GenerateRecommendedTitlesAsync(
+                    content.Trim(),
+                    Math.Clamp(count ?? 3, 1, 5),
+                    prompts.AnswerRefineSystemPrompt,
+                    prompts.AnswerRefineRulesPrompt);
+
+                return Ok(new
+                {
+                    title = items.FirstOrDefault() ?? string.Empty,
+                    items
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "제목 추천 오류");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -1442,6 +1510,9 @@ namespace AiDeskApi.Controllers
 
             if (!string.IsNullOrWhiteSpace(request.Keywords) && request.Keywords.Trim().Length > 500)
                 return "키워드는 최대 500자까지 입력 가능합니다.";
+            var keywords = ResolveKeywords(request.Keywords);
+            if (keywords.Count > MaxKeywords)
+                return $"키워드는 최대 {MaxKeywords}개까지 등록 가능합니다.";
 
             var expectedQuestions = ResolveExpectedQuestions(request);
             if (expectedQuestions.Any(x => x.Length > 500))
@@ -1475,6 +1546,21 @@ namespace AiDeskApi.Controllers
                 .Select(x => x.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(10)
+                .ToList();
+        }
+
+        private static List<string> ResolveKeywords(string? keywordsRaw)
+        {
+            if (string.IsNullOrWhiteSpace(keywordsRaw))
+            {
+                return new List<string>();
+            }
+
+            return keywordsRaw
+                .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
@@ -1811,6 +1897,12 @@ namespace AiDeskApi.Controllers
     {
         public string? Title { get; set; }
         public string? Content { get; set; }
+    }
+
+    public class RecommendTitleRequest
+    {
+        public string? Content { get; set; }
+        public int? Count { get; set; }
     }
 
     public class UpdatePlatformRequest

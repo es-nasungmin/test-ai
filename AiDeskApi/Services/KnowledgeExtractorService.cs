@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AiDeskApi.Services
 {
@@ -7,7 +8,9 @@ namespace AiDeskApi.Services
     {
         Task<List<string>> GenerateExpectedQuestionsAsync(string title, string content, int count, string systemPrompt, string rulesPrompt);
         Task<List<string>> GenerateKeywordsAsync(string content, List<string>? additionalContent, int count, string systemPrompt, string rulesPrompt, string source = "question");
-        Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt);
+        Task<List<string>> GenerateRecommendedTitlesAsync(string content, int count, string systemPrompt, string rulesPrompt);
+        Task<string> GenerateRecommendedTitleAsync(string content, string systemPrompt, string rulesPrompt);
+        Task<string> RefineSolutionAsync(string content, string systemPrompt, string rulesPrompt);
     }
 
     public class KnowledgeExtractorService : IKnowledgeExtractorService
@@ -72,26 +75,131 @@ namespace AiDeskApi.Services
             return ParseTextList(responseContent, limitedCount);
         }
 
-        public async Task<string> RefineSolutionAsync(string title, string content, string systemPrompt, string rulesPrompt)
+        public async Task<List<string>> GenerateRecommendedTitlesAsync(string content, int count, string systemPrompt, string rulesPrompt)
         {
             if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("내용이 필요합니다.");
 
-            var titleText = string.IsNullOrWhiteSpace(title) ? "(없음)" : title.Trim();
+            var limitedCount = Math.Clamp(count, 1, 5);
+
+            var prompt = $@"【작업 입력】
+작업 종류: KB 제목 추천
+요청 개수: {limitedCount}
+
+【내용】
+{content.Trim()}
+
+【출력 형식 제약】
+- 제목만 출력한다.
+- 40자 이내로 작성한다.
+- 접두어/라벨(예: 제목:, 추천:)을 붙이지 않는다.
+- 마크다운 기호를 사용하지 않는다.
+- JSON 배열 또는 줄바꿈 목록 형식으로 출력한다.";
+
+            var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.2, 220, "제목 추천 실패");
+            var titles = ParseTextList(responseContent, limitedCount)
+                .Select(NormalizeRecommendedTitle)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(limitedCount)
+                .ToList();
+
+            if (titles.Count == 0)
+            {
+                var fallback = NormalizeRecommendedTitle(responseContent);
+                if (!string.IsNullOrWhiteSpace(fallback))
+                {
+                    titles.Add(fallback);
+                }
+            }
+
+            if (titles.Count == 0) throw new Exception("제목 추천 결과가 비어 있습니다.");
+
+            return titles;
+        }
+
+        public async Task<string> GenerateRecommendedTitleAsync(string content, string systemPrompt, string rulesPrompt)
+        {
+            var titles = await GenerateRecommendedTitlesAsync(content, 1, systemPrompt, rulesPrompt);
+
+            return titles[0];
+        }
+
+        public async Task<string> RefineSolutionAsync(string content, string systemPrompt, string rulesPrompt)
+        {
+            if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("내용이 필요합니다.");
+
             var prompt = $@"【작업 입력】
 작업 종류: KB 답변 정리
 
-【제목】
-{titleText}
-
 【내용】
-{content.Trim()}";
+{content.Trim()}
+
+【출력 형식 제약】
+- 출력 첫 줄에 '주제:', '제목:' 같은 라벨 줄을 추가하지 않는다.
+- 제목성 한 줄 요약을 맨 위에 따로 두지 말고, 본문 안내 내용부터 바로 시작한다.";
 
             var responseContent = await RequestCompletionAsync(systemPrompt, rulesPrompt, prompt, 0.2, 700, "답변 정리 실패");
             if (string.IsNullOrWhiteSpace(responseContent)) throw new Exception("답변 정리 결과가 비어 있습니다.");
             
             // 마크다운 형식 제거
-            var cleaned = System.Text.RegularExpressions.Regex.Replace(responseContent, @"\*\*", "");
+            var cleaned = Regex.Replace(responseContent, @"\*\*", "");
+            cleaned = RemoveLeadingTopicLine(cleaned);
             return cleaned.Trim();
+        }
+
+        private static string RemoveLeadingTopicLine(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var lines = value.Replace("\r\n", "\n").Split('\n').ToList();
+            while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0]))
+            {
+                lines.RemoveAt(0);
+            }
+
+            if (lines.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var firstLine = lines[0].Trim();
+            if (Regex.IsMatch(firstLine, "^(주제|제목)\\s*[:：-].+", RegexOptions.IgnoreCase))
+            {
+                lines.RemoveAt(0);
+                while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0]))
+                {
+                    lines.RemoveAt(0);
+                }
+            }
+
+            return string.Join("\n", lines);
+        }
+
+        private static string NormalizeRecommendedTitle(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var normalized = value.Replace("\r\n", "\n").Trim();
+            var firstLine = normalized
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .FirstOrDefault() ?? string.Empty;
+
+            firstLine = Regex.Replace(firstLine, "^(제목|추천|title)\\s*[:：-]\\s*", string.Empty, RegexOptions.IgnoreCase);
+            firstLine = firstLine.Replace("**", string.Empty).Replace("`", string.Empty).Trim();
+
+            if (firstLine.Length > 40)
+            {
+                firstLine = firstLine[..40].TrimEnd();
+            }
+
+            return firstLine;
         }
 
         private async Task<string> RequestCompletionAsync(string systemPrompt, string rulesPrompt, string userPrompt, double temperature, int maxTokens, string errorMessage)

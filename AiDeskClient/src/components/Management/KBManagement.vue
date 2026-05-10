@@ -82,8 +82,8 @@ function normalizeSelectedPlatforms(platforms) {
     .filter(Boolean)))
 
   if (normalized.length === 0) return ['공통']
-  if (normalized.length > 1 && normalized.includes('공통')) {
-    return normalized.filter((x) => x !== '공통')
+  if (normalized.includes('공통')) {
+    return ['공통']
   }
   return normalized
 }
@@ -109,6 +109,9 @@ const isComposingExpectedQuestion = ref(false)
 const lastAdded = ref({ text: '', at: 0 })
 const generatingExpected = ref(false)
 const generatingKeywords = ref(false)
+const generatingTitle = ref(false)
+const showTitlePreview = ref(false)
+const recommendedTitlePreview = ref('')
 const refiningSolution = ref(false)
 const generatedCandidates = ref([])
 const showRefinePreview = ref(false)
@@ -130,6 +133,7 @@ const writerPromptTemplateForm = ref({
   expectedQuestionRulesPrompt: ''
 })
 const MAX_EXPECTED_QUESTIONS = 10
+const MAX_KEYWORDS = 10
 
 const isAdminUser = computed(() => {
   try {
@@ -424,9 +428,24 @@ function resetForm() {
   keywordDraft.value = []
   platformInput.value = '공통'
   expectedQuestionDraft.value = []
+  recommendedTitlePreview.value = ''
+  showTitlePreview.value = false
   generatedCandidates.value = []
   refinedSolutionPreview.value = ''
   showRefinePreview.value = false
+}
+
+function cancelWriter() {
+  const message = form.value.id
+    ? 'KB 수정을 취소하시겠습니까?'
+    : 'KB 작성을 취소하시겠습니까?'
+
+  if (!confirm(message)) {
+    return
+  }
+
+  resetForm()
+  showWriter.value = false
 }
 
 function startEdit(kb) {
@@ -441,6 +460,8 @@ function startEdit(kb) {
   keywordDraft.value = normalizeKeywords((kb.keywords || '').split(','))
   platformInput.value = form.value.platforms[0] || '공통'
   expectedQuestionDraft.value = (kb.expectedQuestions || []).map((item) => item.question)
+  recommendedTitlePreview.value = ''
+  showTitlePreview.value = false
   generatedCandidates.value = []
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -448,6 +469,11 @@ function startEdit(kb) {
 function addKeywordFromInput() {
   const value = keywordInput.value.trim()
   if (!value) return
+  if (keywordDraft.value.length >= MAX_KEYWORDS) {
+    alert(`키워드는 최대 ${MAX_KEYWORDS}개까지 등록 가능합니다.`)
+    keywordInput.value = ''
+    return
+  }
   keywordDraft.value = normalizeKeywords([...keywordDraft.value, value])
   keywordInput.value = ''
 }
@@ -464,7 +490,16 @@ function removeKeyword(index) {
 function addPlatformToForm() {
   const selected = (platformInput.value || '').trim()
   if (!selected) return
+
+  if (selected === '공통') {
+    form.value.platforms = ['공통']
+    return
+  }
+
   form.value.platforms = normalizeSelectedPlatforms([...form.value.platforms, selected])
+  if (form.value.platforms.includes('공통')) {
+    form.value.platforms = [selected]
+  }
 }
 
 function onPlatformSelectChanged() {
@@ -487,9 +522,18 @@ async function saveKb() {
     return
   }
 
+  if (normalizeKeywords(keywordDraft.value).length > MAX_KEYWORDS) {
+    alert(`키워드는 최대 ${MAX_KEYWORDS}개까지 등록 가능합니다.`)
+    return
+  }
+
+  const isEdit = !!form.value.id
+  if (!confirm(isEdit ? 'KB를 수정하시겠습니까?' : 'KB를 작성하시겠습니까?')) {
+    return
+  }
+
   saving.value = true
   try {
-    const isEdit = !!form.value.id
     const payload = {
       title: form.value.title.trim(),
       content: form.value.content,
@@ -509,7 +553,7 @@ async function saveKb() {
       })
     }
 
-    alert(isEdit ? 'KB가 수정되었습니다.' : 'KB가 저장되었습니다.')
+    alert(isEdit ? 'KB가 수정되었습니다.' : 'KB가 작성되었습니다.')
     resetForm()
     kbPage.value = 1
     await fetchKbs()
@@ -556,7 +600,14 @@ async function generateKeywords() {
       return
     }
 
-    keywordDraft.value = normalizeKeywords([...keywordDraft.value, ...generated])
+    const merged = normalizeKeywords([...keywordDraft.value, ...generated])
+    if (merged.length > MAX_KEYWORDS) {
+      keywordDraft.value = merged.slice(0, MAX_KEYWORDS)
+      alert(`키워드는 최대 ${MAX_KEYWORDS}개까지 등록 가능합니다. 초과분은 제외되었습니다.`)
+      return
+    }
+
+    keywordDraft.value = merged
   } catch (err) {
     if (err.response?.data?.error) {
       alert(`키워드 생성 실패: ${err.response.data.error}`)
@@ -566,6 +617,70 @@ async function generateKeywords() {
   } finally {
     generatingKeywords.value = false
   }
+}
+
+async function recommendTitleByContent() {
+  if (!form.value.content.trim()) {
+    alert('내용을 먼저 작성해주세요.')
+    return
+  }
+
+  generatingTitle.value = true
+  try {
+    let res
+    try {
+      res = await axios.post(`${API_URL}/knowledgebase/recommend-title`, {
+        content: form.value.content,
+        count: 1
+      })
+    } catch (err) {
+      // 서버가 GET만 허용 중인 환경(405)과의 호환을 위해 폴백 호출
+      if (err?.response?.status === 405) {
+        res = await axios.get(`${API_URL}/knowledgebase/recommend-title`, {
+          params: {
+            content: form.value.content,
+            count: 1
+          }
+        })
+      } else {
+        throw err
+      }
+    }
+
+    const items = Array.isArray(res.data?.items)
+      ? res.data.items.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean)
+      : []
+    const title = typeof res.data?.title === 'string' ? res.data.title.trim() : ''
+
+    if (items.length === 0 && !title) {
+      alert('추천 제목을 생성하지 못했습니다.')
+      return
+    }
+
+    recommendedTitlePreview.value = (items.length > 0 ? items[0] : title)
+    showTitlePreview.value = true
+  } catch (err) {
+    if (err.response?.data?.error) {
+      alert(`제목 추천 실패: ${err.response.data.error}`)
+    } else {
+      alert(`제목 추천 실패: ${err.message || '알 수 없는 오류'}`)
+    }
+  } finally {
+    generatingTitle.value = false
+  }
+}
+
+function applyRecommendedTitle() {
+  const value = recommendedTitlePreview.value.trim()
+  if (!value) return
+  form.value.title = value
+  recommendedTitlePreview.value = ''
+  showTitlePreview.value = false
+}
+
+function cancelRecommendedTitle() {
+  recommendedTitlePreview.value = ''
+  showTitlePreview.value = false
 }
 
 async function refineSolutionWithAi() {
@@ -869,24 +984,29 @@ async function onCsvFileSelected(event) {
           </select>
         </label>
 
-        <label>
-          제목
-          <input v-model="form.title" placeholder="가이드 KB 제목을 입력해주세요" />
-        </label>
-
         <div class="field-block">
           <div class="label-head-inline">
-            <span class="field-title">내용</span>
-            <button class="ai-action-btn ai-action-soft" type="button" :disabled="refiningSolution" @click="refineSolutionWithAi">
-              {{ refiningSolution ? '정리 중...' : 'AI로 내용 정리' }}
+            <span class="field-title">제목<span class="required-mark" aria-label="필수">*</span></span>
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingTitle" @click="recommendTitleByContent">
+              {{ generatingTitle ? '추천 중...' : 'AI로 제목 추천' }}
             </button>
           </div>
-          <textarea v-model="form.content" rows="5" placeholder="가이드 KB 내용을 입력하세요" />
+          <input v-model="form.title" placeholder="가이드 KB 제목을 입력해주세요" maxlength="200" required />
         </div>
 
         <div class="field-block">
           <div class="label-head-inline">
-            <span class="field-title">키워드</span>
+            <span class="field-title">내용<span class="required-mark" aria-label="필수">*</span></span>
+            <button class="ai-action-btn ai-action-soft" type="button" :disabled="refiningSolution" @click="refineSolutionWithAi">
+              {{ refiningSolution ? '정리 중...' : 'AI로 내용 정리' }}
+            </button>
+          </div>
+          <textarea v-model="form.content" rows="5" placeholder="가이드 KB 내용을 입력하세요" required />
+        </div>
+
+        <div class="field-block">
+          <div class="label-head-inline">
+            <span class="field-title">키워드 ({{ keywordDraft.length }}/{{ MAX_KEYWORDS }})</span>
             <button class="ai-action-btn ai-action-soft" type="button" :disabled="generatingKeywords" @click="generateKeywords">
               {{ generatingKeywords ? '생성 중...' : '키워드 생성하기' }}
             </button>
@@ -907,6 +1027,7 @@ async function onCsvFileSelected(event) {
               <button type="button" @click="removeKeyword(idx)">×</button>
             </span>
           </div>
+          <small class="hint">키워드는 최대 10개까지 등록 가능합니다.</small>
         </div>
 
         <div class="field-block">
@@ -972,7 +1093,7 @@ async function onCsvFileSelected(event) {
         <button class="primary" type="button" :disabled="saving" @click="saveKb">
           {{ saving ? '저장 중...' : '저장' }}
         </button>
-        <button class="ghost" type="button" :disabled="saving" @click="resetForm">취소</button>
+        <button class="ghost" type="button" :disabled="saving" @click="cancelWriter">취소</button>
       </div>
     </div>
 
@@ -1319,6 +1440,31 @@ async function onCsvFileSelected(event) {
         <div class="actions">
           <button class="ghost" type="button" @click="cancelRefinedSolution">적용 안함</button>
           <button class="primary" type="button" @click="applyRefinedSolution">적용하기</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showTitlePreview" class="modal-overlay" @click="cancelRecommendedTitle">
+      <div class="modal info-modal" @click.stop>
+        <div class="modal-head">
+          <h4>AI 제목 추천 미리보기</h4>
+          <button class="ghost" type="button" @click="cancelRecommendedTitle">닫기</button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            현재 제목
+            <input :value="form.title" readonly />
+          </label>
+          <label>
+            추천 제목
+            <input :value="recommendedTitlePreview" readonly />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="ghost" type="button" @click="cancelRecommendedTitle">적용 안함</button>
+          <button class="primary" type="button" @click="applyRecommendedTitle">적용하기</button>
         </div>
       </div>
     </div>
@@ -1692,6 +1838,14 @@ select:focus {
   font-weight: 700;
   color: #495057;
   font-size: 0.92rem;
+}
+
+.required-mark {
+  color: #212529;
+  font-weight: 700;
+  font-size: 1em;
+  margin-left: 2px;
+  white-space: nowrap;
 }
 
 .label-head-inline .ghost {

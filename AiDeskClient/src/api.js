@@ -73,6 +73,9 @@ export const authApi = {
   getPendingUsers: () =>
     apiClient.get('/auth/pending-users'),
 
+  createUser: payload =>
+    apiClient.post('/auth/users', payload),
+
   approveUser: (userId) =>
     apiClient.post(`/auth/approve-user/${userId}`),
 

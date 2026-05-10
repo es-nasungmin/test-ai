@@ -401,7 +401,8 @@ namespace AiDeskApi.Controllers
         public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers()
         {
             var users = await _context.Users
-                .OrderByDescending(u => u.CreatedAt)
+                .OrderBy(u => u.Role == "admin" ? 0 : 1)
+                .ThenByDescending(u => u.CreatedAt)
                 .Select(u => new UserDto
                 {
                     Id = u.Id,
@@ -442,6 +443,108 @@ namespace AiDeskApi.Controllers
                 .ToListAsync();
 
             return Ok(pendingUsers);
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpPost("users")]
+        public async Task<ActionResult<LoginResponse>> CreateUser([FromBody] CreateUserByAdminRequest request)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.LoginId)
+                || string.IsNullOrWhiteSpace(request.Username)
+                || string.IsNullOrWhiteSpace(request.Password)
+                || string.IsNullOrWhiteSpace(request.Role))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "로그인 아이디, 사용자명, 비밀번호, 권한은 필수입니다."
+                });
+            }
+
+            var loginId = request.LoginId.Trim();
+            var username = request.Username.Trim();
+            var password = request.Password.Trim();
+            var role = request.Role.Trim().ToLowerInvariant();
+
+            if (password != (request.ConfirmPassword ?? string.Empty).Trim())
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "비밀번호가 일치하지 않습니다."
+                });
+            }
+
+            if (password.Length < 8)
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "비밀번호는 8자 이상이어야 합니다."
+                });
+            }
+
+            if (role != "admin" && role != "user")
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "권한은 admin 또는 user만 가능합니다."
+                });
+            }
+
+            if (await _context.Users.AnyAsync(u => u.LoginId.ToLower() == loginId.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 존재하는 로그인 아이디입니다."
+                });
+            }
+
+            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == username.ToLower()))
+            {
+                return BadRequest(new LoginResponse
+                {
+                    Success = false,
+                    Message = "이미 존재하는 사용자명입니다."
+                });
+            }
+
+            var user = new User
+            {
+                LoginId = loginId,
+                Username = username,
+                PasswordHash = HashPassword(password),
+                Role = role,
+                Status = "approved",
+                IsActive = true,
+                IsApproved = true,
+                ApprovedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            return Ok(new LoginResponse
+            {
+                Success = true,
+                Message = "계정이 생성되었습니다.",
+                User = new UserDto
+                {
+                    Id = user.Id,
+                    LoginId = user.LoginId,
+                    Username = user.Username,
+                    Role = user.Role,
+                    Status = ResolveUserStatus(user),
+                    IsApproved = user.IsApproved,
+                    IsActive = user.IsActive,
+                    CreatedAt = user.CreatedAt,
+                    ApprovedAt = user.ApprovedAt,
+                    LastLoginAt = user.LastLoginAt
+                }
+            });
         }
 
         [Authorize(Roles = "admin")]
@@ -764,6 +867,15 @@ namespace AiDeskApi.Controllers
             public string Role { get; set; } = string.Empty;
             public string? Status { get; set; }
             public string? NewPassword { get; set; }
+        }
+
+        public class CreateUserByAdminRequest
+        {
+            public string LoginId { get; set; } = string.Empty;
+            public string Username { get; set; } = string.Empty;
+            public string Password { get; set; } = string.Empty;
+            public string? ConfirmPassword { get; set; }
+            public string Role { get; set; } = "user";
         }
     }
 }
