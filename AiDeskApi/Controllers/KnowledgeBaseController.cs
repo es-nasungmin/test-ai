@@ -1076,31 +1076,18 @@ namespace AiDeskApi.Controllers
         {
             try
             {
-                var allKbs = await _context.KnowledgeBases
-                    .Include(k => k.ExpectedQuestions)
-                    .ToListAsync(cancellationToken);
+                var totalKbCount = await _context.KnowledgeBases.CountAsync(cancellationToken);
+                await _vectorSearchService.RebuildAllKnowledgeBasesAsync(cancellationToken);
 
-                int success = 0, failed = 0;
-                foreach (var kb in allKbs)
+                return Ok(new
                 {
-                    if (cancellationToken.IsCancellationRequested) break;
-                    try
-                    {
-                        await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
-                        success++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "⚠️ 재임베딩 실패. kbId={KbId}", kb.Id);
-                        failed++;
-                    }
-                }
-
-                return Ok(new { total = allKbs.Count, success, failed, message = $"재임베딩 완료: 성공 {success}, 실패 {failed}" });
+                    message = "벡터 인덱스를 초기화하고 전체 KB를 다시 임베딩했습니다.",
+                    totalKbCount
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ 전체 재임베딩 오류");
+                _logger.LogError(ex, "❌ 벡터 인덱스 재구축 실패");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
