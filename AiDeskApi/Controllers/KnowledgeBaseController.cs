@@ -1512,7 +1512,7 @@ namespace AiDeskApi.Controllers
                 return "키워드는 최대 500자까지 입력 가능합니다.";
             var keywords = ResolveKeywords(request.Keywords);
             if (keywords.Count > MaxKeywords)
-                return $"키워드는 최대 {MaxKeywords}개까지 등록 가능합니다.";
+                return $"최대 {MaxKeywords}개/가지 키워드 등록 가능합니다.";
 
             var expectedQuestions = ResolveExpectedQuestions(request);
             if (expectedQuestions.Any(x => x.Length > 500))

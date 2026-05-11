@@ -134,7 +134,7 @@ const writerPromptTemplateForm = ref({
   expectedQuestionRulesPrompt: ''
 })
 const MAX_EXPECTED_QUESTIONS = 10
-const MAX_KEYWORDS = 10
+const MAX_KEYWORDS = 20
 
 const isAdminUser = computed(() => {
   try {
@@ -1039,7 +1039,7 @@ async function onCsvFileSelected(event) {
               <button type="button" @click="removeKeyword(idx)">×</button>
             </span>
           </div>
-          <small class="hint">키워드는 최대 10개까지 등록 가능합니다.</small>
+          <small class="hint">최대 {{ MAX_KEYWORDS }}개/가지 키워드 등록 가능합니다.</small>
         </div>
 
         <div class="field-block">
