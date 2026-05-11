@@ -17,6 +17,11 @@ namespace AiDeskApi.Models
         public string Platform { get; set; } = "공통";
         public string? Keywords { get; set; }
 
+        // 벡터DB 동기화 상태 (pending: 대기, synced: 완료, failed: 실패)
+        public string VectorSyncStatus { get; set; } = "pending";
+        // 마지막 벡터DB 동기화 시간
+        public DateTime? VectorSyncedAt { get; set; }
+
         public ICollection<KnowledgeBaseExpectedQuestion> ExpectedQuestions { get; set; } = new List<KnowledgeBaseExpectedQuestion>();
     }
 }

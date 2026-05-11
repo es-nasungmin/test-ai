@@ -811,6 +811,23 @@ async function deleteKb(kb) {
   }
 }
 
+async function syncVectorForKb(kb) {
+  if (!confirm(`KB #${kb.id} "${kb.title}"의 벡터를 동기화하시겠습니까?`)) return
+  saving.value = true
+  try {
+    const res = await axios.post(`${API_URL}/knowledgebase/${kb.id}/sync-vector`, {}, {
+      headers: getActorHeader()
+    })
+    // 목록을 새로고침해서 상태 업데이트
+    await fetchKbs()
+    alert(res.data?.message || '벡터 동기화가 완료되었습니다.')
+  } catch (err) {
+    alert(`벡터 동기화 실패: ${err.response?.data?.error || err.message}`)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function resolveLowSimilarityQuestion(item) {
   try {
     await axios.put(`${API_URL}/knowledgebase/low-similarity-questions/${item.id}/resolve`)
@@ -851,10 +868,21 @@ function toggleExpanded(id) {
   expandedId.value = expandedId.value === id ? null : id
 }
 
+function parseUtcDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 function formatDateTime(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
+  const date = parseUtcDate(value)
+  if (!date) return '-'
   return date.toLocaleString('ko-KR')
 }
 
@@ -865,8 +893,8 @@ function hasUpdateHistory(kb) {
   const updatedBy = typeof kb.updatedBy === 'string' ? kb.updatedBy.trim() : ''
   if (createdBy && updatedBy && createdBy !== updatedBy) return true
 
-  const createdAt = kb.createdAt ? new Date(kb.createdAt).getTime() : NaN
-  const updatedAt = kb.updatedAt ? new Date(kb.updatedAt).getTime() : NaN
+  const createdAt = parseUtcDate(kb.createdAt)?.getTime() ?? NaN
+  const updatedAt = parseUtcDate(kb.updatedAt)?.getTime() ?? NaN
   if (!Number.isNaN(createdAt) && !Number.isNaN(updatedAt) && updatedAt > createdAt) return true
 
   return false
@@ -1306,6 +1334,21 @@ async function onCsvFileSelected(event) {
           <div class="meta">
             <span class="meta-chip" v-if="kb.keywords">키워드: {{ kb.keywords }}</span>
             <span class="meta-chip">참조수: {{ kb.viewCount }}</span>
+            <button
+              type="button"
+              class="meta-chip vector-sync-chip"
+              :class="{
+              'vector-sync-synced': kb.vectorSyncStatus === 'synced',
+              'vector-sync-pending': kb.vectorSyncStatus === 'pending',
+              'vector-sync-failed': kb.vectorSyncStatus === 'failed'
+              }"
+              :disabled="saving"
+              title="클릭해서 벡터를 다시 동기화합니다"
+              @click="syncVectorForKb(kb)"
+            >
+              벡터: {{ kb.vectorSyncStatus === 'synced' ? '✓ 동기화됨' : kb.vectorSyncStatus === 'pending' ? '대기중' : '✗ 실패' }}
+              <span v-if="kb.vectorSyncedAt"> ({{ formatDateTime(kb.vectorSyncedAt) }})</span>
+            </button>
             <span class="meta-chip">등록: {{ kb.createdBy || '-' }} · {{ formatDateTime(kb.createdAt) }}</span>
             <span v-if="hasUpdateHistory(kb)" class="meta-chip">수정: {{ kb.updatedBy || '-' }} · {{ formatDateTime(kb.updatedAt) }}</span>
           </div>
@@ -2934,5 +2977,51 @@ select:focus {
   .btn-prompt-setting {
     display: none;
   }
+}
+
+/* 벡터 동기화 상태 스타일 */
+.vector-sync-synced {
+  background: #d4edda !important;
+  color: #155724 !important;
+  border-color: #c3e6cb !important;
+}
+
+.vector-sync-pending {
+  background: #fff3cd !important;
+  color: #856404 !important;
+  border-color: #ffeaa7 !important;
+}
+
+.vector-sync-failed {
+  background: #f8d7da !important;
+  color: #721c24 !important;
+  border-color: #f5c6cb !important;
+}
+
+.vector-sync-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+
+.vector-sync-chip:hover:not(:disabled) {
+  filter: brightness(0.97);
+  transform: translateY(-1px);
+}
+
+.vector-sync-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 </style>

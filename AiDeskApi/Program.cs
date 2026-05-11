@@ -59,6 +59,9 @@ builder.Services.AddHttpClient<IVectorSearchService, QdrantVectorSearchService>(
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+builder.Services.AddSingleton<KnowledgeBaseVectorSyncQueue>();
+builder.Services.AddSingleton<IKnowledgeBaseVectorSyncQueue>(sp => sp.GetRequiredService<KnowledgeBaseVectorSyncQueue>());
+builder.Services.AddHostedService<KnowledgeBaseVectorSyncWorker>();
 builder.Services.AddScoped<IChatbotPromptTemplateService, ChatbotPromptTemplateService>();
 builder.Services.AddScoped<IKnowledgeBaseWriterPromptTemplateService, KnowledgeBaseWriterPromptTemplateService>();
 
@@ -227,6 +230,8 @@ app.MapGet("/ready", async (AiDeskContext db, IConfiguration config) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AiDeskContext>();
+    // 마이그레이션 자동 적용
+    db.Database.Migrate();
     DatabaseInitializer.InitializeDatabase(db);
 }
 

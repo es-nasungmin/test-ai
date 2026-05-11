@@ -27,6 +27,7 @@ namespace AiDeskApi.Controllers
         private readonly IEmbeddingService _embeddingService;
         private readonly IRagService _ragService;
         private readonly IVectorSearchService _vectorSearchService;
+        private readonly IKnowledgeBaseVectorSyncQueue _vectorSyncQueue;
         private readonly IChatbotPromptTemplateService _chatbotPromptTemplates;
         private readonly IKnowledgeBaseWriterPromptTemplateService _kbWriterPromptTemplates;
         private readonly IKnowledgeExtractorService _knowledgeExtractorService;
@@ -37,6 +38,7 @@ namespace AiDeskApi.Controllers
             IEmbeddingService embeddingService,
             IRagService ragService,
             IVectorSearchService vectorSearchService,
+            IKnowledgeBaseVectorSyncQueue vectorSyncQueue,
             IKnowledgeExtractorService knowledgeExtractorService,
             IChatbotPromptTemplateService chatbotPromptTemplates,
             IKnowledgeBaseWriterPromptTemplateService kbWriterPromptTemplates,
@@ -46,6 +48,7 @@ namespace AiDeskApi.Controllers
             _embeddingService = embeddingService;
             _ragService = ragService;
             _vectorSearchService = vectorSearchService;
+            _vectorSyncQueue = vectorSyncQueue;
             _knowledgeExtractorService = knowledgeExtractorService;
             _chatbotPromptTemplates = chatbotPromptTemplates;
             _kbWriterPromptTemplates = kbWriterPromptTemplates;
@@ -303,11 +306,15 @@ namespace AiDeskApi.Controllers
                 try
                 {
                     await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+                    kb.VectorSyncStatus = "synced";
+                    kb.VectorSyncedAt = DateTime.UtcNow;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "⚠️ 벡터 인덱스 동기화 실패(등록). KB 저장은 완료됨. kbId={KbId}", kb.Id);
+                    kb.VectorSyncStatus = "failed";
                 }
+                await _context.SaveChangesAsync();
 
                 return Ok(new { id = kb.Id, message = "KB가 등록되었습니다." });
             }
@@ -451,6 +458,8 @@ namespace AiDeskApi.Controllers
                 {
                     // 현재 상태를 먼저 업서트하고, 그 다음 구버전 예상질문 포인트만 정리한다.
                     await _vectorSearchService.UpsertKnowledgeBaseAsync(kb);
+                    kb.VectorSyncStatus = "synced";
+                    kb.VectorSyncedAt = DateTime.UtcNow;
 
                     if (staleExpectedQuestions.Count > 0)
                     {
@@ -460,7 +469,9 @@ namespace AiDeskApi.Controllers
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "⚠️ 벡터 인덱스 동기화 실패(수정). KB 저장은 완료됨. kbId={KbId}", kb.Id);
+                    kb.VectorSyncStatus = "failed";
                 }
+                await _context.SaveChangesAsync();
                 return Ok(new { id = kb.Id, message = "KB가 수정되었습니다." });
             }
             catch (Exception ex)
@@ -540,6 +551,8 @@ namespace AiDeskApi.Controllers
                         x.Platform,
                         platforms = SplitPlatforms(x.Platform),
                         keywords = x.Keywords,
+                        vectorSyncStatus = x.VectorSyncStatus,
+                        vectorSyncedAt = x.VectorSyncedAt,
                         expectedQuestions = x.ExpectedQuestions
                             .OrderBy(s => s.Id)
                             .Select(s => new { s.Id, s.Question })
@@ -696,6 +709,8 @@ namespace AiDeskApi.Controllers
                     kb.Platform,
                     platforms = SplitPlatforms(kb.Platform),
                     keywords = kb.Keywords,
+                    vectorSyncStatus = kb.VectorSyncStatus,
+                    vectorSyncedAt = kb.VectorSyncedAt,
                     expectedQuestions = kb.ExpectedQuestions
                         .OrderBy(s => s.Id)
                         .Select(s => new { s.Id, s.Question })
@@ -856,6 +871,41 @@ namespace AiDeskApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ 벡터 인덱스 재구축 실패");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        // ─── 개별 KB 벡터 동기화 ────────────────────────────────────────
+        [Authorize(Roles = "admin")]
+        [HttpPost("{id}/sync-vector")]
+        public async Task<IActionResult> SyncKnowledgeBaseVector(int id, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var kb = await _context.KnowledgeBases
+                    .Include(x => x.ExpectedQuestions)
+                    .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+                if (kb == null)
+                    return NotFound(new { error = "KB를 찾을 수 없습니다." });
+
+                await _vectorSearchService.UpsertKnowledgeBaseAsync(kb, cancellationToken);
+                
+                kb.VectorSyncStatus = "synced";
+                kb.VectorSyncedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                return Ok(new
+                {
+                    message = $"KB #{id} 벡터 동기화가 완료되었습니다.",
+                    id,
+                    vectorSyncStatus = kb.VectorSyncStatus,
+                    vectorSyncedAt = kb.VectorSyncedAt
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ KB 벡터 동기화 실패 id={Id}", id);
                 return StatusCode(500, new { error = ex.Message });
             }
         }
@@ -1204,7 +1254,8 @@ namespace AiDeskApi.Controllers
                         CreatedAt = now,
                         UpdatedAt = now,
                         CreatedBy = actor,
-                        UpdatedBy = actor
+                        UpdatedBy = actor,
+                        VectorSyncStatus = "pending"  // CSV 업로드 시 벡터 동기화는 나중에 처리
                     };
 
                     foreach (var q in resolvedQuestions)
@@ -1218,8 +1269,7 @@ namespace AiDeskApi.Controllers
                         kb.ExpectedQuestions.Select(x => BuildExpectedQuestionHistory(kb.Id, actor, ExpectedQuestionHistoryActionAdd, null, x.Question)));
                     await _context.SaveChangesAsync();
 
-                    try { await _vectorSearchService.UpsertKnowledgeBaseAsync(kb); }
-                    catch (Exception ex) { _logger.LogWarning(ex, "⚠️ 벡터 동기화 실패(bulk). kbId={Id}", kb.Id); }
+                    await _vectorSyncQueue.EnqueueAsync(kb.Id, cancellationToken);
 
                     results.Add(new { row = rowIndex, status = "ok", id = kb.Id, title });
                     successCount++;
