@@ -21,7 +21,7 @@ namespace AiDeskApi.Controllers
         private const string ExpectedQuestionHistoryActionAdd = "add";
         private const string ExpectedQuestionHistoryActionUpdate = "update";
         private const string ExpectedQuestionHistoryActionRemove = "remove";
-        private const int MaxKeywords = 10;
+        private const int MaxKeywords = 20;
 
         private readonly AiDeskContext _context;
         private readonly IEmbeddingService _embeddingService;
