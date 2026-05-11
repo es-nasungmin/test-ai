@@ -230,8 +230,21 @@ app.MapGet("/ready", async (AiDeskContext db, IConfiguration config) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AiDeskContext>();
-    // 마이그레이션 자동 적용
-    db.Database.Migrate();
+    // SQLite는 마이그레이션 자동 적용, SQL Server는 모델 기준 자동 생성으로 부트스트랩
+    // (현재 마이그레이션이 SQLite 타입으로 생성되어 SQL Server 초기 생성 시 실패할 수 있음)
+    if (db.Database.IsSqlite())
+    {
+        db.Database.Migrate();
+    }
+    else if (db.Database.IsSqlServer())
+    {
+        db.Database.EnsureCreated();
+    }
+    else
+    {
+        db.Database.Migrate();
+    }
+
     DatabaseInitializer.InitializeDatabase(db);
 }
 
