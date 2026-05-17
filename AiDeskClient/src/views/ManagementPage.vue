@@ -359,14 +359,14 @@ onMounted(() => {
           </div>
         </div>
         <h1>챗봇 운영 센터</h1>
-        <p>지식베이스 관리, 대화 이력 모니터링, 질문 패턴 분석을 한 화면에서 운영합니다.</p>
+        <p>KMS 관리, 대화 이력 모니터링, 질문 패턴 분석을 한 화면에서 운영합니다.</p>
         <!-- 페이지 탭 -->
         <div class="page-tabs">
           <button
             class="page-tab"
             :class="{ active: activePage === 'kb' }"
             @click="activePage = 'kb'"
-          >KB관리</button>
+          >KMS 관리</button>
           <button
             class="page-tab"
             :class="{ active: activePage === 'logs' }"

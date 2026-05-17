@@ -163,6 +163,7 @@ app.UseExceptionHandler(errorApp =>
 });
 
 // 요청 단위 로깅(요청 경로/상태코드/지연시간)
+// 별도의 extension 로 변경 ****
 app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("RequestLog");
@@ -203,6 +204,7 @@ app.MapGet("/health", () => Results.Ok(new
     timestampUtc = DateTime.UtcNow
 }));
 
+// 컨트롤러 쪽에서 생성 , 약식 표현쓰는 이유...
 app.MapGet("/ready", async (AiDeskContext db, IConfiguration config) =>
 {
     var checks = new Dictionary<string, string>();

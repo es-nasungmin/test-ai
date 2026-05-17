@@ -1003,15 +1003,15 @@ async function onCsvFileSelected(event) {
     <div class="panel form-panel" :class="{ collapsed: !showWriter }">
       <div class="panel-head writer-toggle-head" @click="showWriter = !showWriter">
         <div class="panel-head-title">
-          <h3>{{ form.id ? 'KB 수정' : 'KB 작성' }}</h3>
+          <h3>{{ form.id ? 'KMS 수정' : 'KMS 작성' }}</h3>
           <span class="writer-toggle-indicator" :aria-label="showWriter ? '작성 영역 열림' : '작성 영역 닫힘'">
             {{ showWriter ? '▲' : '▼' }}
           </span>
-          <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드KB 작성 방법</button>
+          <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드KMS 작성 방법</button>
         </div>
         <div class="panel-head-actions">
           <button class="ghost btn-csv-upload" type="button" @click.stop="openBulkModal">CSV 업로드</button>
-          <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">KB 프롬프트</button>
+          <button class="ghost btn-prompt-setting" type="button" @click.stop="openWriterPromptEditor">KMS 프롬프트</button>
         </div>
       </div>
 
@@ -1031,7 +1031,7 @@ async function onCsvFileSelected(event) {
               {{ generatingTitle ? '추천 중...' : 'AI로 제목 추천' }}
             </button>
           </div>
-          <input v-model="form.title" placeholder="가이드 KB 제목을 입력해주세요" maxlength="200" required />
+          <input v-model="form.title" placeholder="가이드 KMS 제목을 입력해주세요" maxlength="200" required />
         </div>
 
         <div class="field-block">
@@ -1041,7 +1041,7 @@ async function onCsvFileSelected(event) {
               {{ refiningSolution ? '정리 중...' : 'AI로 내용 정리' }}
             </button>
           </div>
-          <textarea v-model="form.content" rows="5" placeholder="가이드 KB 내용을 입력하세요" required />
+          <textarea v-model="form.content" rows="5" placeholder="가이드 KMS 내용을 입력하세요" required />
         </div>
 
         <div class="field-block">
@@ -1176,7 +1176,7 @@ async function onCsvFileSelected(event) {
             <div class="bulk-loading-hero">
               <div class="bulk-spinner" aria-hidden="true"></div>
               <div class="bulk-loading-copy">
-                <p class="bulk-loading-title">KB 등록 중입니다…</p>
+                <p class="bulk-loading-title">KMS 등록 중입니다…</p>
                 <p class="bulk-loading-sub">총 <strong>{{ bulkTotalCount }}</strong>건 처리 중 &nbsp;·&nbsp; 임베딩 생성 중이니 잠시만 기다려 주세요.</p>
               </div>
             </div>
@@ -1187,7 +1187,7 @@ async function onCsvFileSelected(event) {
                 <strong>완료</strong>
               </div>
               <div class="bulk-progress-row">
-                <span>KB 저장 및 임베딩</span>
+                <span>KMS 저장 및 임베딩</span>
                 <strong>진행 중</strong>
               </div>
               <div class="bulk-progress-row">
@@ -1238,7 +1238,7 @@ async function onCsvFileSelected(event) {
           <div class="bulk-loading-hero">
             <div class="bulk-spinner" aria-hidden="true"></div>
             <div class="bulk-loading-copy">
-              <p class="bulk-loading-title">전체 KB 재임베딩 중입니다…</p>
+              <p class="bulk-loading-title">전체 KMS 재임베딩 중입니다…</p>
               <p class="bulk-loading-sub">Qdrant 인덱스 초기화 및 벡터 재생성이 진행 중이니 잠시만 기다려 주세요.</p>
             </div>
           </div>
@@ -1249,7 +1249,7 @@ async function onCsvFileSelected(event) {
               <strong>진행 중</strong>
             </div>
             <div class="bulk-progress-row">
-              <span>KB 임베딩 재생성</span>
+              <span>KMS 임베딩 재생성</span>
               <strong>진행 중</strong>
             </div>
             <div class="bulk-progress-row">
@@ -1269,7 +1269,7 @@ async function onCsvFileSelected(event) {
 
     <div class="panel list-panel">
       <div class="panel-head">
-        <h3>KB 목록</h3>
+        <h3>KMS 목록</h3>
         <div class="panel-head-actions">
           <button
             v-if="isAdminUser"
@@ -1292,12 +1292,12 @@ async function onCsvFileSelected(event) {
           <option value="user">사용자 공개</option>
           <option value="admin">관리자 전용</option>
         </select>
-        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드/KB번호 검색" />
+        <input v-model="keyword" placeholder="제목/내용/예상질문/키워드/KMS번호 검색" />
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
       <div v-else-if="loading" class="empty">불러오는 중...</div>
-      <div v-else-if="kbList.length === 0" class="empty">등록된 KB가 없습니다.</div>
+      <div v-else-if="kbList.length === 0" class="empty">등록된 KMS가 없습니다.</div>
 
       <div v-else class="kb-list">
         <article v-for="kb in kbList" :key="kb.id" class="kb-item">
