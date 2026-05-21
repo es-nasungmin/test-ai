@@ -3,6 +3,7 @@ using System;
 using AiDeskApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AiDeskApi.Migrations
 {
     [DbContext(typeof(AiDeskContext))]
-    partial class AiDeskContextModelSnapshot : ModelSnapshot
+    [Migration("20260521051828_RemoveKnowledgeBaseCategories")]
+    partial class RemoveKnowledgeBaseCategories
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");

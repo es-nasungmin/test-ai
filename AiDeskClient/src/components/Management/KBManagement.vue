@@ -44,37 +44,9 @@ const form = ref({
   content: '',
   visibility: 'user',
   platforms: ['공통'],
-  categoryLarge: '',
-  categoryMedium: '',
-  categorySmall: '',
   expectedInput: ''
 })
-const categoryOptions = ref({
-  large: [],
-  medium: [],
-  small: []
-})
-const showCategoryPicker = ref(false)
-const categoryPicker = ref({
-  large: '',
-  medium: '',
-  small: ''
-})
-const categoryPickerOptions = ref({
-  large: [],
-  medium: [],
-  small: []
-})
-const categoryPickerDraft = ref({
-  large: '',
-  medium: '',
-  small: ''
-})
-const isComposingCategoryDraft = ref({
-  large: false,
-  medium: false,
-  small: false
-})
+
 const keywordInput = ref('')
 const keywordDraft = ref([])
 const platformInput = ref('공통')
@@ -266,155 +238,6 @@ async function fetchPlatforms() {
   }
 }
 
-function appendCategoryIfMissing(list, selected) {
-  const normalized = normalizeCategoryList(list)
-  const value = typeof selected === 'string' ? selected.trim() : ''
-  if (!value) return normalized
-  if (normalized.includes(value)) return normalized
-  return [...normalized, value]
-}
-
-function normalizeCategoryList(list) {
-  if (Array.isArray(list)) {
-    return Array.from(new Set(list
-      .map((x) => (typeof x === 'string' ? x.trim() : ''))
-      .filter(Boolean)))
-  }
-
-  if (typeof list === 'string') {
-    const value = list.trim()
-    return value ? [value] : []
-  }
-
-  return []
-}
-
-async function requestCategoryOptions(categoryLarge = '', categoryMedium = '') {
-  const params = {
-    role: 'admin',
-    platform: '전체 플랫폼',
-    categoryLarge: categoryLarge || undefined,
-    categoryMedium: categoryMedium || undefined
-  }
-  const res = await axios.get(`${API_URL}/knowledgebase/categories`, { params })
-  const data = res.data || {}
-  return {
-    large: normalizeCategoryList(data.largeCategories),
-    medium: normalizeCategoryList(data.mediumCategories),
-    small: normalizeCategoryList(data.smallCategories)
-  }
-}
-
-async function fetchCategoryOptions() {
-  try {
-    const data = await requestCategoryOptions(form.value.categoryLarge, form.value.categoryMedium)
-    categoryOptions.value.large = appendCategoryIfMissing(data.large, form.value.categoryLarge)
-    categoryOptions.value.medium = appendCategoryIfMissing(data.medium, form.value.categoryMedium)
-    categoryOptions.value.small = appendCategoryIfMissing(data.small, form.value.categorySmall)
-  } catch {
-    categoryOptions.value = { large: [], medium: [], small: [] }
-  }
-}
-
-async function openCategoryPicker() {
-  categoryPicker.value = {
-    large: form.value.categoryLarge || '',
-    medium: form.value.categoryMedium || '',
-    small: form.value.categorySmall || ''
-  }
-  categoryPickerDraft.value = { large: '', medium: '', small: '' }
-  showCategoryPicker.value = true
-  await reloadCategoryPickerOptions()
-}
-
-function closeCategoryPicker() {
-  showCategoryPicker.value = false
-}
-
-async function reloadCategoryPickerOptions() {
-  try {
-    const data = await requestCategoryOptions(categoryPicker.value.large, categoryPicker.value.medium)
-    categoryPickerOptions.value.large = appendCategoryIfMissing(data.large, categoryPicker.value.large)
-    categoryPickerOptions.value.medium = appendCategoryIfMissing(data.medium, categoryPicker.value.medium)
-    categoryPickerOptions.value.small = appendCategoryIfMissing(data.small, categoryPicker.value.small)
-  } catch {
-    categoryPickerOptions.value = { large: [], medium: [], small: [] }
-  }
-}
-
-function onCategoryDraftEnter(level) {
-  if (isComposingCategoryDraft.value[level]) return
-  addCategoryInPicker(level)
-}
-
-async function selectCategoryInPicker(level, value) {
-  if (level === 'large') {
-    if (categoryPicker.value.large === value) return
-    categoryPicker.value.large = value
-    categoryPicker.value.medium = ''
-    categoryPicker.value.small = ''
-    await reloadCategoryPickerOptions()
-    return
-  }
-
-  if (level === 'medium') {
-    if (!categoryPicker.value.large) {
-      alert('하위 카테고리를 선택하려면 상위 카테고리를 먼저 선택해주세요.')
-      return
-    }
-    if (categoryPicker.value.medium === value) return
-    categoryPicker.value.medium = value
-    categoryPicker.value.small = ''
-    await reloadCategoryPickerOptions()
-    return
-  }
-}
-
-async function addCategoryInPicker(level) {
-  const levelLabel = level === 'large' ? '상위 카테고리' : level === 'medium' ? '하위 카테고리' : '세부 카테고리'
-  if (level === 'medium' && !categoryPicker.value.large) {
-    alert('하위 카테고리를 추가하려면 상위 카테고리를 먼저 선택해주세요.')
-    return
-  }
-  if (level === 'small' && !categoryPicker.value.medium) {
-    alert('세부 카테고리를 추가하려면 하위 카테고리를 먼저 선택해주세요.')
-    return
-  }
-
-  const value = (categoryPickerDraft.value[level] || '').trim()
-  if (!value) {
-    alert(`${levelLabel}명을 입력해주세요.`)
-    return
-  }
-  if (value.length > 100) {
-    alert(`${levelLabel}는 최대 100자까지 입력 가능합니다.`)
-    return
-  }
-
-  const current = normalizeCategoryList(categoryPickerOptions.value[level])
-  if (!current.includes(value)) {
-    categoryPickerOptions.value[level] = [...current, value]
-  }
-
-  categoryPickerDraft.value[level] = ''
-  await selectCategoryInPicker(level, value)
-}
-
-async function applyCategoryPicker() {
-  form.value.categoryLarge = categoryPicker.value.large || ''
-  form.value.categoryMedium = categoryPicker.value.medium || ''
-  form.value.categorySmall = ''
-  showCategoryPicker.value = false
-  await fetchCategoryOptions()
-}
-
-async function clearCategorySelection() {
-  form.value.categoryLarge = ''
-  form.value.categoryMedium = ''
-  form.value.categorySmall = ''
-  await fetchCategoryOptions()
-}
-
 async function addPlatform() {
   const name = newPlatformName.value.trim()
   if (!name) {
@@ -601,18 +424,11 @@ function resetForm() {
     content: '',
     visibility: 'user',
     platforms: ['공통'],
-    categoryLarge: '',
-    categoryMedium: '',
-    categorySmall: '',
     expectedInput: ''
   }
   keywordInput.value = ''
   keywordDraft.value = []
   platformInput.value = '공통'
-  categoryPicker.value = { large: '', medium: '', small: '' }
-  categoryPickerDraft.value = { large: '', medium: '', small: '' }
-  categoryPickerOptions.value = { large: [], medium: [], small: [] }
-  showCategoryPicker.value = false
   expectedQuestionDraft.value = []
   recommendedTitlePreview.value = ''
   showTitlePreview.value = false
@@ -641,9 +457,6 @@ function startEdit(kb) {
   form.value.content = kb.content || ''
   form.value.visibility = kb.visibility || 'user'
   form.value.platforms = extractPlatforms(kb)
-  form.value.categoryLarge = kb.categoryLarge || ''
-  form.value.categoryMedium = kb.categoryMedium || ''
-  form.value.categorySmall = kb.categorySmall || ''
   form.value.expectedInput = ''
   keywordInput.value = ''
   keywordDraft.value = normalizeKeywords((kb.keywords || '').split(','))
@@ -652,7 +465,6 @@ function startEdit(kb) {
   recommendedTitlePreview.value = ''
   showTitlePreview.value = false
   generatedCandidates.value = []
-  fetchCategoryOptions()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -730,9 +542,6 @@ async function saveKb() {
       keywords: normalizeKeywords(keywordDraft.value).join(', '),
       visibility: form.value.visibility,
       platforms: normalizeSelectedPlatforms(form.value.platforms),
-      categoryLarge: (form.value.categoryLarge || '').trim() || null,
-      categoryMedium: (form.value.categoryMedium || '').trim() || null,
-      categorySmall: (form.value.categorySmall || '').trim() || null,
       expectedQuestions: expectedQuestionDraft.value
     }
 
@@ -749,7 +558,6 @@ async function saveKb() {
     alert(isEdit ? 'KB가 수정되었습니다.' : 'KB가 작성되었습니다.')
     resetForm()
     kbPage.value = 1
-    await fetchCategoryOptions()
     await fetchKbs()
   } catch {
     alert('저장에 실패했습니다.')
@@ -1106,7 +914,6 @@ onMounted(async () => {
   }
 
   await fetchPlatforms()
-  await fetchCategoryOptions()
   await fetchKbs()
   await fetchLowSimilarityQuestions()
 })
@@ -1283,27 +1090,6 @@ async function onCsvFileSelected(event) {
           <small class="hint">복수 선택 가능 (공통은 단독 선택 시에만 유지)</small>
         </div>
 
-        <div class="field-block category-block">
-          <div class="label-head-inline">
-            <span class="field-title">카테고리</span>
-            <button class="ghost" type="button" @click="openCategoryPicker">선택/추가</button>
-          </div>
-          <div class="category-summary">
-            <span v-if="form.categoryLarge" class="chip category-chip">상위: {{ form.categoryLarge }}</span>
-            <span v-if="form.categoryMedium" class="chip category-chip">하위: {{ form.categoryMedium }}</span>
-            <span v-if="!form.categoryLarge && !form.categoryMedium" class="category-empty">선택된 카테고리가 없습니다.</span>
-            <button
-              v-if="form.categoryLarge || form.categoryMedium"
-              class="ghost"
-              type="button"
-              @click="clearCategorySelection"
-            >
-              초기화
-            </button>
-          </div>
-          <small class="hint">선택/추가 버튼을 누르면 팝업에서 상위 카테고리를 고르고, 하위 카테고리를 이어서 선택하거나 추가할 수 있습니다.</small>
-        </div>
-
         <div class="field-block">
           <div class="label-head-inline">
             <span class="field-title">예상질문</span>
@@ -1349,84 +1135,6 @@ async function onCsvFileSelected(event) {
           {{ saving ? '저장 중...' : '저장' }}
         </button>
         <button class="ghost" type="button" :disabled="saving" @click="cancelWriter">취소</button>
-      </div>
-    </div>
-
-    <div v-if="showCategoryPicker" class="modal-overlay" @click.self="closeCategoryPicker">
-      <div class="modal category-picker-modal" @click.stop>
-        <div class="modal-head">
-          <h4>분류 선택/추가</h4>
-          <button class="ghost" type="button" @click="closeCategoryPicker">닫기</button>
-        </div>
-
-        <div class="category-picker-columns">
-          <div class="category-picker-column category-picker-large-column">
-            <div class="category-picker-title">상위 카테고리</div>
-            <div class="category-picker-add-row">
-              <input
-                v-model="categoryPickerDraft.large"
-                type="text"
-                maxlength="100"
-                placeholder="상위 카테고리 추가"
-                @keydown.enter.prevent="onCategoryDraftEnter('large')"
-                @compositionstart="isComposingCategoryDraft.large = true"
-                @compositionend="isComposingCategoryDraft.large = false"
-              />
-              <button class="secondary" type="button" @click="addCategoryInPicker('large')">추가</button>
-            </div>
-            <div class="category-picker-list">
-              <button
-                v-for="item in categoryPickerOptions.large"
-                :key="`picker-large-${item}`"
-                type="button"
-                class="category-picker-item"
-                :class="{ active: categoryPicker.large === item }"
-                @click="selectCategoryInPicker('large', item)"
-              >
-                {{ item }}
-              </button>
-              <div v-if="categoryPickerOptions.large.length === 0" class="category-empty">등록된 상위 카테고리가 없습니다.</div>
-            </div>
-          </div>
-
-          <div class="category-picker-column category-picker-tree-column" :class="{ disabled: !categoryPicker.large }">
-            <div class="category-picker-title">하위 카테고리</div>
-            <div class="category-picker-add-row">
-              <input
-                v-model="categoryPickerDraft.medium"
-                type="text"
-                maxlength="100"
-                placeholder="하위 카테고리 추가"
-                :disabled="!categoryPicker.large"
-                @keydown.enter.prevent="onCategoryDraftEnter('medium')"
-                @compositionstart="isComposingCategoryDraft.medium = true"
-                @compositionend="isComposingCategoryDraft.medium = false"
-              />
-              <button class="secondary" type="button" :disabled="!categoryPicker.large" @click="addCategoryInPicker('medium')">추가</button>
-            </div>
-            <div class="category-picker-tree-list">
-              <div v-if="!categoryPicker.large" class="category-empty">상위 카테고리를 먼저 선택해주세요.</div>
-              <template v-else>
-                <button
-                  v-for="item in categoryPickerOptions.medium"
-                  :key="`tree-medium-${item}`"
-                  type="button"
-                  class="category-picker-item"
-                  :class="{ active: categoryPicker.medium === item }"
-                  @click="selectCategoryInPicker('medium', item)"
-                >
-                  {{ item }}
-                </button>
-                <div v-if="categoryPickerOptions.medium.length === 0" class="category-empty">등록된 하위 카테고리가 없습니다.</div>
-              </template>
-            </div>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button class="primary" type="button" @click="applyCategoryPicker">선택 적용</button>
-          <button class="ghost" type="button" @click="closeCategoryPicker">취소</button>
-        </div>
       </div>
     </div>
 
@@ -2760,8 +2468,6 @@ select:focus {
   word-break: keep-all;
   flex: 0 0 auto;
 }
-
-
 
 /* bulk import result modal */
 .modal-box {

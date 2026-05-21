@@ -243,7 +243,6 @@ using (var scope = app.Services.CreateScope())
     // (현재 마이그레이션이 SQLite 타입으로 생성되어 SQL Server 초기 생성 시 실패할 수 있음)
     if (db.Database.IsSqlite())
     {
-        ReconcileCategoryMigrationHistoryForSqlite(db, startupLogger);
         db.Database.Migrate();
     }
     else if (db.Database.IsSqlServer())
@@ -294,74 +293,6 @@ static async Task<bool> CheckQdrantAsync(IConfiguration configuration)
     catch
     {
         return false;
-    }
-}
-
-static void ReconcileCategoryMigrationHistoryForSqlite(AiDeskContext db, ILogger logger)
-{
-    const string migrationId = "20260517083000_AddKnowledgeBaseCategories";
-    const string productVersion = "10.0.5";
-
-    using var connection = db.Database.GetDbConnection();
-    var shouldClose = connection.State != ConnectionState.Open;
-    if (shouldClose)
-    {
-        connection.Open();
-    }
-
-    try
-    {
-        var hasMigration = false;
-        using (var migrationCommand = connection.CreateCommand())
-        {
-            migrationCommand.CommandText = "SELECT 1 FROM __EFMigrationsHistory WHERE MigrationId = $migrationId LIMIT 1;";
-            var migrationParam = migrationCommand.CreateParameter();
-            migrationParam.ParameterName = "$migrationId";
-            migrationParam.Value = migrationId;
-            migrationCommand.Parameters.Add(migrationParam);
-            hasMigration = migrationCommand.ExecuteScalar() != null;
-        }
-
-        if (hasMigration)
-        {
-            return;
-        }
-
-        long categoryColumnCount;
-        using (var columnsCommand = connection.CreateCommand())
-        {
-            columnsCommand.CommandText = @"
-SELECT COUNT(*)
-FROM pragma_table_info('KnowledgeBases')
-WHERE name IN ('CategoryLarge', 'CategoryMedium', 'CategorySmall');";
-            categoryColumnCount = Convert.ToInt64(columnsCommand.ExecuteScalar() ?? 0);
-        }
-
-        if (categoryColumnCount == 3)
-        {
-            using var insertCommand = connection.CreateCommand();
-            insertCommand.CommandText = "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ($migrationId, $productVersion);";
-
-            var insertMigrationParam = insertCommand.CreateParameter();
-            insertMigrationParam.ParameterName = "$migrationId";
-            insertMigrationParam.Value = migrationId;
-            insertCommand.Parameters.Add(insertMigrationParam);
-
-            var versionParam = insertCommand.CreateParameter();
-            versionParam.ParameterName = "$productVersion";
-            versionParam.Value = productVersion;
-            insertCommand.Parameters.Add(versionParam);
-
-            insertCommand.ExecuteNonQuery();
-            logger.LogWarning("마이그레이션 이력 자동 보정 적용: {MigrationId}", migrationId);
-        }
-    }
-    finally
-    {
-        if (shouldClose)
-        {
-            connection.Close();
-        }
     }
 }
 

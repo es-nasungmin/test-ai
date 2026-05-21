@@ -90,10 +90,7 @@ namespace AiDeskApi.Controllers
                     SystemPromptOverride = request.PromptOverride?.SystemPrompt,
                     RulesPromptOverride = request.PromptOverride?.RulesPrompt,
                     LowSimilarityMessageOverride = request.PromptOverride?.LowSimilarityMessage,
-                    SimilarityThresholdOverride = request.PromptOverride?.SimilarityThreshold,
-                    CategoryLarge = NormalizeCategory(request.CategoryLarge),
-                    CategoryMedium = NormalizeCategory(request.CategoryMedium),
-                    CategorySmall = NormalizeCategory(request.CategorySmall)
+                    SimilarityThresholdOverride = request.PromptOverride?.SimilarityThreshold
                 };
 
                 ChatSession? session = null;
@@ -287,9 +284,6 @@ namespace AiDeskApi.Controllers
                     Visibility = NormalizeVisibility(request.Visibility),
                     Platform = SerializePlatforms(platforms),
                     Keywords = request.Keywords?.Trim(),
-                    CategoryLarge = NormalizeCategory(request.CategoryLarge),
-                    CategoryMedium = NormalizeCategory(request.CategoryMedium),
-                    CategorySmall = NormalizeCategory(request.CategorySmall),
                     CreatedAt = now,
                     UpdatedAt = now,
                     CreatedBy = actor,
@@ -368,9 +362,6 @@ namespace AiDeskApi.Controllers
                 kb.Visibility = NormalizeVisibility(request.Visibility);
                 kb.Platform = SerializePlatforms(platforms);
                 kb.Keywords = request.Keywords?.Trim();
-                kb.CategoryLarge = NormalizeCategory(request.CategoryLarge);
-                kb.CategoryMedium = NormalizeCategory(request.CategoryMedium);
-                kb.CategorySmall = NormalizeCategory(request.CategorySmall);
                 kb.UpdatedAt = DateTime.UtcNow;
                 kb.UpdatedBy = actor;
 
@@ -560,9 +551,6 @@ namespace AiDeskApi.Controllers
                         x.Platform,
                         platforms = SplitPlatforms(x.Platform),
                         keywords = x.Keywords,
-                        categoryLarge = x.CategoryLarge,
-                        categoryMedium = x.CategoryMedium,
-                        categorySmall = x.CategorySmall,
                         vectorSyncStatus = x.VectorSyncStatus,
                         vectorSyncedAt = x.VectorSyncedAt,
                         expectedQuestions = x.ExpectedQuestions
@@ -721,9 +709,6 @@ namespace AiDeskApi.Controllers
                     kb.Platform,
                     platforms = SplitPlatforms(kb.Platform),
                     keywords = kb.Keywords,
-                    categoryLarge = kb.CategoryLarge,
-                    categoryMedium = kb.CategoryMedium,
-                    categorySmall = kb.CategorySmall,
                     vectorSyncStatus = kb.VectorSyncStatus,
                     vectorSyncedAt = kb.VectorSyncedAt,
                     expectedQuestions = kb.ExpectedQuestions
@@ -1422,144 +1407,6 @@ namespace AiDeskApi.Controllers
             return Ok(ordered);
         }
 
-        [AllowAnonymous]
-        [HttpGet("categories")]
-        public async Task<IActionResult> GetCategories(
-            [FromQuery] string? role = "user",
-            [FromQuery] string? platform = null,
-            [FromQuery] string? categoryLarge = null,
-            [FromQuery] string? categoryMedium = null)
-        {
-            var normalizedRole = string.Equals(role?.Trim(), "admin", StringComparison.OrdinalIgnoreCase)
-                ? "admin"
-                : "user";
-            var normalizedPlatform = NormalizePlatform(platform);
-            var large = NormalizeCategory(categoryLarge);
-            var medium = NormalizeCategory(categoryMedium);
-
-            var baseQuery = _context.KnowledgeBases
-                .AsNoTracking()
-                .Where(x => !string.IsNullOrWhiteSpace(x.CategoryLarge));
-
-            if (normalizedRole != "admin")
-            {
-                baseQuery = baseQuery.Where(x => x.Visibility == "user");
-            }
-
-            if (string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
-            {
-                baseQuery = baseQuery.Where(kb => kb.Platform.Contains("공통"));
-            }
-            else if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase))
-            {
-                baseQuery = baseQuery.Where(kb => kb.Platform.Contains("공통") || kb.Platform.Contains(normalizedPlatform));
-            }
-
-            var largeCategories = await baseQuery
-                .Where(x => !string.IsNullOrWhiteSpace(x.CategoryLarge))
-                .Select(x => x.CategoryLarge!)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToListAsync();
-
-            var mediumQuery = baseQuery;
-            if (!string.IsNullOrWhiteSpace(large))
-            {
-                mediumQuery = mediumQuery.Where(x => x.CategoryLarge == large);
-            }
-
-            var mediumCategories = await mediumQuery
-                .Where(x => !string.IsNullOrWhiteSpace(x.CategoryMedium))
-                .Select(x => x.CategoryMedium!)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToListAsync();
-
-            var smallQuery = mediumQuery;
-            if (!string.IsNullOrWhiteSpace(medium))
-            {
-                smallQuery = smallQuery.Where(x => x.CategoryMedium == medium);
-            }
-
-            var smallCategories = await smallQuery
-                .Where(x => !string.IsNullOrWhiteSpace(x.CategorySmall))
-                .Select(x => x.CategorySmall!)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToListAsync();
-
-            return Ok(new
-            {
-                largeCategories,
-                mediumCategories,
-                smallCategories
-            });
-        }
-
-        [AllowAnonymous]
-        [HttpGet("category-questions")]
-        public async Task<IActionResult> GetCategoryQuestions(
-            [FromQuery] string? role = "user",
-            [FromQuery] string? platform = null,
-            [FromQuery] string? categoryLarge = null,
-            [FromQuery] string? categoryMedium = null,
-            [FromQuery] string? categorySmall = null,
-            [FromQuery] int limit = 8)
-        {
-            var normalizedRole = string.Equals(role?.Trim(), "admin", StringComparison.OrdinalIgnoreCase)
-                ? "admin"
-                : "user";
-            var normalizedPlatform = NormalizePlatform(platform);
-            var large = NormalizeCategory(categoryLarge);
-            var medium = NormalizeCategory(categoryMedium);
-            var small = NormalizeCategory(categorySmall);
-            var take = Math.Clamp(limit, 1, 20);
-
-            var baseQuery = _context.KnowledgeBases
-                .AsNoTracking()
-                .Include(x => x.ExpectedQuestions)
-                .AsQueryable();
-
-            if (normalizedRole != "admin")
-            {
-                baseQuery = baseQuery.Where(x => x.Visibility == "user");
-            }
-
-            if (string.Equals(normalizedPlatform, "공통", StringComparison.OrdinalIgnoreCase))
-            {
-                baseQuery = baseQuery.Where(kb => kb.Platform.Contains("공통"));
-            }
-            else if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase))
-            {
-                baseQuery = baseQuery.Where(kb => kb.Platform.Contains("공통") || kb.Platform.Contains(normalizedPlatform));
-            }
-
-            if (!string.IsNullOrWhiteSpace(large))
-            {
-                baseQuery = baseQuery.Where(x => x.CategoryLarge == large);
-            }
-            if (!string.IsNullOrWhiteSpace(medium))
-            {
-                baseQuery = baseQuery.Where(x => x.CategoryMedium == medium);
-            }
-            if (!string.IsNullOrWhiteSpace(small))
-            {
-                baseQuery = baseQuery.Where(x => x.CategorySmall == small);
-            }
-
-            var expectedQuestions = await baseQuery
-                .SelectMany(x => x.ExpectedQuestions.Select(q => q.Question))
-                .Where(q => !string.IsNullOrWhiteSpace(q))
-                .Distinct()
-                .Take(take)
-                .ToListAsync();
-
-            return Ok(new
-            {
-                questions = expectedQuestions.Take(take).ToList()
-            });
-        }
-
         [HttpPost("platforms")]
         public async Task<IActionResult> AddPlatform([FromBody] AddPlatformRequest request)
         {
@@ -1713,20 +1560,6 @@ namespace AiDeskApi.Controllers
 
             if (!string.IsNullOrWhiteSpace(request.Keywords) && request.Keywords.Trim().Length > 500)
                 return "키워드는 최대 500자까지 입력 가능합니다.";
-            if (!string.IsNullOrWhiteSpace(request.CategoryLarge) && request.CategoryLarge.Trim().Length > 100)
-                return "대분류는 최대 100자까지 입력 가능합니다.";
-            if (!string.IsNullOrWhiteSpace(request.CategoryMedium) && request.CategoryMedium.Trim().Length > 100)
-                return "중분류는 최대 100자까지 입력 가능합니다.";
-            if (!string.IsNullOrWhiteSpace(request.CategorySmall) && request.CategorySmall.Trim().Length > 100)
-                return "소분류는 최대 100자까지 입력 가능합니다.";
-
-            if (string.IsNullOrWhiteSpace(request.CategoryLarge)
-                && (!string.IsNullOrWhiteSpace(request.CategoryMedium) || !string.IsNullOrWhiteSpace(request.CategorySmall)))
-                return "중분류/소분류를 입력하려면 대분류를 먼저 입력해주세요.";
-
-            if (string.IsNullOrWhiteSpace(request.CategoryMedium)
-                && !string.IsNullOrWhiteSpace(request.CategorySmall))
-                return "소분류를 입력하려면 중분류를 먼저 입력해주세요.";
 
             var keywords = ResolveKeywords(request.Keywords);
             if (keywords.Count > MaxKeywords)
@@ -2078,9 +1911,6 @@ namespace AiDeskApi.Controllers
         public string? Username { get; set; }
         /// <summary>외부 위젯에서 전달하는 로그인 ID (예: smna)</summary>
         public string? UserLoginId { get; set; }
-        public string? CategoryLarge { get; set; }
-        public string? CategoryMedium { get; set; }
-        public string? CategorySmall { get; set; }
     }
 
     public class AskHistoryItem
@@ -2106,9 +1936,6 @@ namespace AiDeskApi.Controllers
         public string? Platform { get; set; }
         public string? Keywords { get; set; }
         public List<string>? ExpectedQuestions { get; set; }
-        public string? CategoryLarge { get; set; }
-        public string? CategoryMedium { get; set; }
-        public string? CategorySmall { get; set; }
     }
 
     public class AddPlatformRequest

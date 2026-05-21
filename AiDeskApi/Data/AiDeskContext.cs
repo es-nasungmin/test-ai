@@ -66,9 +66,6 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Keywords).HasMaxLength(500);
-                entity.Property(e => e.CategoryLarge).HasMaxLength(100);
-                entity.Property(e => e.CategoryMedium).HasMaxLength(100);
-                entity.Property(e => e.CategorySmall).HasMaxLength(100);
                 entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });

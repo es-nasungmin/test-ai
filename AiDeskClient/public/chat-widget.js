@@ -335,7 +335,6 @@
       selectedPlatform: opts.platform || opts.defaultPlatform || '전체 플랫폼',
       platformOptions: ['전체 플랫폼'],
       platformsFetched: false,
-      categoryOptionsLoaded: false,
       categoryTreeLoaded: false,
       categoryTreeLoading: false,
       categoryTreeError: '',
@@ -343,18 +342,6 @@
       categoryTreePath: [],
       categoryTreeMenuInitialized: false,
       categoryTreeMenuToggled: false,
-      categoryOptions: {
-        large: [],
-        medium: [],
-        small: []
-      },
-      categoryQuestionsLoading: false,
-      categoryQuestions: [],
-      selectedCategories: {
-        large: '',
-        medium: '',
-        small: ''
-      },
       quickCategories: normalizeQuickCategories(opts.quickCategories),
       selectedQuickCategoryId: null,
       messages: [
@@ -461,16 +448,12 @@
     }
 
     function clearCategorySelection() {
-      state.selectedCategories.large = '';
-      state.selectedCategories.medium = '';
       state.categoryTreeLoaded = false;
       state.categoryTreeItems = [];
       state.categoryTreePath = [];
       state.categoryTreeError = '';
       state.categoryTreeLoading = false;
       state.categoryTreeMenuInitialized = false;
-      state.categoryQuestions = [];
-      state.categoryQuestionsLoading = false;
     }
 
     function normalizedTreeApiPath() {
@@ -689,98 +672,6 @@
       }
     }
 
-    function selectedCategoryPathText() {
-      var parts = [];
-      if (state.selectedCategories.large) parts.push(state.selectedCategories.large);
-      if (state.selectedCategories.medium) parts.push(state.selectedCategories.medium);
-      return parts.join(' > ');
-    }
-
-    function buildCategoryPrompt() {
-      var parts = [];
-      if (state.selectedCategories.large) parts.push(state.selectedCategories.large);
-      if (state.selectedCategories.medium) parts.push(state.selectedCategories.medium);
-      if (parts.length === 0) return '';
-      return parts.join(' ') + ' 안내해줘';
-    }
-
-    async function refreshCategoryOptions() {
-      if (!opts.enableCategorySelector) return;
-
-      var params = new URLSearchParams();
-      params.set('role', opts.role || 'user');
-      params.set('platform', opts.showPlatformSelector ? state.selectedPlatform : (opts.platform || opts.defaultPlatform || '전체 플랫폼'));
-      if (state.selectedCategories.large) {
-        params.set('categoryLarge', state.selectedCategories.large);
-      }
-      if (state.selectedCategories.medium) {
-        params.set('categoryMedium', state.selectedCategories.medium);
-      }
-
-      try {
-        var res = await fetch(opts.apiBaseUrl + '/knowledgebase/categories?' + params.toString());
-        var data = await res.json();
-        state.categoryOptions.large = Array.isArray(data && data.largeCategories) ? data.largeCategories : [];
-        state.categoryOptions.medium = Array.isArray(data && data.mediumCategories) ? data.mediumCategories : [];
-        state.categoryOptions.small = Array.isArray(data && data.smallCategories) ? data.smallCategories : [];
-
-        if (state.selectedCategories.large && state.categoryOptions.large.indexOf(state.selectedCategories.large) < 0) {
-          state.selectedCategories.large = '';
-          state.selectedCategories.medium = '';
-        }
-        if (state.selectedCategories.medium && state.categoryOptions.medium.indexOf(state.selectedCategories.medium) < 0) {
-          state.selectedCategories.medium = '';
-        }
-      } catch (e) {
-        state.categoryOptions.large = [];
-        state.categoryOptions.medium = [];
-        state.categoryOptions.small = [];
-      }
-
-      state.categoryOptionsLoaded = true;
-
-      if (state.selectedCategories.medium) {
-        refreshCategoryQuestions();
-      } else {
-        state.categoryQuestions = [];
-        state.categoryQuestionsLoading = false;
-      }
-      renderQuickMenu();
-    }
-
-    async function refreshCategoryQuestions() {
-      if (!opts.enableCategorySelector || !state.selectedCategories.medium) {
-        state.categoryQuestions = [];
-        state.categoryQuestionsLoading = false;
-        return;
-      }
-
-      state.categoryQuestionsLoading = true;
-      renderQuickMenu();
-
-      var params = new URLSearchParams();
-      params.set('role', opts.role || 'user');
-      params.set('platform', opts.showPlatformSelector ? state.selectedPlatform : (opts.platform || opts.defaultPlatform || '전체 플랫폼'));
-      params.set('categoryLarge', state.selectedCategories.large || '');
-      params.set('categoryMedium', state.selectedCategories.medium || '');
-      params.set('limit', '8');
-
-      try {
-        var res = await fetch(opts.apiBaseUrl + '/knowledgebase/category-questions?' + params.toString());
-        var data = await res.json();
-        var list = Array.isArray(data && data.questions) ? data.questions : [];
-        state.categoryQuestions = list
-          .map(function (x) { return typeof x === 'string' ? x.trim() : ''; })
-          .filter(function (x) { return !!x; })
-          .slice(0, 8);
-      } catch (e) {
-        state.categoryQuestions = [];
-      } finally {
-        state.categoryQuestionsLoading = false;
-        renderQuickMenu();
-      }
-    }
-
     function renderQuickMenu() {
       if (opts.enableCategoryTree) {
         quickMenuEl.innerHTML = '';
@@ -852,75 +743,6 @@
           }
         }
 
-        var menuHead = createEl('div', 'crm-chat-menu-head');
-        var pathText = selectedCategoryPathText();
-        var pathLabel = createEl('div', 'crm-chat-menu-path', pathText || '메뉴를 선택해주세요');
-        var actions = createEl('div', 'crm-chat-menu-actions');
-
-        if (pathText) {
-          var homeBtn = createEl('button', 'crm-chat-menu-action', '처음으로');
-          homeBtn.type = 'button';
-          homeBtn.addEventListener('click', function () {
-            clearCategorySelection();
-            refreshCategoryOptions();
-          });
-          actions.appendChild(homeBtn);
-        }
-
-        menuHead.appendChild(pathLabel);
-        menuHead.appendChild(actions);
-        quickMenuEl.appendChild(menuHead);
-
-        var menuList = createEl('div', 'crm-chat-menu-list');
-        var menuItems = [];
-
-        if (!state.selectedCategories.large) {
-          menuItems = state.categoryOptions.large.slice();
-          menuItems.forEach(function (item) {
-            var btn = createEl('button', 'crm-chat-menu-item', item);
-            btn.type = 'button';
-            btn.addEventListener('click', function () {
-              state.selectedCategories.large = item;
-              state.selectedCategories.medium = '';
-              refreshCategoryOptions();
-            });
-            menuList.appendChild(btn);
-          });
-        } else if (!state.selectedCategories.medium && state.categoryOptions.medium.length > 0) {
-          menuItems = state.categoryOptions.medium.slice();
-          menuItems.forEach(function (item) {
-            var btn2 = createEl('button', 'crm-chat-menu-item', item);
-            btn2.type = 'button';
-            btn2.addEventListener('click', function () {
-              state.selectedCategories.medium = item;
-              refreshCategoryOptions();
-            });
-            menuList.appendChild(btn2);
-          });
-        }
-
-        if (menuList.childNodes.length > 0) {
-          quickMenuEl.appendChild(menuList);
-        }
-
-        if (state.selectedCategories.medium) {
-          if (state.categoryQuestionsLoading) {
-            quickMenuEl.appendChild(createEl('div', 'crm-chat-category-questions-title', '질문을 불러오는 중...'));
-          } else if (state.categoryQuestions.length > 0) {
-            var qWrap = createEl('div', 'crm-chat-category-questions');
-            state.categoryQuestions.forEach(function (q) {
-              var qBtn = createEl('button', 'crm-chat-category-question', q);
-              qBtn.type = 'button';
-              qBtn.addEventListener('click', function () {
-                send(q);
-              });
-              qWrap.appendChild(qBtn);
-            });
-            quickMenuEl.appendChild(qWrap);
-          }
-        }
-      }
-
       if (!(opts.enableQuickCategories && state.quickCategories.length > 0)) {
         return;
       }
@@ -991,14 +813,10 @@
         if (!state.platformsFetched) {
           refreshPlatforms().catch(function () {});
         }
-        if (opts.enableCategorySelector) {
-            if (opts.enableCategoryTree) {
-              if (!state.categoryTreeMenuInitialized) {
-                openTreeRootMenu().catch(function () {});
-              }
-            } else {
-              refreshCategoryOptions().catch(function () {});
-            }
+        if (opts.enableCategorySelector && opts.enableCategoryTree) {
+          if (!state.categoryTreeMenuInitialized) {
+            openTreeRootMenu().catch(function () {});
+          }
         }
         setTimeout(function () { textarea.focus(); }, 50);
       }
@@ -1107,13 +925,9 @@
         state.platformOptions = ['전체 플랫폼'];
       }
       renderPlatformOptions();
-      if (opts.enableCategorySelector) {
-        if (opts.enableCategoryTree) {
-          if (state.isOpen && state.categoryTreeMenuToggled && !state.categoryTreeMenuInitialized) {
-            openTreeRootMenu().catch(function () {});
-          }
-        } else {
-          refreshCategoryOptions().catch(function () {});
+      if (opts.enableCategorySelector && opts.enableCategoryTree) {
+        if (state.isOpen && state.categoryTreeMenuToggled && !state.categoryTreeMenuInitialized) {
+          openTreeRootMenu().catch(function () {});
         }
       }
     }
@@ -1140,9 +954,6 @@
           userId: userContext.userId || null,
           username: userContext.username || null,
           userLoginId: userContext.userLoginId || null,
-          categoryLarge: state.selectedCategories.large || null,
-          categoryMedium: state.selectedCategories.medium || null,
-          categorySmall: state.selectedCategories.small || null
         };
 
         var headers = { 'Content-Type': 'application/json' };
@@ -1185,17 +996,13 @@
 
     platformSelect.addEventListener('change', function () {
       state.selectedPlatform = platformSelect.value;
-      if (opts.enableCategorySelector) {
+      if (opts.enableCategorySelector && opts.enableCategoryTree) {
         clearCategorySelection();
-        if (opts.enableCategoryTree) {
-          state.messages = [{ role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, state.selectedPlatform)), time: now() }];
-          if (state.isOpen) {
-            openTreeRootMenu().catch(function () {});
-          }
-          renderMessages();
-        } else {
-          refreshCategoryOptions().catch(function () {});
+        state.messages = [{ role: 'bot', text: defaultWelcome(isAdmin, resolveGreetingPlatform(opts, state.selectedPlatform)), time: now() }];
+        if (state.isOpen) {
+          openTreeRootMenu().catch(function () {});
         }
+        renderMessages();
       }
     });
 
