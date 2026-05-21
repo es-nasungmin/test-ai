@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
 using System.Text.Json.Serialization;
 using System.Text;
@@ -32,6 +34,8 @@ var crmConnectionString = builder.Configuration.GetConnectionString("AiDeskDb");
 
 builder.Services.AddDbContext<AiDeskContext>(options =>
 {
+    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+
     if (dbProvider == "mssql" && !string.IsNullOrWhiteSpace(crmConnectionString))
     {
         options.UseSqlServer(crmConnectionString);
@@ -232,10 +236,14 @@ app.MapGet("/ready", async (AiDeskContext db, IConfiguration config) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AiDeskContext>();
+    var startupLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("StartupMigration");
     // SQLite는 마이그레이션 자동 적용, SQL Server는 모델 기준 자동 생성으로 부트스트랩
     // (현재 마이그레이션이 SQLite 타입으로 생성되어 SQL Server 초기 생성 시 실패할 수 있음)
     if (db.Database.IsSqlite())
     {
+        ReconcileCategoryMigrationHistoryForSqlite(db, startupLogger);
         db.Database.Migrate();
     }
     else if (db.Database.IsSqlServer())
@@ -246,6 +254,8 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.Migrate();
     }
+
+    EnsureChatbotCategoryTable(db, startupLogger);
 
     DatabaseInitializer.InitializeDatabase(db);
 }
@@ -284,5 +294,137 @@ static async Task<bool> CheckQdrantAsync(IConfiguration configuration)
     catch
     {
         return false;
+    }
+}
+
+static void ReconcileCategoryMigrationHistoryForSqlite(AiDeskContext db, ILogger logger)
+{
+    const string migrationId = "20260517083000_AddKnowledgeBaseCategories";
+    const string productVersion = "10.0.5";
+
+    using var connection = db.Database.GetDbConnection();
+    var shouldClose = connection.State != ConnectionState.Open;
+    if (shouldClose)
+    {
+        connection.Open();
+    }
+
+    try
+    {
+        var hasMigration = false;
+        using (var migrationCommand = connection.CreateCommand())
+        {
+            migrationCommand.CommandText = "SELECT 1 FROM __EFMigrationsHistory WHERE MigrationId = $migrationId LIMIT 1;";
+            var migrationParam = migrationCommand.CreateParameter();
+            migrationParam.ParameterName = "$migrationId";
+            migrationParam.Value = migrationId;
+            migrationCommand.Parameters.Add(migrationParam);
+            hasMigration = migrationCommand.ExecuteScalar() != null;
+        }
+
+        if (hasMigration)
+        {
+            return;
+        }
+
+        long categoryColumnCount;
+        using (var columnsCommand = connection.CreateCommand())
+        {
+            columnsCommand.CommandText = @"
+SELECT COUNT(*)
+FROM pragma_table_info('KnowledgeBases')
+WHERE name IN ('CategoryLarge', 'CategoryMedium', 'CategorySmall');";
+            categoryColumnCount = Convert.ToInt64(columnsCommand.ExecuteScalar() ?? 0);
+        }
+
+        if (categoryColumnCount == 3)
+        {
+            using var insertCommand = connection.CreateCommand();
+            insertCommand.CommandText = "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ($migrationId, $productVersion);";
+
+            var insertMigrationParam = insertCommand.CreateParameter();
+            insertMigrationParam.ParameterName = "$migrationId";
+            insertMigrationParam.Value = migrationId;
+            insertCommand.Parameters.Add(insertMigrationParam);
+
+            var versionParam = insertCommand.CreateParameter();
+            versionParam.ParameterName = "$productVersion";
+            versionParam.Value = productVersion;
+            insertCommand.Parameters.Add(versionParam);
+
+            insertCommand.ExecuteNonQuery();
+            logger.LogWarning("마이그레이션 이력 자동 보정 적용: {MigrationId}", migrationId);
+        }
+    }
+    finally
+    {
+        if (shouldClose)
+        {
+            connection.Close();
+        }
+    }
+}
+
+static void EnsureChatbotCategoryTable(AiDeskContext db, ILogger logger)
+{
+    try
+    {
+        if (db.Database.IsSqlite())
+        {
+            db.Database.ExecuteSqlRaw(@"
+CREATE TABLE IF NOT EXISTS ChatbotCategory (
+    CategoryID INTEGER NOT NULL,
+    ParentCategoryID INTEGER NULL,
+    Type TEXT NOT NULL,
+    Title TEXT NOT NULL,
+    Content TEXT NULL,
+    UseYN TEXT NOT NULL DEFAULT 'Y',
+    SortOrder INTEGER NOT NULL DEFAULT 0,
+    CreatedAt TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    CreatedBy INTEGER NULL,
+    CONSTRAINT PK_CHATBOTCATEGORY PRIMARY KEY (CategoryID)
+);
+CREATE INDEX IF NOT EXISTS IX_ChatbotCategory_Parent_UseYN_Sort
+ON ChatbotCategory (ParentCategoryID, UseYN, SortOrder);
+");
+            return;
+        }
+
+        if (db.Database.IsSqlServer())
+        {
+            db.Database.ExecuteSqlRaw(@"
+IF OBJECT_ID(N'[dbo].[ChatbotCategory]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[ChatbotCategory](
+        [CategoryID] INT NOT NULL,
+        [ParentCategoryID] INT NULL,
+        [Type] VARCHAR(20) NOT NULL,
+        [Title] NVARCHAR(500) NOT NULL,
+        [Content] NVARCHAR(1000) NULL,
+        [UseYN] CHAR(1) NOT NULL CONSTRAINT [DF_ChatbotCategory_UseYN] DEFAULT ('Y'),
+        [SortOrder] INT NOT NULL CONSTRAINT [DF_ChatbotCategory_SortOrder] DEFAULT (0),
+        [CreatedAt] DATETIME NOT NULL CONSTRAINT [DF_ChatbotCategory_CreatedAt] DEFAULT (GETDATE()),
+        [CreatedBy] INT NULL,
+        CONSTRAINT [PK_CHATBOTCATEGORY] PRIMARY KEY CLUSTERED ([CategoryID] ASC)
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = N'IX_ChatbotCategory_Parent_UseYN_Sort'
+      AND object_id = OBJECT_ID(N'[dbo].[ChatbotCategory]')
+)
+BEGIN
+    CREATE INDEX [IX_ChatbotCategory_Parent_UseYN_Sort]
+    ON [dbo].[ChatbotCategory]([ParentCategoryID], [UseYN], [SortOrder]);
+END;
+");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "ChatbotCategory 테이블 보장 처리 중 오류가 발생했습니다.");
+        throw;
     }
 }

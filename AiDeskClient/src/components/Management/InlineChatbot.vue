@@ -77,10 +77,10 @@ onBeforeUnmount(() => {
 }
 
 .inline-chatbot-mount {
-  width: 360px;
+  width: 420px;
   flex-shrink: 0;
   position: relative;
-  min-height: 520px;
+  min-height: 640px;
   display: flex;
   justify-content: center;
 }
@@ -92,8 +92,8 @@ onBeforeUnmount(() => {
   bottom: auto !important;
   left: auto !important;
   top: auto !important;
-  width: 360px !important;
-  height: 520px !important;
+  width: 420px !important;
+  height: 640px !important;
   display: flex !important;
   box-shadow: 0 4px 24px rgba(0,0,0,0.12);
 }

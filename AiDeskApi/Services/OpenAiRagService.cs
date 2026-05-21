@@ -147,6 +147,9 @@ namespace AiDeskApi.Services
                 var questionEmbedding = await _embeddingService.EmbedTextAsync(refinedQuestion);
                 var normalizedPlatform = NormalizePlatform(platform);
                 var similarityThreshold = ResolveSimilarityThreshold(runtimeOptions);
+                var categoryLarge = NormalizeCategoryValue(runtimeOptions.CategoryLarge);
+                var categoryMedium = NormalizeCategoryValue(runtimeOptions.CategoryMedium);
+                var categorySmall = NormalizeCategoryValue(runtimeOptions.CategorySmall);
 
                 // role/platform 기반으로 "조회 가능한 KB 범위"를 먼저 제한한다.
                 // 실제 유사도 계산은 벡터DB에서 하되, 후속 병합 시 이 범위를 다시 검증한다.
@@ -164,6 +167,19 @@ namespace AiDeskApi.Services
                 else if (!string.Equals(normalizedPlatform, "전체 플랫폼", StringComparison.OrdinalIgnoreCase))
                 {
                     kbQuery = kbQuery.Where(kb => kb.Platform.Contains("공통") || kb.Platform.Contains(normalizedPlatform));
+                }
+
+                if (!string.IsNullOrWhiteSpace(categoryLarge))
+                {
+                    kbQuery = kbQuery.Where(kb => kb.CategoryLarge == categoryLarge);
+                }
+                if (!string.IsNullOrWhiteSpace(categoryMedium))
+                {
+                    kbQuery = kbQuery.Where(kb => kb.CategoryMedium == categoryMedium);
+                }
+                if (!string.IsNullOrWhiteSpace(categorySmall))
+                {
+                    kbQuery = kbQuery.Where(kb => kb.CategorySmall == categorySmall);
                 }
 
                 // 1-1) 벡터 검색: 본문(document) + 예상질문(expected) 포인트를 함께 조회
@@ -417,6 +433,13 @@ namespace AiDeskApi.Services
                 || string.Equals(trimmed, "공통", StringComparison.OrdinalIgnoreCase))
                 return "공통";
             return trimmed.ToLowerInvariant();
+        }
+
+        private static string? NormalizeCategoryValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            var trimmed = value.Trim();
+            return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
         }
 
         private async Task<string> GenerateAnswerAsync(
@@ -1197,5 +1220,9 @@ namespace AiDeskApi.Services
         public string? LowSimilarityMessageOverride { get; set; }
         // 유사도 임계치 강제 덮어쓰기
         public float? SimilarityThresholdOverride { get; set; }
+        // 분류 선택 필터(대/중/소). 지정 시 해당 분류 문서만 후보로 제한
+        public string? CategoryLarge { get; set; }
+        public string? CategoryMedium { get; set; }
+        public string? CategorySmall { get; set; }
     }
 }

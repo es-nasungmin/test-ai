@@ -27,6 +27,7 @@ namespace AiDeskApi.Data
         // 챗봇 세션/메시지
         public DbSet<ChatSession> ChatSessions { get; set; } = null!;
         public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+        public DbSet<ChatbotCategory> ChatbotCategories { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -65,6 +66,9 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Keywords).HasMaxLength(500);
+                entity.Property(e => e.CategoryLarge).HasMaxLength(100);
+                entity.Property(e => e.CategoryMedium).HasMaxLength(100);
+                entity.Property(e => e.CategorySmall).HasMaxLength(100);
                 entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
                 entity.HasIndex(e => new { e.Visibility, e.Platform, e.UpdatedAt });
@@ -186,6 +190,22 @@ namespace AiDeskApi.Data
                 entity.Property(e => e.Platform).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
                 entity.Property(e => e.UpdatedAt).HasConversion(utcDateTimeConverter);
+            });
+
+            modelBuilder.Entity<ChatbotCategory>(entity =>
+            {
+                entity.ToTable("ChatbotCategory");
+                entity.HasKey(e => e.CategoryId).HasName("PK_CHATBOTCATEGORY");
+                entity.Property(e => e.CategoryId).HasColumnName("CategoryID").ValueGeneratedNever();
+                entity.Property(e => e.ParentCategoryId).HasColumnName("ParentCategoryID");
+                entity.Property(e => e.Type).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.Title).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.Content).HasMaxLength(1000);
+                entity.Property(e => e.UseYN).IsRequired().HasMaxLength(1);
+                entity.Property(e => e.SortOrder).IsRequired();
+                entity.Property(e => e.CreatedAt).HasConversion(utcDateTimeConverter);
+                entity.Property(e => e.CreatedBy);
+                entity.HasIndex(e => new { e.ParentCategoryId, e.UseYN, e.SortOrder });
             });
         }
     }
