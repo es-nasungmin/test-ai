@@ -645,17 +645,7 @@
           }
           
           state.categoryTreePath = [];
-          state.categoryTreeMenuToggled = true;
-          var roots = await refreshCategoryTree(null);
-          if (roots.length > 0) {
-            state.messages.push({
-              role: 'bot',
-              text: defaultTreeWelcome(isAdmin, state.selectedPlatform),
-              choices: roots,
-              choicesActive: true,
-              time: now()
-            });
-          }
+          state.categoryTreeMenuToggled = false;
         }
 
         state.categoryTreeLoaded = true;
@@ -669,6 +659,7 @@
         state.categoryTreeLoading = false;
         state.loading = false;
         renderMessages();
+        renderQuickMenu();
       }
     }
 
@@ -992,6 +983,7 @@
         state.loading = false;
         state.categoryTreeMenuToggled = false;
         renderMessages();
+        renderQuickMenu();
       }
     }
 
@@ -1007,14 +999,14 @@
       }
     });
 
-    menuToggleBtn.addEventListener('click', function () {
-      if (!opts.enableCategoryTree) return;
+    menuToggleBtn.addEventListener('click', async function () {
+      if (!opts.enableCategoryTree || state.loading) return;
       
-      // 메뉴 보기 요청 (일방향): 직전 메시지가 메뉴가 아니면 메뉴 표시
-      var lastMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
-      if (!lastMsg || !Array.isArray(lastMsg.choices) || lastMsg.choices.length === 0) {
-        openTreeRootMenu().catch(function () {});
-      }
+      // 메뉴 보기: 항상 루트 메뉴를 표시
+      state.categoryTreePath = [];
+      state.categoryTreeMenuToggled = true;
+      await openTreeRootMenu().catch(function () {});
+      renderQuickMenu();
     });
 
     closeBtn.addEventListener('click', function () {
