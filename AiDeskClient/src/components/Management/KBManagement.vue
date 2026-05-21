@@ -183,7 +183,7 @@ async function fetchKbs() {
     kbList.value = res.data.data || []
     kbTotal.value = Number(res.data.total || 0)
   } catch {
-    error.value = 'KB 목록을 불러오지 못했습니다.'
+    error.value = 'KMS 목록을 불러오지 못했습니다.'
   } finally {
     loading.value = false
   }
@@ -191,7 +191,7 @@ async function fetchKbs() {
 
 async function rebuildVectorIndex() {
   if (!isAdminUser.value) return
-  if (!confirm('Qdrant 벡터 인덱스를 초기화하고 전체 KB를 다시 임베딩할까요? 시간이 오래 걸릴 수 있습니다.')) return
+  if (!confirm('Qdrant 벡터 인덱스를 초기화하고 전체 KMS를 다시 임베딩할까요? 시간이 오래 걸릴 수 있습니다.')) return
 
   rebuildingVectorIndex.value = true
   try {
@@ -204,7 +204,7 @@ async function rebuildVectorIndex() {
     const message = typeof res.data?.message === 'string'
       ? res.data.message
       : '벡터 인덱스 재구축이 완료되었습니다.'
-    alert(`${message}\n대상 KB: ${totalKbCount}건`)
+    alert(`${message}\n대상 KMS: ${totalKbCount}건`)
   } catch (err) {
     alert(err.response?.data?.error || '벡터 인덱스 재구축에 실패했습니다.')
   } finally {
@@ -308,7 +308,7 @@ async function removePlatform(name) {
     alert('기본 플랫폼(공통)은 삭제할 수 없습니다.')
     return
   }
-  if (!confirm(`플랫폼 '${name}'을(를) 삭제할까요? 해당 플랫폼 KB/채팅/모니터링 데이터가 모두 삭제됩니다.`)) return
+  if (!confirm(`플랫폼 '${name}'을(를) 삭제할까요? 해당 플랫폼 KMS/채팅/모니터링 데이터가 모두 삭제됩니다.`)) return
 
   deletingPlatform.value = name
   try {
@@ -439,8 +439,8 @@ function resetForm() {
 
 function cancelWriter() {
   const message = form.value.id
-    ? 'KB 수정을 취소하시겠습니까?'
-    : 'KB 작성을 취소하시겠습니까?'
+    ? 'KMS 수정을 취소하시겠습니까?'
+    : 'KMS 작성을 취소하시겠습니까?'
 
   if (!confirm(message)) {
     return
@@ -530,7 +530,7 @@ async function saveKb() {
   }
 
   const isEdit = !!form.value.id
-  if (!confirm(isEdit ? 'KB를 수정하시겠습니까?' : 'KB를 작성하시겠습니까?')) {
+  if (!confirm(isEdit ? 'KMS를 수정하시겠습니까?' : 'KMS를 작성하시겠습니까?')) {
     return
   }
 
@@ -555,7 +555,7 @@ async function saveKb() {
       })
     }
 
-    alert(isEdit ? 'KB가 수정되었습니다.' : 'KB가 작성되었습니다.')
+    alert(isEdit ? 'KMS가 수정되었습니다.' : 'KMS가 작성되었습니다.')
     resetForm()
     kbPage.value = 1
     await fetchKbs()
@@ -750,7 +750,7 @@ async function openWriterPromptEditor() {
     await fetchWriterPromptTemplate()
     showWriterPromptEditor.value = true
   } catch (err) {
-    alert('KB 작성 프롬프트를 불러오지 못했습니다: ' + (err.response?.data?.error || err.message))
+    alert('KMS 작성 프롬프트를 불러오지 못했습니다: ' + (err.response?.data?.error || err.message))
   }
 }
 
@@ -764,7 +764,7 @@ async function saveWriterPromptTemplate() {
     !formData.expectedQuestionSystemPrompt.trim() ||
     !formData.expectedQuestionRulesPrompt.trim()
   ) {
-    alert('KB 작성 프롬프트 항목을 모두 입력해주세요.')
+    alert('KMS 작성 프롬프트 항목을 모두 입력해주세요.')
     return
   }
 
@@ -788,17 +788,17 @@ async function saveWriterPromptTemplate() {
       expectedQuestionRulesPrompt: normalizeLineBreaks(response.data.expectedQuestionRulesPrompt)
     }
 
-    alert('KB 작성 프롬프트가 저장되었습니다. 다음 생성부터 반영됩니다.')
+    alert('KMS 작성 프롬프트가 저장되었습니다. 다음 생성부터 반영됩니다.')
     showWriterPromptEditor.value = false
   } catch (err) {
-    alert('KB 작성 프롬프트 저장에 실패했습니다: ' + (err.response?.data?.error || err.message))
+    alert('KMS 작성 프롬프트 저장에 실패했습니다: ' + (err.response?.data?.error || err.message))
   } finally {
     savingWriterPromptTemplate.value = false
   }
 }
 
 async function deleteKb(kb) {
-  if (!confirm('해당 KB를 삭제하시겠습니까?')) return
+  if (!confirm('해당 KMS를 삭제하시겠습니까?')) return
   try {
     await axios.delete(`${API_URL}/knowledgebase/${kb.id}`)
     if (expandedId.value === kb.id) expandedId.value = null
@@ -806,14 +806,14 @@ async function deleteKb(kb) {
       kbPage.value -= 1
     }
     await fetchKbs()
-    alert('KB가 삭제되었습니다.')
+    alert('KMS가 삭제되었습니다.')
   } catch {
     alert('삭제에 실패했습니다.')
   }
 }
 
 async function syncVectorForKb(kb) {
-  if (!confirm(`KB #${kb.id} "${kb.title}"의 벡터를 동기화하시겠습니까?`)) return
+  if (!confirm(`KMS #${kb.id} "${kb.title}"의 벡터를 동기화하시겠습니까?`)) return
   saving.value = true
   try {
     const res = await axios.post(`${API_URL}/knowledgebase/${kb.id}/sync-vector`, {}, {
@@ -1008,7 +1008,7 @@ async function onCsvFileSelected(event) {
           <span class="writer-toggle-indicator" :aria-label="showWriter ? '작성 영역 열림' : '작성 영역 닫힘'">
             {{ showWriter ? '▲' : '▼' }}
           </span>
-          <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드KMS 작성 방법</button>
+          <button class="ghost guide-trigger" type="button" @click.stop="showSimilarityGuide = true">가이드 KMS 작성 방법</button>
         </div>
         <div class="panel-head-actions">
           <button class="ghost btn-csv-upload" type="button" @click.stop="openBulkModal">CSV 업로드</button>
@@ -1389,13 +1389,13 @@ async function onCsvFileSelected(event) {
     <div v-if="showSimilarityGuide" class="modal-overlay" @click="showSimilarityGuide = false">
       <div class="modal info-modal" @click.stop>
         <div class="modal-head">
-          <h4>가이드KB 작성 방법</h4>
+          <h4>가이드 KMS 작성 방법</h4>
           <button class="ghost" type="button" @click="showSimilarityGuide = false">닫기</button>
         </div>
 
         <div class="similarity-guide">
           <p>
-            가이드KB는 질문과의 의미 유사도를 기준으로 검색되며,
+            가이드 KMS는 질문과의 의미 유사도를 기준으로 검색되며,
             키워드 매칭 점수 보정과 AI 재정렬을 함께 사용합니다. 아래 기준대로 작성하면 검색 정확도를 높이는 데 도움이 됩니다.
           </p>
 
@@ -1403,16 +1403,16 @@ async function onCsvFileSelected(event) {
             <strong>1) 점수는 이렇게 계산됩니다</strong>
             <p>
               질문 임베딩으로 본문(document) 벡터와 예상질문(expected) 벡터를 함께 검색한 뒤,
-              KB 단위로 병합 점수를 계산합니다.
+              KMS 단위로 병합 점수를 계산합니다.
             </p>
             <p>키워드는 강제 통과가 아니라 약한 보정치로만 반영되며, 최종 후보는 AI 재정렬을 거칩니다.</p>
-            <p class="guide-formula">최종 후보 = document/expected 벡터 검색 → KB 병합 + 키워드 약보정 → AI rerank top5</p>
+            <p class="guide-formula">최종 후보 = document/expected 벡터 검색 → KMS 병합 + 키워드 약보정 → AI rerank top5</p>
           </div>
 
           <div class="guide-card">
             <strong>2) 제목/내용을 이렇게 쓰면 유리합니다</strong>
             <p>
-              가이드 KB 제목은 주제를 명확히, 내용은 절차/조건/예외를 구체적으로 작성하세요.
+              가이드 KMS 제목은 주제를 명확히, 내용은 절차/조건/예외를 구체적으로 작성하세요.
             </p>
             <p>환경(웹/앱), 대상(고객/관리자), 증상(오류코드/현상)을 함께 넣으면 매칭이 안정적입니다.</p>
           </div>
@@ -1440,7 +1440,7 @@ async function onCsvFileSelected(event) {
             <ul>
               <li>저유사도 문의의 원문을 보고, 유사한 표현을 예상질문에 추가</li>
               <li>기존 키워드가 실제 사용자 표현과 맞는지 수정</li>
-              <li>해결안이 다른 케이스와 섞이지 않게 가이드 KB를 분리 작성</li>
+              <li>해결안이 다른 케이스와 섞이지 않게 가이드 KMS를 분리 작성</li>
             </ul>
           </div>
         </div>
@@ -1450,7 +1450,7 @@ async function onCsvFileSelected(event) {
     <div v-if="showWriterPromptEditor" class="modal-overlay" @click="showWriterPromptEditor = false">
       <div class="modal info-modal" @click.stop>
         <div class="modal-head">
-          <h4>KB 프롬프트 설정</h4>
+          <h4>KMS 프롬프트 설정</h4>
           <button class="ghost" type="button" @click="showWriterPromptEditor = false">닫기</button>
         </div>
 
@@ -1458,7 +1458,7 @@ async function onCsvFileSelected(event) {
           <div class="writer-prompt-section">
             <div class="writer-prompt-section-header">
               <span>내용 정리</span>
-              <span class="writer-prompt-section-desc">KB 저장 시 답변 내용을 AI가 정리할 때 사용</span>
+              <span class="writer-prompt-section-desc">KMS 저장 시 답변 내용을 AI가 정리할 때 사용</span>
             </div>
             <div class="form-grid">
               <label>
@@ -1475,7 +1475,7 @@ async function onCsvFileSelected(event) {
           <div class="writer-prompt-section">
             <div class="writer-prompt-section-header">
               <span>키워드 생성</span>
-              <span class="writer-prompt-section-desc">KB 저장 시 검색 키워드를 자동 추출할 때 사용</span>
+              <span class="writer-prompt-section-desc">KMS 저장 시 검색 키워드를 자동 추출할 때 사용</span>
             </div>
             <div class="form-grid">
               <label>
@@ -1492,7 +1492,7 @@ async function onCsvFileSelected(event) {
           <div class="writer-prompt-section">
             <div class="writer-prompt-section-header">
               <span>예상 질문 생성</span>
-              <span class="writer-prompt-section-desc">KB 저장 시 예상 질문을 자동 생성할 때 사용</span>
+              <span class="writer-prompt-section-desc">KMS 저장 시 예상 질문을 자동 생성할 때 사용</span>
             </div>
             <div class="form-grid">
               <label>

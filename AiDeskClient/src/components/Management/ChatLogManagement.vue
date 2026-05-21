@@ -338,7 +338,7 @@ async function openKbDetail(id, similarity = null, evidence = null) {
   showSimilarityExplain.value = false
 
   if (!Number.isInteger(kbId) || kbId <= 0) {
-    selectedKbDetail.value = { error: '잘못된 KB ID입니다.' }
+    selectedKbDetail.value = { error: '잘못된 KMS ID입니다.' }
     loadingKbDetail.value = false
     return
   }
@@ -355,7 +355,7 @@ async function openKbDetail(id, similarity = null, evidence = null) {
     if (status === 401) {
       selectedKbDetail.value = { error: '로그인이 만료되었습니다. 다시 로그인 후 시도해주세요.' }
     } else {
-      selectedKbDetail.value = { error: `KB 상세를 불러오지 못했습니다.${status ? ` (${status})` : ''}` }
+      selectedKbDetail.value = { error: `KMS 상세를 불러오지 못했습니다.${status ? ` (${status})` : ''}` }
     }
   } finally {
     if (kbDetailRequestSeq.value === requestSeq) {
@@ -428,7 +428,7 @@ watch([showKbModal, loadingKbDetail], ([isOpen, isLoading]) => {
     if (kbDetailRequestSeq.value !== guardSeq) return
     loadingKbDetail.value = false
     if (!selectedKbDetail.value) {
-      selectedKbDetail.value = { error: 'KB 상세 로딩이 지연되어 중단되었습니다. 다시 시도해주세요.' }
+      selectedKbDetail.value = { error: 'KMS 상세 로딩이 지연되어 중단되었습니다. 다시 시도해주세요.' }
     }
   }, 12000)
 })
@@ -563,7 +563,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="msg.role === 'bot' && getRelatedKbsSorted(msg).length > 0" class="related-kb">
-            <span class="label">참조 KB:</span>
+            <span class="label">참조 KMS:</span>
             <div class="related-kb-list">
               <div
                 v-for="(item, idx) in getRelatedKbsSorted(msg)"
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
       <div class="modal" @click.stop>
         <div class="modal-head">
           <h4>
-            <span class="kb-head-icon">KB</span>
+            <span class="kb-head-icon">KMS</span>
             <span>지식 베이스 상세</span>
             <span v-if="selectedKbId" class="kb-modal-id-badge">#{{ selectedKbId }}</span>
           </h4>
@@ -607,7 +607,7 @@ onBeforeUnmount(() => {
         <div v-else-if="selectedKbDetail" class="kb-detail">
           <div class="kb-header-card">
             <div class="kb-header-top">
-              <div class="kb-title">KB 상세 정보</div>
+              <div class="kb-title">KMS 상세 정보</div>
               <div class="kb-header-top-right">
                 <div v-if="selectedKbSimilarity !== null" class="sim-chip-wrap">
                   <span class="sim-chip">

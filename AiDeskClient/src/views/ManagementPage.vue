@@ -478,7 +478,7 @@ onMounted(() => {
             <p>조회기간 {{ summaryDays }}일 기준 집계</p>
             <div class="analysis-meta-chips">
               <span class="analysis-meta-chip">총 질문 {{ questionSummary.totalQuestions || 0 }}건</span>
-              <span class="analysis-meta-chip">참조 KB {{ questionSummary.uniqueReferencedKbs || 0 }}건</span>
+              <span class="analysis-meta-chip">참조 KMS {{ questionSummary.uniqueReferencedKbs || 0 }}건</span>
             </div>
           </div>
 
@@ -535,7 +535,7 @@ onMounted(() => {
               <div class="kpi-value">{{ questionSummary.totalQuestions || 0 }}</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">참조 KB 수</div>
+              <div class="kpi-label">참조 KMS 수</div>
               <div class="kpi-value">{{ questionSummary.uniqueReferencedKbs || 0 }}</div>
             </div>
             <div class="kpi-card" :class="{ 'kpi-warn': (questionSummary.avgSimilarity ?? 0) < 0.7, 'kpi-good': (questionSummary.avgSimilarity ?? 0) >= 0.82 }">
@@ -553,19 +553,19 @@ onMounted(() => {
           <div class="insight-grid">
             <!-- 상위 참조 KB 섹션 -->
             <div class="top-questions-section">
-              <h3>상위 {{ summaryTop }} 참조 KB</h3>
+              <h3>상위 {{ summaryTop }} 참조 KMS</h3>
               <div v-if="questionSummary.topReferencedKbs && questionSummary.topReferencedKbs.length > 0" class="questions-list">
                 <div v-for="(kb, idx) in questionSummary.topReferencedKbs" :key="`kb-${kb.kbId || kb.KbId || idx}`" class="question-item">
                   <div class="question-rank">{{ idx + 1 }}</div>
                   <div class="question-info">
                     <div class="question-text">{{ kb.title || kb.Title || '제목 없음' }}</div>
                     <div class="question-meta">
-                      <span class="meta-item">KB ID: #{{ kb.kbId || kb.KbId || '-' }}</span>
+                      <span class="meta-item">KMS ID: #{{ kb.kbId || kb.KbId || '-' }}</span>
                       <span class="meta-item">참조 수: {{ kb.count || kb.Count || 0 }}</span>
                       <span class="meta-item">최근 참조: {{ formatDateTime(kb.lastReferencedAt || kb.LastReferencedAt) }}</span>
                     </div>
                     <div class="question-actions">
-                      <button class="open-kb-btn" type="button" @click="openKbFromSummary(kb)">KB 상세보기</button>
+                      <button class="open-kb-btn" type="button" @click="openKbFromSummary(kb)">KMS 상세보기</button>
                     </div>
                   </div>
                 </div>
@@ -691,7 +691,7 @@ onMounted(() => {
           <div class="prompt-section prompt-section-compact">
             <div class="prompt-section-header">
               <h4>검색 임계치</h4>
-              <p>이 값보다 낮으면 KB 근거가 부족한 것으로 판단하고 저유사도 안내문을 반환합니다.</p>
+              <p>이 값보다 낮으면 KMS 근거가 부족한 것으로 판단하고 저유사도 안내문을 반환합니다.</p>
             </div>
             <div class="form-group threshold-group">
               <label>유사도 임계치 (0~1)</label>

@@ -742,6 +742,7 @@
             return;
           }
         }
+      }
 
       if (!(opts.enableQuickCategories && state.quickCategories.length > 0)) {
         return;
